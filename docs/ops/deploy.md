@@ -99,7 +99,7 @@ nano .env
 | `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | endpoint dan token **media** |
 | `STORAGE_PUBLIC_BASE_URL` | URL publik r2.dev / B2 bucket media |
 | `SENTRY_DSN` | DSN Sentry; `SENTRY_ENVIRONMENT=staging` selama UAT |
-| `AGE_RECIPIENT` | public key `age1...` |
+| `AGE_RECIPIENT` | public key `age1...`. **Selama UAT boleh kosong**: backup belum aktif (keputusan owner 26 Okt 2026) dan timer hanya mencatat "backup skipped". Wajib diisi sebelum go-live. |
 | `BACKUP_S3_ENDPOINT`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | endpoint dan token **backup** |
 | `BACKUP_HEARTBEAT_URL` | ping URL healthchecks.io |
 
@@ -147,6 +147,8 @@ unset OWNER_PASSWORD
 Lalu login di dashboard dan isi Pengaturan toko (header/footer struk, QRIS statis).
 
 ### 9. Backup pertama + uji restore
+> **Ditunda selama UAT** (keputusan owner 26 Okt 2026). Langkah 2 bucket `kelola-kasir-backup`, kunci age, healthchecks.io, dan langkah ini **wajib selesai sebelum go-live** dengan data asli.
+
 - [ ] Di VPS: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`. Objek `postgres/kelola-kasir-<timestamp>.dump.age` harus muncul di bucket backup, dan healthchecks.io berstatus **up**.
 - [ ] `systemctl list-timers kelola-kasir-backup.timer` menampilkan jadwal berikutnya (01:00 WIB).
 - [ ] Uji restore di laptop (backup-restore.md § Restore), lalu catat hasilnya di issue.

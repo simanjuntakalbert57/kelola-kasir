@@ -96,8 +96,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://backup_ro:${BACKUP_DB_PASSWORD}@db:5432/kelola_kasir
-      AGE_RECIPIENT: ${AGE_RECIPIENT:?set AGE_RECIPIENT in .env}
-      BACKUP_TARGET: ${BACKUP_TARGET:?set BACKUP_TARGET in .env}
+      AGE_RECIPIENT: ${AGE_RECIPIENT:-}
+      BACKUP_TARGET: ${BACKUP_TARGET:-}
       R2_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
       AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}

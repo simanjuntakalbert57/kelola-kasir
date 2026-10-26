@@ -4,6 +4,11 @@
 # The heartbeat is only pinged after a successful backup, so a missing ping means a failed or skipped run.
 set -euo pipefail
 cd "$(dirname "$0")"
+# Backups stay off until AGE_RECIPIENT is set (owner deferred them during UAT, DEAR-19). Required before go-live.
+if [[ -z "$(sed -n 's/^AGE_RECIPIENT=//p' .env | tail -n 1)" ]]; then
+  echo "backup skipped: AGE_RECIPIENT is empty in .env (backups not configured yet)" >&2
+  exit 0
+fi
 ./compose.sh --profile backup run --rm --build backup
 url="$(sed -n 's/^BACKUP_HEARTBEAT_URL=//p' .env | tail -n 1)"
 if [[ -n "$url" ]]; then
