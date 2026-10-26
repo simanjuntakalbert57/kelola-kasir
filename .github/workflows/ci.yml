@@ -77,38 +77,61 @@ jobs:
           if-no-files-found: ignore
 
   docker:
-    name: API image builds and starts
+    name: VPS stack starts, backs up and restores
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: smoke
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    timeout-minutes: 25
+    env:
+      COMPOSE_DIR: ${{ github.workspace }}/.vps
     steps:
       - uses: actions/checkout@v4
-      - name: Build apps/api/Dockerfile (the image Render deploys)
-        run: docker build -f apps/api/Dockerfile -t kelola-kasir-api .
-      - name: Start it like Render does and check /livez and /healthz
+      - name: Build apps/api/Dockerfile (the image the deploy workflow pushes)
+        run: docker build -f apps/api/Dockerfile -t ghcr.io/simanjuntakalbert57/kelola-kasir-api:ci .
+      - name: Stage ops/vps with throwaway secrets
         run: |
-          key="$(docker run --rm --entrypoint node kelola-kasir-api -e "const c=require('crypto');process.stdout.write(Buffer.from(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'})).toString('base64'))")"
-          docker run -d --name api --network host \
-            -e PORT=10000 -e TRUST_PROXY=1 \
-            -e DATABASE_URL=postgres://postgres:smoke@localhost:5432/postgres \
-            -e DATABASE_URL_DIRECT=postgres://postgres:smoke@localhost:5432/postgres \
-            -e JWT_PRIVATE_KEY="$key" -e PIN_FINGERPRINT_SECRET="$(openssl rand -hex 24)" \
-            kelola-kasir-api
-          for _ in $(seq 1 30); do curl -fsS http://localhost:10000/livez && break; sleep 2; done
-          curl -fsS http://localhost:10000/healthz
-          docker logs api 2>&1 | grep -q 'Migrations applied'
+          sudo apt-get install -yq age >/dev/null
+          ops/vps/stage.sh "$COMPOSE_DIR"
+          cd "$COMPOSE_DIR"
+          age-keygen -o backups/ci.key 2>/dev/null
+          key="$(docker run --rm --entrypoint node ghcr.io/simanjuntakalbert57/kelola-kasir-api:ci -e "const c=require('crypto');process.stdout.write(Buffer.from(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'})).toString('base64'))")"
+          {
+            echo "API_DOMAIN=localhost"
+            echo "ACME_EMAIL=ci@example.com"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "BACKUP_DB_PASSWORD=$(openssl rand -hex 16)"
+            echo "JWT_PRIVATE_KEY=$key"
+            echo "PIN_FINGERPRINT_SECRET=$(openssl rand -hex 24)"
+            echo "PROXY_SHARED_SECRET=$(openssl rand -hex 24)"
+            echo "AGE_RECIPIENT=$(age-keygen -y backups/ci.key)"
+            echo "BACKUP_TARGET=local:/backups"
+          } > .env
+          echo "API_TAG=ci" > release.env
+      - name: Start db, api and caddy; check HTTPS /healthz through Caddy
+        working-directory: .vps
+        run: |
+          ./compose.sh up -d --wait --wait-timeout 180
+          # API_DOMAIN=localhost: Caddy serves its internal CA certificate, hence -k.
+          curl -kfsS https://localhost/livez
+          curl -kfsS https://localhost/healthz | tee /dev/stderr | grep -q '"db":"up"'
+          code="$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/v1/me)"
+          [ "$code" = 401 ]
+          ./compose.sh logs api | grep -q 'Migrations applied'
+          # PostgreSQL must not be reachable from outside the compose network.
+          ! timeout 3 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null
+      - name: Back up with the read-only role, restore into an empty database, verify
+        working-directory: .vps
+        run: |
+          ./backup-now.sh
+          file="$(find backups -name '*.dump.age' | head -n 1)"
+          echo "backup: $file ($(wc -c <"$file") bytes)"
+          ./compose.sh exec -T db createdb -U kelola_kasir restore_check
+          pw="$(sed -n 's/^POSTGRES_PASSWORD=//p' .env)"
+          target="postgres://kelola_kasir:${pw}@db:5432/restore_check"
+          ./compose.sh --profile backup run --rm -e AGE_IDENTITY_FILE=/backups/ci.key \
+            --entrypoint /opt/backup/restore.sh backup "/backups/$(basename "$file")" "$target"
+          ./compose.sh --profile backup run --rm --entrypoint /opt/backup/verify-restore.sh backup "$target"
       - if: failure()
-        run: docker logs api || true
+        working-directory: .vps
+        run: ./compose.sh logs --tail 200 || true
 
   secrets:
     name: Secret scan (gitleaks)

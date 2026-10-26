@@ -1,13 +1,13 @@
 /**
  * Same-origin proxy `/v1/*` → API, run as a Cloudflare Pages Function (ADR-0011).
  *
- * The dashboard (`*.pages.dev`) and the API (`*.onrender.com`) are different sites, so the refresh
+ * The dashboard (`*.pages.dev`) and the API (own domain on the VPS, ADR-0012) are different sites, so the refresh
  * cookie only works when the browser talks to its own origin. This handler lives in `src/` so it is
  * linted, typechecked and tested with the dashboard; it is never imported by the SPA bundle.
  */
 
 export interface ProxyEnv {
-  /** e.g. https://kelola-kasir-api.onrender.com (no trailing path). */
+  /** e.g. https://api.example.com (no trailing path). */
   API_ORIGIN?: string;
   /** Same value as the API's PROXY_SHARED_SECRET; lets the API trust `X-Client-IP`. */
   PROXY_SHARED_SECRET?: string;

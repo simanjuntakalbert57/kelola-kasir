@@ -3,13 +3,13 @@
 #
 #   pg_dump (custom format) -> age (public-key encryption) -> R2 (S3 API), then prune old backups.
 #
-# Required environment (GitHub Actions secrets via .github/workflows/backup.yml, never in the repo):
+# Required environment (from /opt/kelola-kasir/.env via ops/vps/compose.yaml, never in the repo):
 #   DATABASE_URL        connection string of the database to back up
 #   AGE_RECIPIENT       age public key (age1...); the private key is kept offline, see docs/ops/backup-restore.md
 #   BACKUP_TARGET       s3://<bucket>/<prefix>   (R2)   or   local:<directory>   (tests / manual runs)
 # For s3:// targets also:
 #   R2_ENDPOINT         https://<account-id>.r2.cloudflarestorage.com
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   R2 API token (object read/write only)
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   R2/B2 key (object read/write only)
 # Optional:
 #   RETENTION_DAYS      default 30
 set -euo pipefail

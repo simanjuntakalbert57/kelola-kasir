@@ -1,46 +1,63 @@
 # Runbook operasional (DEAR-19)
 
-Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md). Backup/restore detail: [backup-restore.md](backup-restore.md). APK: [apk-release.md](apk-release.md).
+Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md). Backup/restore detail: [backup-restore.md](backup-restore.md). APK: [apk-release.md](apk-release.md). Keputusan hosting: [ADR-0012](../adr/0012-vps-hostinger.md).
 
 | Hal | Di mana |
 |---|---|
 | Dashboard | `https://kelola-kasir.pages.dev` |
-| API | `https://kelola-kasir-api.onrender.com` (`/livez`, `/healthz`, `/v1/*`) |
-| Log API | Render → `kelola-kasir-api` → Logs |
+| API | `https://<API_DOMAIN>` (`/livez`, `/healthz`, `/v1/*`) |
+| Server | VPS Hostinger, folder `/opt/kelola-kasir`. Semua perintah Docker lewat `./compose.sh` di folder itu |
+| Log API | `./compose.sh logs -f --tail 200 api` (Caddy: `caddy`, DB: `db`) |
 | Error | Sentry → project `kelola-kasir-api` |
-| Pemakaian kuota | Render → Billing/Usage (jam instance, bandwidth, build minutes); Neon → Usage (CU-jam); Cloudflare → Workers & Pages (request/hari) |
-| Backup | GitHub → Actions → Database backup; bucket `kelola-kasir-backup/postgres/` |
+| Deploy | GitHub → Actions → Deploy API to VPS |
+| Backup | timer `kelola-kasir-backup.timer` (01:00 WIB), bucket `kelola-kasir-backup/postgres/`, status di healthchecks.io |
+| Sumber daya server | hPanel → VPS → Overview (CPU, RAM, disk); `df -h`, `docker stats --no-stream` |
 
 ## Deploy
 
-**API.** Merge PR ke `main`. Render men-deploy otomatis setelah check GitHub hijau (`autoDeployTrigger: checksPass`), hanya bila file API berubah (`buildFilter` di `render.yaml`). Container menjalankan migrasi lalu server; deploy gagal bila migrasi gagal, dan versi lama tetap melayani.
-- Cek: Render → Events "Deploy live", lalu `curl https://kelola-kasir-api.onrender.com/healthz`.
-- Deploy manual: Render → Manual Deploy → Deploy latest commit.
-- Migrasi harus **kompatibel ke belakang** (expand → deploy → contract) karena rollback tidak membatalkan migrasi.
+**API.** Merge PR ke `main`. Setelah CI hijau, workflow **Deploy API to VPS** membangun image `ghcr.io/simanjuntakalbert57/kelola-kasir-api:<sha>`, menyalin `ops/vps` ke server, lalu menjalankan `docker compose up --wait`. Container menjalankan migrasi lalu server.
+- Bila versi baru tidak sehat dalam 4 menit (misalnya migrasi gagal), workflow otomatis mengembalikan versi sebelumnya dan job ditandai gagal (email ke owner).
+- Cek: ringkasan job menampilkan `deployed <sha>`, lalu `curl https://<API_DOMAIN>/healthz`.
+- Deploy manual: Actions → Deploy API to VPS → Run workflow (tag kosong = `main` terbaru).
+- Ada jeda beberapa detik saat container API diganti. Aplikasi kasir mencoba ulang otomatis. Deploy besar sebaiknya di luar jam buka.
+- Migrasi harus **kompatibel ke belakang** (expand → deploy → contract), karena rollback tidak membatalkan migrasi.
+- Perubahan di `ops/vps/compose.yaml` atau `Caddyfile` ikut ter-deploy dengan cara yang sama. `.env` di server tidak pernah ditimpa.
 
-**Dashboard.** Merge ke `main` → Cloudflare Pages build otomatis (±2–4 menit). Setiap PR mendapat preview URL `<hash>.kelola-kasir.pages.dev`; preview memakai API yang sama, jadi jangan dipakai untuk eksperimen data.
+**Ganti nilai di `.env`** (secret, domain, Sentry): edit `/opt/kelola-kasir/.env`, lalu `./compose.sh up -d --wait`. Compose hanya membuat ulang container yang konfigurasinya berubah.
+
+**Dashboard.** Merge ke `main` → Cloudflare Pages build otomatis (±2–4 menit). Setiap PR mendapat preview URL `<hash>.kelola-kasir.pages.dev`. Preview memakai API produksi yang sama, jadi jangan dipakai untuk eksperimen data.
 
 **Aplikasi kasir.** Lihat [apk-release.md](apk-release.md). Naikkan `expo.version` dan `android.versionCode` di `apps/kasir/app.json` setiap rilis.
 
-**Batas yang perlu diingat:** Render 500 menit build/bulan (satu build ±5–8 menit), Pages 500 build/bulan. Gabungkan perubahan kecil sebelum merge.
-
 ## Rollback
 
-**API (cepat, < 5 menit).** Render → Events → pilih deploy terakhir yang sehat → **Rollback**. Lalu revert commit penyebab di `main` (PR revert) supaya deploy berikutnya tidak membawa bug yang sama.
+**API (cepat, < 5 menit).** Cari SHA commit terakhir yang sehat (GitHub → Actions → Deploy API to VPS → run sukses sebelumnya, baris `Image:`). Lalu Actions → Deploy API to VPS → Run workflow, isi `tag` = SHA lengkap (40 karakter). Setelah itu buat PR revert di `main`, supaya deploy berikutnya tidak membawa bug yang sama.
 - Bila deploy membawa migrasi yang tidak kompatibel dengan kode lama: jangan rollback. Perbaiki maju (hotfix PR), atau restore DB (§ Restore) bila data rusak.
 
-**Dashboard.** Cloudflare → Pages → `kelola-kasir` → Deployments → deploy lama → **Rollback to this deployment**.
+**Dashboard.** Cloudflare → Pages → `kelola-kasir` → Deployments → pilih deploy lama → **Rollback to this deployment**.
 
-**APK.** Pasang ulang APK versi sebelumnya dari artifact Actions lama (simpan salinan APK rilis di Drive owner, artifact Actions kedaluwarsa 14 hari). Android menolak downgrade `versionCode`; untuk downgrade, pastikan semua transaksi tersinkron ("0 transaksi belum tersinkron"), uninstall, pasang APK lama, pairing ulang.
+**APK.** Pasang ulang APK versi sebelumnya (simpan salinan setiap APK rilis di Drive owner; artifact Actions kedaluwarsa setelah 14 hari). Android menolak downgrade `versionCode`. Untuk downgrade: pastikan semua transaksi tersinkron ("0 transaksi belum tersinkron"), uninstall, pasang APK lama, lalu pairing ulang.
 
 ## Restore backup
 
 Ringkas (detail: [backup-restore.md](backup-restore.md)):
-1. Render → Suspend service (hentikan tulisan baru).
-2. Neon → buat **branch baru** (kosong) atau project baru PG 16. Untuk kejadian < 6 jam lalu, lebih cepat: Neon → Restore → branch dari titik waktu (PITR).
-3. Unduh backup dari bucket, `ops/backup/restore.sh <file> <direct-url-baru>` (kunci privat age dari password manager), lalu `ops/backup/verify-restore.sh`.
-4. Ganti `DATABASE_URL` (pooled) dan `DATABASE_URL_DIRECT` di Render ke branch baru → Resume service. Migrasi idempoten berjalan saat start.
+1. Hentikan tulisan baru: `./compose.sh stop api`.
+2. Unduh file backup yang dipilih dari bucket ke laptop, lalu dekripsi + restore ke database **kosong** di VPS:
+   ```sh
+   ./compose.sh exec -T db createdb -U kelola_kasir kelola_kasir_restore
+   # salin file .dump.age dan kunci privat age ke /opt/kelola-kasir/backups/ (hapus kuncinya setelah selesai)
+   ./compose.sh --profile backup run --rm -e AGE_IDENTITY_FILE=/backups/kelola-kasir-backup.key \
+     --entrypoint /opt/backup/restore.sh backup /backups/<file>.dump.age \
+     "postgres://kelola_kasir:<POSTGRES_PASSWORD>@db:5432/kelola_kasir_restore"
+   ./compose.sh --profile backup run --rm --entrypoint /opt/backup/verify-restore.sh backup \
+     "postgres://kelola_kasir:<POSTGRES_PASSWORD>@db:5432/kelola_kasir_restore"
+   rm backups/kelola-kasir-backup.key
+   ```
+3. Tukar database: `./compose.sh exec -T db psql -U kelola_kasir -d postgres -c 'ALTER DATABASE kelola_kasir RENAME TO kelola_kasir_old' -c 'ALTER DATABASE kelola_kasir_restore RENAME TO kelola_kasir'`.
+4. `./compose.sh up -d --wait`. Migrasi idempoten berjalan saat start. Cek `/healthz`. Hapus `kelola_kasir_old` setelah owner memastikan data benar.
 5. HP kasir menyinkronkan ulang outbox otomatis. Beri tahu owner rentang data yang mungkin hilang.
+
+**VPS hilang atau rusak total:** order/reinstall VPS (Ubuntu 24.04), jalankan deploy.md langkah 4–6 dengan **`.env` dan nilai secret yang sama** dari password manager. Deploy membuat database kosong. Lalu jalankan langkah restore di atas (lewati langkah 1). Bila IP berubah: perbarui DNS A record, variable `VPS_HOST` dan `VPS_KNOWN_HOSTS`. Target pemulihan: ≤ 2 jam.
 
 Uji restore bulanan: checklist di backup-restore.md.
 
@@ -48,31 +65,43 @@ Uji restore bulanan: checklist di backup-restore.md.
 
 Setelah UAT lolos dan owner setuju:
 1. Pastikan semua HP kasir sudah sinkron, lalu tutup shift.
-2. Jalankan backup manual (Actions → Database backup) sebagai arsip UAT.
-3. Render → Suspend service.
-4. Neon → SQL Editor (role utama):
-   ```sql
-   DROP SCHEMA public CASCADE; CREATE SCHEMA public;
-   DROP SCHEMA IF EXISTS drizzle CASCADE;  -- tabel riwayat migrasi
+2. Jalankan backup manual sebagai arsip UAT: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`.
+3. Kosongkan database:
+   ```sh
+   cd /opt/kelola-kasir
+   ./compose.sh stop api
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
+     -c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public' -c 'DROP SCHEMA IF EXISTS drizzle CASCADE'
    ```
-5. Render → Environment: `SENTRY_ENVIRONMENT=production` → Resume service. Migrasi membuat skema baru saat start; cek `/healthz`.
-6. Buat owner lagi (deploy.md langkah 7), isi Pengaturan toko, pegawai, produk.
-7. Di setiap HP: uninstall APK staging, pasang APK rilis signed, pairing ulang dengan kode baru dari dashboard (apk-release.md).
-8. Hapus foto uji di bucket media bila perlu.
+   Role `backup_ro` tetap ada dan tetap bisa membaca tabel baru (`pg_read_all_data`).
+4. Ubah `SENTRY_ENVIRONMENT=production` di `.env`, lalu jalankan `./compose.sh up -d --wait`. Migrasi membuat skema baru saat start. Cek `/healthz`.
+5. Buat owner lagi (deploy.md langkah 8), lalu isi Pengaturan toko, pegawai, dan produk.
+6. Di setiap HP: uninstall APK staging, pasang APK rilis signed, lalu pairing ulang dengan kode baru dari dashboard (apk-release.md).
+7. Hapus foto uji di bucket media bila perlu.
+
+## Perawatan server
+
+- **Update keamanan** dipasang otomatis setiap hari (`unattended-upgrades`). Bila login SSH menampilkan `*** System restart required ***`, reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
+- **Update image dasar** (Postgres 16 minor, Caddy): `./compose.sh pull db caddy && ./compose.sh up -d --wait`, di luar jam buka. Jangan ganti versi mayor Postgres tanpa rencana dump/restore.
+- **Disk**: `df -h` (target < 70%) dan `docker system df`. Image lama dibersihkan otomatis saat deploy. Log Docker dibatasi 100 MB per container.
+- **Snapshot hPanel** (opsional) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.
+- **Perpanjangan VPS dan domain**: catat tanggal jatuh tempo di kalender owner. Layanan yang telat diperpanjang bisa dihentikan penyedia.
 
 ## Masalah umum
 
 | Gejala | Penyebab / tindakan |
 |---|---|
-| Request pertama pagi hari lama (±30–60 detik) | Cold start Render Free + Neon. Normal. Aplikasi kasir menampilkan "Menghubungkan ke server…" dan mencoba ulang. |
-| Semua request 503 dari Render "service suspended" | Kuota bulanan habis (750 jam instance atau 5 GB bandwidth). Cek Render → Usage. Ajukan upgrade Starter ke Chief of Staff (ADR-0011 § Jalur upgrade). Kasir tetap bisa transaksi cash offline. |
-| `/healthz` → `db: down`, log `Connection terminated` / `compute time quota exceeded` | Kuota CU-jam Neon habis. Cek Neon → Usage. Upgrade Neon Launch (keputusan biaya, eskalasi). |
-| Dashboard login gagal tapi API sehat | Cek env Pages `API_ORIGIN` dan `PROXY_SHARED_SECRET` (harus sama dengan Render). `https://kelola-kasir.pages.dev/v1/me` harus 401. |
-| Upload foto gagal | Cek CORS bucket media dan env `STORAGE_*` di Render. |
-| Workflow backup tidak jalan | GitHub mematikan jadwal setelah 60 hari tanpa aktivitas repo: Actions → Database backup → Enable workflow. |
-| Error 5xx | Sentry menampilkan route dan request id; cari request id di log Render. |
+| `/healthz` tidak bisa diakses, hPanel menunjukkan VPS mati | Start VPS dari hPanel. Container ikut menyala. Kasir tetap bisa transaksi cash offline selama server mati. |
+| `/healthz` → `db: down` | `./compose.sh ps` dan `./compose.sh logs db`. Disk penuh? (`df -h`). Lalu `./compose.sh up -d --wait`. |
+| Error sertifikat HTTPS | DNS A record belum mengarah ke IP VPS, atau port 80/443 tertutup. Cek `./compose.sh logs caddy`. |
+| Deploy gagal di "Set up SSH" / `Host key verification failed` | Variable `VPS_KNOWN_HOSTS` salah, atau VPS di-reinstall (host key baru). Ambil ulang: `ssh-keyscan -t ed25519 <ip-vps>`. |
+| Deploy gagal, log "new release is unhealthy" | Versi lama sudah dikembalikan otomatis. Baca log API di job, lalu perbaiki lewat PR. |
+| Dashboard login gagal tapi API sehat | Cek env Pages `API_ORIGIN` dan `PROXY_SHARED_SECRET` (harus sama dengan `.env` VPS). `https://kelola-kasir.pages.dev/v1/me` harus 401. |
+| Upload foto gagal | Cek CORS bucket media dan `STORAGE_*` di `.env`. |
+| Email healthchecks.io "backup down" | `systemctl status kelola-kasir-backup.service` dan `journalctl -u kelola-kasir-backup.service -n 100`. Jalankan ulang: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`. |
+| Error 5xx | Sentry menampilkan route dan request id. Cari request id di `./compose.sh logs api`. |
 
 ## Pantauan rutin
 
-- **Mingguan:** Neon CU-jam (target < 80% sebelum akhir bulan), Render bandwidth dan jam instance, Sentry issues baru.
-- **Bulanan:** uji restore, umur backup terbaru < 26 jam, cek ulang batas free tier di ADR-0011 tiap kuartal.
+- **Mingguan:** Sentry issues baru, `df -h`, RAM/CPU di hPanel, status healthchecks.io.
+- **Bulanan:** uji restore, umur backup terbaru < 26 jam, reboot terjadwal bila ada update kernel.

@@ -1,5 +1,5 @@
-# Image the daily backup workflow runs (.github/workflows/backup.yml, docs/ops/backup-restore.md).
-# PostgreSQL 16 client: the Neon project must run Postgres 16.
+# Image of the nightly backup on the VPS (service "backup" in ops/vps/compose.yaml, docs/ops/backup-restore.md).
+# PostgreSQL 16 client, same major version as the database.
 FROM postgres:16-alpine
 RUN apk add --no-cache bash age aws-cli coreutils
 COPY backup.sh restore.sh verify-restore.sh /opt/backup/

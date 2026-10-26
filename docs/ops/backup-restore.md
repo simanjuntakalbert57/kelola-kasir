@@ -1,42 +1,42 @@
 # Backup harian dan restore (B-14)
 
-Status: berlaku untuk MVP (TDD §6, ADR-0011 — menggantikan setup Railway dari ADR-0005). Skrip ada di `ops/backup/`, workflow di `.github/workflows/backup.yml`. Setup akun lengkap: [deploy.md](deploy.md).
+Status: berlaku untuk MVP (TDD §6, ADR-0012). Skrip ada di `ops/backup/`, dijalankan di VPS oleh `ops/vps/backup-now.sh` (service `backup` di `ops/vps/compose.yaml`). Setup akun lengkap: [deploy.md](deploy.md).
 
-Image backup memakai client PostgreSQL 16, jadi project Neon harus **Postgres 16**.
+Image backup memakai client PostgreSQL 16, sama dengan versi database di VPS.
 
 ## Ringkasan
 
 | Hal | Nilai |
 |---|---|
-| Frekuensi | Harian, 01:00 WIB (GitHub Actions `schedule`, `0 18 * * *` UTC) + `workflow_dispatch` untuk jalan manual |
-| Isi | `pg_dump --format=custom` seluruh database (termasuk trigger dan tabel audit), lewat URL **direct** Neon (`DATABASE_URL_DIRECT`, bukan `-pooler`) |
+| Frekuensi | Harian, 01:00 WIB (timer systemd `kelola-kasir-backup.timer`, dipasang `ops/vps/setup.sh`) + manual `backup-now.sh` |
+| Isi | `pg_dump --format=custom` seluruh database (termasuk trigger dan tabel audit), dengan role read-only `backup_ro` |
 | Enkripsi | `age` dengan kunci publik; kunci privat disimpan offline di password manager owner dan Tech Lead |
-| Tujuan | Cloudflare R2 (atau Backblaze B2 bila R2 meminta kartu, ADR-0011), bucket khusus backup, prefix `postgres/` |
+| Tujuan | **Di luar VPS**: Cloudflare R2 (atau Backblaze B2 bila R2 meminta kartu, ADR-0011), bucket khusus backup, prefix `postgres/` |
 | Retensi | 30 hari (`RETENTION_DAYS`), dipangkas otomatis oleh `backup.sh` |
-| Cadangan tambahan | PITR bawaan Neon Free (6 jam) |
+| Pemantauan | Ping ke healthchecks.io setelah setiap backup sukses; tidak ada ping 26 jam → email ke owner |
+| Cadangan tambahan | Snapshot VPS hPanel (opsional, manual) |
 | Target pemulihan | RPO ≤ 24 jam, RTO ≤ 2 jam |
 
 ## Setup (sekali)
 
-1. Buat bucket R2 khusus backup (tanpa akses publik) dan API token R2 yang hanya boleh membaca/menulis/menghapus objek di bucket itu.
+Langkah lengkap ada di [deploy.md](deploy.md) langkah 2–5 dan 9. Ringkasnya:
+
+1. Buat bucket khusus backup (tanpa akses publik) dan API token yang hanya bisa membaca/menulis/menghapus objek di bucket itu.
 2. Buat pasangan kunci age di komputer aman (bukan di server): `age-keygen -o kelola-kasir-backup.key`.
-   Simpan file `.key` di password manager (dua orang). Hanya **public key** (`age1...`) yang dipakai workflow.
-3. Buat role Neon read-only khusus backup. Isi GitHub Actions secrets repo:
+   Simpan file `.key` di password manager (dua orang). Hanya **public key** (`age1...`) yang ditaruh di VPS.
+3. Role database `backup_ro` (read-only, `pg_read_all_data`) dibuat otomatis oleh `ops/vps/initdb/10-backup-role.sh` saat volume database pertama kali dibuat. Passwordnya `BACKUP_DB_PASSWORD`.
+4. Isi di `/opt/kelola-kasir/.env`:
 
-   | Secret | Nilai |
+   | Variable | Nilai |
    |---|---|
-   | `BACKUP_DATABASE_URL` | URL **direct** Neon dengan role backup, `sslmode=require` |
    | `AGE_RECIPIENT` | public key age |
-   | `BACKUP_TARGET` | `s3://<bucket>/postgres` |
-   | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
-   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | token R2 |
+   | `BACKUP_TARGET` | `s3://kelola-kasir-backup/postgres` |
+   | `BACKUP_S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` (atau endpoint B2) |
+   | `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | token bucket backup |
+   | `BACKUP_HEARTBEAT_URL` | ping URL healthchecks.io |
 
-   Workflow `.github/workflows/backup.yml` menjalankan `ops/backup/backup.sh` (image `ops/backup/Dockerfile`, client PostgreSQL 16) dengan
-   `DATABASE_URL=${{ secrets.BACKUP_DATABASE_URL }}`. Repo publik: dump tidak boleh diunggah sebagai artifact dan tidak boleh tercetak di log.
-   Secret hanya di GitHub Actions secrets, tidak pernah di repo.
-4. Jalankan workflow sekali lewat `workflow_dispatch` dan pastikan objek `kelola-kasir-<UTC timestamp>.dump.age` muncul di bucket.
-5. Alert: workflow gagal → email GitHub ke owner. GitHub menonaktifkan jadwal setelah 60 hari tanpa aktivitas repo, jadi uji restore bulanan
-   juga mengecek umur objek terbaru di bucket (< 26 jam).
+5. Jalankan sekali: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`, lalu pastikan objek `kelola-kasir-<UTC timestamp>.dump.age` muncul di bucket dan healthchecks.io berstatus up.
+6. Alert: healthchecks.io mengirim email bila ping harian tidak datang (backup gagal, timer mati, atau VPS mati).
 
 `backup.sh` gagal keras (exit ≠ 0) bila `pg_dump` gagal atau berkas hasil < 1 KB, sehingga backup kosong tidak dianggap sukses.
 
@@ -45,10 +45,11 @@ Image backup memakai client PostgreSQL 16, jadi project Neon harus **Postgres 16
 Selalu restore ke database **kosong** baru (skrip menolak database yang sudah berisi tabel). Jangan pernah restore langsung di atas produksi.
 
 ```sh
+# Contoh di laptop dengan PostgreSQL 16 lokal. Di VPS: runbook.md § Restore backup.
 # 1. unduh backup yang dipilih dari R2 (contoh dengan aws cli)
 aws s3 cp --endpoint-url "$R2_ENDPOINT" s3://<bucket>/postgres/kelola-kasir-20261026T200000Z.dump.age .
 
-# 2. buat database kosong (branch/project Neon baru, atau createdb lokal)
+# 2. buat database kosong
 createdb kelola_kasir_restore
 
 # 3. dekripsi + restore (kunci privat dari password manager)
@@ -64,10 +65,12 @@ jumlah audit log, dan jumlah migrasi terapan; `open_shifts_per_outlet_max` harus
 
 ### Pemulihan produksi (bencana)
 
-1. Hentikan API (suspend service di Render) agar tidak ada tulisan baru.
-2. Restore backup terbaru ke instance Postgres baru (langkah di atas) dan jalankan `verify-restore.sh`.
-3. Arahkan `DATABASE_URL` (pooled) dan `DATABASE_URL_DIRECT` API ke instance baru, jalankan migrasi (idempoten) lewat URL direct, lalu resume API.
-   Alternatif lebih cepat bila kejadian < 6 jam lalu: restore PITR Neon ke branch baru.
+Langkah perintah di VPS ada di [runbook.md § Restore backup](runbook.md#restore-backup). Prinsipnya:
+
+
+1. Hentikan API (`./compose.sh stop api`) agar tidak ada tulisan baru.
+2. Restore backup terbaru ke database kosong baru (di VPS yang sama, atau VPS baru bila server hilang) dan jalankan `verify-restore.sh`.
+3. Tukar nama database hasil restore menjadi `kelola_kasir`, lalu nyalakan API. Migrasi (idempoten) berjalan saat start.
 4. Aplikasi kasir menyinkronkan ulang transaksi yang belum terkirim (outbox idempoten pada `id` klien), sehingga transaksi setelah titik backup
    yang masih ada di perangkat tidak hilang. Beri tahu owner rentang waktu data yang mungkin hilang (maks. 24 jam, sebelum sinkron ulang).
 

@@ -1,12 +1,11 @@
-# Basic uptime check during shop hours only (ADR-0011, R-10).
-# A 24/7 five-minute ping would keep Render and Neon awake all day and burn Neon's 100 CU-hours.
-# Hourly from 09:00 to 21:00 WIB; while the shop is open the cashier app keeps the API awake anyway.
+# Basic uptime check of the API on the VPS and the dashboard proxy (ADR-0012).
+# The VPS has no idle quota to protect, so it runs every 30 minutes, day and night.
 # Enable by setting the repository variables API_HEALTH_URL and DASHBOARD_URL; a failed run emails the owner.
 name: Uptime check
 
 on:
   schedule:
-    - cron: '0 2-14 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -21,14 +20,13 @@ jobs:
       API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
       DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
     steps:
-      # Render Free cold start takes up to about a minute: allow 2 minutes and retry once.
       - name: API /healthz (database included)
-        run: curl -fsS --max-time 120 --retry 1 --retry-delay 10 --retry-all-errors "$API_HEALTH_URL"
+        run: curl -fsS --max-time 20 --retry 2 --retry-delay 10 --retry-all-errors "$API_HEALTH_URL"
       - name: Dashboard and its /v1 proxy
         if: env.DASHBOARD_URL != ''
         run: |
           curl -fsS --max-time 30 -o /dev/null "$DASHBOARD_URL"
           # Unauthenticated call through the Pages Function: 401 proves proxy + API are both up.
-          code="$(curl -sS --max-time 120 -o /dev/null -w '%{http_code}' "${DASHBOARD_URL%/}/v1/me")"
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${DASHBOARD_URL%/}/v1/me")"
           echo "proxy /v1/me → ${code}"
           [ "$code" = 401 ]

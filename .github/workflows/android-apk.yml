@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     env:
       VARIANT: ${{ inputs.variant || 'staging' }}
-      EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.KASIR_API_URL || 'https://kelola-kasir-api.onrender.com/v1' }}
+      EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.KASIR_API_URL || 'https://api.kelola-kasir.invalid/v1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -48,6 +48,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Refuse a release build without a real API URL
+        if: env.VARIANT == 'release' && contains(env.EXPO_PUBLIC_API_URL, '.invalid')
+        run: |
+          echo "::error::Set the repository variable KASIR_API_URL (https://<API_DOMAIN>/v1) or the api_url input"
+          exit 1
       - run: pnpm install --frozen-lockfile
 
       - name: Generate the native Android project

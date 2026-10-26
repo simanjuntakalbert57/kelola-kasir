@@ -1,6 +1,6 @@
 ADR-0011 — Hosting free tier: Render + Neon + Cloudflare (menggantikan ADR-0005)
 
-Status: Accepted · Tanggal: 2026-10-26 · Keputusan owner: Q-5 (DEAR-21) · Menggantikan: [ADR-0005](0005-hosting-and-cost.md)
+Status: Partially superseded by [ADR-0012](0012-vps-hostinger.md) (API + DB pindah ke VPS Hostinger; proxy `/v1`, R2/B2, dan enkripsi backup tetap berlaku) · Tanggal: 2026-10-26 · Keputusan owner: Q-5 (DEAR-21) · Menggantikan: [ADR-0005](0005-hosting-and-cost.md)
 
 ## Konteks
 Owner memutuskan Q-5 pada 26 Okt 2026: **mulai dengan layanan gratis**, upgrade dinilai setelah ada data pemakaian nyata. Printer thermal 58 mm sudah dimiliki owner, jadi tidak ada pembelian. Skala tetap: 1 gerai, 1–2 HP kasir, ≤ 500 transaksi/hari, 1 owner. Tidak boleh ada akun berbayar atau kartu kredit yang didaftarkan.

@@ -1,6 +1,6 @@
 # APK kasir: build, pasang, dan pairing (DEAR-19)
 
-Aplikasi kasir dipasang langsung ke HP Android (sideload), tanpa Play Console (ADR-0011). APK dibuat oleh workflow GitHub Actions **Android APK** (`.github/workflows/android-apk.yml`). URL API ditanam saat build (`EXPO_PUBLIC_API_URL`, default variabel repo `KASIR_API_URL`).
+Aplikasi kasir dipasang langsung ke HP Android (sideload), tanpa Play Console (ADR-0011). APK dibuat oleh workflow GitHub Actions **Android APK** (`.github/workflows/android-apk.yml`). URL API ditanam saat build (`EXPO_PUBLIC_API_URL`, default variabel repo `KASIR_API_URL` = `https://<API_DOMAIN>/v1`, ADR-0012). Tanpa variabel itu, build `release` ditolak; build `staging` di PR memakai URL placeholder yang tidak bisa dihubungi.
 
 | Varian | Ditandatangani dengan | Kapan |
 |---|---|---|
@@ -34,7 +34,7 @@ GitHub → Actions → **Android APK** → Run workflow → pilih `variant` (`st
 
 Build lokal (opsional, butuh JDK 17 + Android SDK):
 ```sh
-cd apps/kasir && EXPO_PUBLIC_API_URL=https://kelola-kasir-api.onrender.com/v1 npx expo prebuild --platform android
+cd apps/kasir && EXPO_PUBLIC_API_URL=https://<API_DOMAIN>/v1 npx expo prebuild --platform android
 cd android && KASIR_KEYSTORE_FILE=/path/kelola-kasir-upload.keystore KASIR_KEYSTORE_PASSWORD=... \
   KASIR_KEY_ALIAS=kelola-kasir KASIR_KEY_PASSWORD=... ./gradlew assembleRelease
 # hasil: app/build/outputs/apk/release/app-release.apk
