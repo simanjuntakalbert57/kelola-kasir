@@ -32,7 +32,14 @@ if [[ "$os" == ubuntu ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
   apt-get upgrade -yq
-  apt-get install -yq docker.io docker-compose-v2 ufw fail2ban unattended-upgrades python3-systemd curl tar
+  # Some VPS images (e.g. Hostinger) ship Docker CE from Docker's repo; its containerd.io
+  # conflicts with Ubuntu's docker.io, so keep it and only add the Compose plugin.
+  if dpkg-query -W -f='${Status}' containerd.io 2>/dev/null | grep -q 'ok installed'; then
+    docker_pkgs=(docker-ce docker-ce-cli docker-compose-plugin)
+  else
+    docker_pkgs=(docker.io docker-compose-v2)
+  fi
+  apt-get install -yq "${docker_pkgs[@]}" ufw fail2ban unattended-upgrades python3-systemd curl tar
   cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
