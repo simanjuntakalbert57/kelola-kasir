@@ -31,6 +31,10 @@ export const errors = {
     new AppError(404, code, 'Not found', detail),
   conflict: (code: string, title: string, detail?: string) =>
     new AppError(409, code, title, detail),
+  unprocessable: (code: string, title: string, detail?: string) =>
+    new AppError(422, code, title, detail),
+  unavailable: (code: string, title: string, detail?: string) =>
+    new AppError(503, code, title, detail),
   locked: (code: string, detail: string, retryAfterSec: number) =>
     new AppError(423, code, 'Locked', detail, undefined, { 'Retry-After': String(retryAfterSec) }),
   tooManyRequests: (code: string, detail: string, retryAfterSec: number) =>

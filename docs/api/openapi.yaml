@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.2.0-draft
+  version: 0.3.0-draft
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -369,7 +369,9 @@ paths:
     get:
       tags: [catalog]
       summary: Full catalog snapshot for the cashier app (P-03)
-      description: Categories and active products (with sold-out flag). Used for first load; afterwards use `/sync/pull`.
+      description: |
+        Categories and active products (with sold-out and favorite flags). Settings are not included (use `/settings`,
+        or `/sync/pull` without cursor for everything at once). `cursor` can be passed to `/sync/pull` for later changes.
       operationId: getCatalog
       security: [{ deviceAuth: [] }, { ownerAuth: [] }]
       responses:
@@ -417,6 +419,7 @@ paths:
     patch:
       tags: [catalog]
       summary: Update category (O-05)
+      description: Partial update; only the fields sent change.
       operationId: updateCategory
       security: [{ ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/CategoryId' }]
@@ -434,7 +437,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
       tags: [catalog]
-      summary: Soft-delete category; fails if it still has products (O-05)
+      summary: Soft-delete category; fails with `CATEGORY_NOT_EMPTY` while it still has products (O-05)
       operationId: deleteCategory
       security: [{ ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/CategoryId' }]
@@ -500,6 +503,7 @@ paths:
     patch:
       tags: [catalog]
       summary: Update product; price changes are written to the audit log (O-04)
+      description: Partial update; only the fields sent change (`required` fields of `ProductInput` are only mandatory on create).
       operationId: updateProduct
       security: [{ ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/ProductId' }]
@@ -582,6 +586,7 @@ paths:
         (read it via `GET /shifts/current` or `/sync/pull`) instead of opening a new one.
         Opening a shift requires the device to be online so the single-open-shift rule can be enforced.
         Handover = close the current shift, then open a new one.
+        `opened_at` may be at most 10 minutes ahead of the server clock (same drift limit as `closed_at` when closing); a later value is rejected with `VALIDATION_ERROR`.
       operationId: openShift
       security: [{ employeeAuth: [], deviceAuth: [] }]
       requestBody:
@@ -723,6 +728,8 @@ paths:
         The server recomputes all totals from the submitted snapshot and rejects inconsistent math
         (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
         `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
+        `number` must start with the outlet code and the device code (`{OUTLET}-{DEV}-`). A device clock more than
+        10 minutes ahead (or behind, online) is accepted and recorded as `transaction.clock_skew` in the audit log.
       operationId: createTransaction
       security: [{ employeeAuth: [], deviceAuth: [] }]
       requestBody:
@@ -742,12 +749,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Transaction' }
         '409':
-          description: '`SHIFT_NOT_OPEN`, `SHIFT_CLOSED`, `NUMBER_CONFLICT`'
+          description: '`SHIFT_NOT_OPEN` (unknown shift), `SHIFT_CLOSED`, `NUMBER_CONFLICT`, `ID_CONFLICT` (id belongs to another outlet)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422':
-          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE`'
+          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -847,6 +854,7 @@ paths:
     get:
       tags: [payments]
       summary: Payment status; for `auto` mode also polls the provider (P-07)
+      description: A pending payment past its `expires_at` (15 minutes) is expired on read (payment `expired`, transaction `cancelled`).
       operationId: getPayment
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/PaymentId' }]
@@ -871,7 +879,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Transaction' }
         '409':
-          description: '`CONFIRMATION_NOT_ALLOWED` (auto mode) or `PAYMENT_NOT_PENDING`'
+          description: '`CONFIRMATION_NOT_ALLOWED` (auto mode or cash payment) or `PAYMENT_NOT_PENDING` (cancelled, expired or past its deadline). Confirming an already paid payment is an idempotent 200.'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -879,6 +887,7 @@ paths:
     post:
       tags: [payments]
       summary: Cancel a pending QRIS payment; transaction becomes `cancelled` (P-07)
+      description: Idempotent for payments that are already cancelled or expired.
       operationId: cancelPayment
       security: [{ employeeAuth: [], deviceAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/PaymentId' }]
@@ -888,6 +897,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Transaction' }
+        '409':
+          description: '`PAYMENT_NOT_PENDING` (already paid, or not a QRIS payment)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /webhooks/payments/{provider}:
     post:
@@ -999,6 +1013,10 @@ paths:
     get:
       tags: [sync]
       summary: Incremental catalog/config changes since cursor (P-03, P-11, P-13)
+      description: |
+        Without `cursor` the response is a full snapshot (no tombstones). Rows are upserted by id; deletions arrive as
+        `changes.deleted` tombstones. Repeat while `has_more` is true, then keep `next_cursor`.
+        Employee `pin_hash` is only filled when the owner enabled offline login.
       operationId: syncPull
       security: [{ deviceAuth: [] }]
       parameters:
@@ -1015,6 +1033,14 @@ paths:
     post:
       tags: [sync]
       summary: Push queued offline mutations in order (P-13). Idempotent per mutation id.
+      description: |
+        Mutations are applied in order, each in its own database transaction; a rejected mutation does not stop the batch.
+        `applied` = done now, `duplicate` = already applied earlier (safe replay), `rejected` = business rule failed, see `code`
+        (e.g. `TOTAL_MISMATCH`, `PRODUCT_UNAVAILABLE`, `NUMBER_CONFLICT`, `SHIFT_CLOSED`, `PENDING_QRIS_EXISTS`, `QRIS_NOT_SYNCABLE`,
+        `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`).
+        Real sales are never dropped: stale prices and unavailable products are accepted and flagged, sales for an already closed
+        shift are accepted (flagged `after_shift_close` when created after `closed_at`, otherwise the closed shift's totals are
+        recomputed). `void_request.create` is rejected with `UNSUPPORTED_MUTATION` until void requests ship.
       operationId: syncPush
       security: [{ deviceAuth: [] }]
       requestBody:
@@ -1194,10 +1220,52 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`PIN_NOT_UNIQUE` (owner PIN equals an employee PIN)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /settings/qris/decode:
+    post:
+      tags: [settings]
+      summary: Read the static QRIS payload from an uploaded QR image (O-10)
+      description: |
+        Decodes the QR code in a PNG or JPEG (max 2 MiB) and validates it as QRIS (EMVCo structure, CRC, IDR).
+        Nothing is saved; send the returned `qris_static_payload` to `PATCH /settings`.
+      operationId: decodeQrisImage
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_base64]
+              properties:
+                image_base64: { type: string, contentEncoding: base64 }
+      responses:
+        '200':
+          description: Decoded payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [qris_static_payload, qris_merchant_name, is_static]
+                properties:
+                  qris_static_payload: { type: string }
+                  qris_merchant_name: { type: string }
+                  is_static: { type: boolean, description: False when the code already carries an amount (dynamic QRIS) }
+        '422':
+          description: '`INVALID_QRIS_PAYLOAD` (no QR code found, or not a valid QRIS)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /uploads:
     post:
       tags: [uploads]
       summary: Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10)
+      description: 'The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to 2 MiB.'
       operationId: createUpload
       security: [{ ownerAuth: [] }]
       requestBody:
@@ -1223,6 +1291,11 @@ paths:
                   upload_url: { type: string, format: uri }
                   public_url: { type: string, format: uri }
                   expires_at: { type: string, format: date-time }
+        '503':
+          description: '`UPLOADS_NOT_CONFIGURED` (no object storage in this environment)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
 components:
@@ -1294,6 +1367,59 @@ components:
       type: integer
       format: int64
       description: Integer Rupiah that may be negative (e.g. cash difference).
+    ErrorCode:
+      type: string
+      description: |
+        Stable machine-readable error code of a `Problem`. Clients branch on this value, never on `title`/`detail`.
+        Codes marked (planned) belong to endpoints that are specified but not implemented yet.
+      enum:
+        # generic
+        - VALIDATION_ERROR
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - RATE_LIMITED
+        - UNSUPPORTED_MEDIA_TYPE
+        - INTERNAL_ERROR
+        # owner auth
+        - INVALID_CREDENTIALS
+        - ACCOUNT_LOCKED
+        # devices and employee PIN login
+        - DEVICE_REVOKED
+        - INVALID_PAIRING_CODE
+        - DEVICE_LIMIT_REACHED
+        - INVALID_PIN
+        - PIN_LOCKED
+        - PIN_NOT_UNIQUE
+        # identifiers created by the client
+        - ID_CONFLICT
+        - NUMBER_CONFLICT
+        # catalog, settings, uploads
+        - CATEGORY_NOT_EMPTY
+        - INVALID_QRIS_PAYLOAD
+        - UPLOADS_NOT_CONFIGURED
+        # shifts
+        - SHIFT_ALREADY_OPEN
+        - SHIFT_CLOSED
+        - SHIFT_NOT_OPEN
+        - PENDING_QRIS_EXISTS
+        # transactions and payments
+        - TOTAL_MISMATCH
+        - CASH_INSUFFICIENT
+        - PRODUCT_UNAVAILABLE
+        - EMPLOYEE_UNKNOWN
+        - QRIS_PROVIDER_UNAVAILABLE
+        - QRIS_NOT_SYNCABLE
+        - CONFIRMATION_NOT_ALLOWED
+        - PAYMENT_NOT_PENDING
+        # sync push (reported per mutation in `results[].code`)
+        - EMPLOYEE_REQUIRED
+        - ID_MISMATCH
+        - UNKNOWN_MUTATION
+        - UNSUPPORTED_MUTATION
+        # voids (planned)
+        - TRANSACTION_NOT_VOIDABLE
+        - INVALID_OWNER_PIN
     Problem:
       type: object
       required: [type, title, status, code]
@@ -1301,7 +1427,7 @@ components:
         type: { type: string, format: uri }
         title: { type: string }
         status: { type: integer }
-        code: { type: string, examples: [SHIFT_NOT_OPEN] }
+        code: { $ref: '#/components/schemas/ErrorCode' }
         detail: { type: string }
         errors:
           type: array
@@ -1395,6 +1521,7 @@ components:
         price: { $ref: '#/components/schemas/Rupiah', description: The single selling price; products have no variants }
         is_active: { type: boolean }
         is_sold_out: { type: boolean }
+        is_favorite: { type: boolean, description: "Shown first in the cashier's favorites tab, ordered by `sort_order`" }
         sort_order: { type: integer }
         updated_at: { type: string, format: date-time }
     ProductInput:
@@ -1406,6 +1533,7 @@ components:
         image_url: { type: [string, 'null'], format: uri }
         price: { $ref: '#/components/schemas/Rupiah' }
         is_active: { type: boolean, default: true }
+        is_favorite: { type: boolean, default: false }
         sort_order: { type: integer, default: 0 }
     Catalog:
       type: object
@@ -1668,7 +1796,8 @@ components:
                   entity: { type: string, enum: [category, product, employee] }
                   id: { type: string, format: uuid }
         current_shift: { oneOf: [{ $ref: '#/components/schemas/Shift' }, { type: 'null' }], description: "The outlet's open shift, so every device joins the same one" }
-        device_revoked: { type: boolean, description: When true the app must wipe local credentials }
+        device_revoked: { type: boolean, description: 'When true the app must wipe local credentials. A revoked device is normally answered with 401 `DEVICE_REVOKED` before this is reached.' }
+        last_number: { type: [string, 'null'], description: Highest transaction number this device has sent; continue the daily sequence after it (ADR-0008) }
 
     DashboardSummary:
       type: object
@@ -1723,4 +1852,4 @@ components:
         qris_embed_amount: { type: boolean }
         offline_login_enabled: { type: boolean }
         quick_cash_amounts: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Rupiah' } }
-        owner_pin: { type: string, pattern: '^[0-9]{6}$', description: Set/replace owner PIN for void approval on device }
+        owner_pin: { type: string, pattern: '^[0-9]{6}$', description: 'Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned.' }

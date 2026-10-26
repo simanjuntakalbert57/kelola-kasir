@@ -11,6 +11,12 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**'],
       exclude: ['src/scripts/**', 'src/server.ts', 'src/db/migrate.ts'],
+      // DEAR-11 acceptance: money-moving modules stay at or above 80%.
+      thresholds: {
+        'src/modules/transactions/**': { statements: 80, branches: 80, functions: 80, lines: 80 },
+        'src/modules/payments/**': { statements: 80, branches: 80, functions: 80, lines: 80 },
+        'src/modules/sync/**': { statements: 80, branches: 80, functions: 80, lines: 80 },
+      },
     },
   },
 });
