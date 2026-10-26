@@ -1,0 +1,37 @@
+# OpenAPI operations the API does not implement yet (operationId  # route).
+# Remove a line when the Backend ships the endpoint so the contract test starts covering it.
+getCatalog  # GET /catalog
+listCategories  # GET /categories
+createCategory  # POST /categories
+updateCategory  # PATCH /categories/{category_id}
+deleteCategory  # DELETE /categories/{category_id}
+listProducts  # GET /products
+createProduct  # POST /products
+getProduct  # GET /products/{product_id}
+updateProduct  # PATCH /products/{product_id}
+deleteProduct  # DELETE /products/{product_id}
+setProductAvailability  # PATCH /products/{product_id}/availability
+listTransactions  # GET /transactions
+createTransaction  # POST /transactions
+exportTransactions  # GET /transactions/export
+getTransaction  # GET /transactions/{transaction_id}
+getReceipt  # GET /transactions/{transaction_id}/receipt
+createVoidRequest  # POST /transactions/{transaction_id}/void-requests
+getPayment  # GET /payments/{payment_id}
+confirmPayment  # POST /payments/{payment_id}/confirm
+cancelPayment  # POST /payments/{payment_id}/cancel
+paymentWebhook  # POST /webhooks/payments/{provider}
+listVoidRequests  # GET /void-requests
+approveVoidRequest  # POST /void-requests/{void_request_id}/approve
+rejectVoidRequest  # POST /void-requests/{void_request_id}/reject
+approveVoidWithOwnerPin  # POST /void-requests/{void_request_id}/approve-with-pin
+syncPull  # GET /sync/pull
+syncPush  # POST /sync/push
+getDashboardSummary  # GET /dashboard/summary
+getSalesSeries  # GET /dashboard/sales-series
+getTopProducts  # GET /dashboard/top-products
+getSalesReport  # GET /reports/sales
+getSettings  # GET /settings
+updateSettings  # PATCH /settings
+createUpload  # POST /uploads
+

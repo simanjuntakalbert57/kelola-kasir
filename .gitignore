@@ -11,3 +11,9 @@ coverage/
 expo-env.d.ts
 android/
 ios/
+
+# API contract test (schemathesis)
+.hypothesis/
+tests/contract/reports/
+__pycache__/
+*.pyc
