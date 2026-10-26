@@ -12,12 +12,12 @@ Build: `main` @ `241a42e` (PR #4–#18). Penguji: QA Engineer. Tanggal: 2026-10-
 | Uji perangkat nyata (Q-D) | **Belum dijalankan** (butuh HP + printer RPP02N + staging DEAR-19): skrip siap |
 | UAT owner (Q-E) | **Belum dijalankan**: skrip siap |
 
-Bug blocker (S1/S2): **0 terbuka**. DEAR-27 (S2) dan DEAR-28 sudah diperbaiki di `main` (PR #19, #21); `test.fail`-nya dihapus dan test kini lulus. Terbuka: DEAR-26 (S3, PR #20 dalam perbaikan) dan DEAR-30 (S3, QRIS hanya-gambar).
+Bug blocker (S1/S2): **0 terbuka**. DEAR-27 (S2) dan DEAR-28 sudah diperbaiki di `main` (PR #19, #21); `test.fail`-nya dihapus dan test kini lulus. DEAR-26 (S3) juga sudah di `main` (PR #20), `test.fail`-nya dihapus. Terbuka: DEAR-30 (S3, QRIS hanya-gambar).
 
 ## Bug ditemukan
 | Issue | Sev | Ringkas | Test (gagal-diharapkan) |
 |---|---|---|---|
-| DEAR-26 | S3 | Tautan shift → transaksi tidak memfilter shift | `shifts.spec.ts` |
+| DEAR-26 | S3 (diperbaiki, PR #20) | Tautan shift → transaksi tidak memfilter shift | `shifts.spec.ts` |
 | DEAR-27 | S2 (diperbaiki, PR #19) | "Hanya yang selisih" hanya menyaring halaman termuat (50 shift terbaru); selisih lama tersembunyi | `zz-pagination.spec.ts` |
 | DEAR-28 | S3 (diperbaiki, PR #21) | Daftar void terpotong di 50 permintaan, tanpa paginasi | `zz-pagination.spec.ts` |
 | DEAR-30 | S3 | QRIS hanya-gambar disimpan tanpa peringatan, tapi semua penjualan QRIS ditolak 503 ("Tanamkan nominal" ikut menyesatkan) | `qris-settings.spec.ts` (`test.fail`) |

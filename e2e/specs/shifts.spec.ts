@@ -58,10 +58,6 @@ test.describe('Shift & kas (TC-SHF-05/06/07/12, O-07)', () => {
   });
 
   test('tautan shift → transaksi memfilter transaksi shift itu', async ({ page }) => {
-    test.fail(
-      true,
-      'DEAR-26: tautan tidak membawa filter shift; hapus baris ini saat bug diperbaiki',
-    );
     await openAsOwner(page, '/shift');
     await page.getByRole('listitem').filter({ hasText: 'Siti E2E' }).getByRole('button').click();
     await page.getByRole('link', { name: 'Lihat daftar transaksi' }).click();
