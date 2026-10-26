@@ -5,6 +5,7 @@ import { shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { isoTimestamp } from '../../lib/validate.js';
 import { writeAudit } from '../audit/audit.js';
+import { expireOverdueInShift } from '../payments/service.js';
 import { computeShiftTotals, type ShiftRow } from './summary.js';
 
 /** Largest tolerated device clock drift (TDD §2.4). */
@@ -73,6 +74,9 @@ export async function closeShift(
       ]);
     }
 
+    // A QRIS that is already past its 15 minutes would be expired by the job anyway; do it now so
+    // it does not block the close with a false `PENDING_QRIS_EXISTS`.
+    await expireOverdueInShift(tx, shiftId, now);
     const [pending] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(transactions)

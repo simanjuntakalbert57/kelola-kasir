@@ -18,7 +18,9 @@ import { settingsRoutes } from './modules/settings/routes.js';
 import { shiftRoutes } from './modules/shifts/routes.js';
 import { syncRoutes } from './modules/sync/routes.js';
 import { transactionRoutes } from './modules/transactions/routes.js';
+import { reportRoutes } from './modules/reports/routes.js';
 import { uploadRoutes } from './modules/uploads/routes.js';
+import { voidRoutes } from './modules/voids/routes.js';
 import { createGuards } from './plugins/auth.js';
 import { registerProblemHandlers } from './plugins/problem.js';
 
@@ -81,6 +83,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(settingsRoutes(ctx, guards));
       await v1.register(uploadRoutes(ctx, guards));
       await v1.register(transactionRoutes(ctx, guards));
+      await v1.register(voidRoutes(ctx, guards));
+      await v1.register(reportRoutes(ctx, guards));
       await v1.register(paymentRoutes(ctx, guards, payments));
       await v1.register(syncRoutes(ctx, guards));
     },
