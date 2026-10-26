@@ -101,7 +101,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @kelola-kasir/e2e exec playwright install --with-deps chromium firefox webkit
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright browsers (bounded retries: a stalled CDN download once hung the job for 20 min)
+        run: |
+          for attempt in 1 2 3; do
+            timeout 240 pnpm --filter @kelola-kasir/e2e exec playwright install --with-deps chromium firefox webkit && exit 0
+            echo "browser install attempt ${attempt} failed or timed out"
+          done
+          exit 1
       - name: Playwright (chromium, firefox, webkit, mobile viewport)
         run: pnpm --filter @kelola-kasir/e2e e2e
       - uses: actions/upload-artifact@v4
