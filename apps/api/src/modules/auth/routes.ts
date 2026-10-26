@@ -6,6 +6,7 @@ import { parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { OwnerAuthService } from './owner-service.js';
 import { PinAuthService } from './pin-service.js';
+import { clientIp } from '../../lib/client-ip.js';
 
 const REFRESH_COOKIE = 'kk_refresh';
 
@@ -43,7 +44,7 @@ export function authRoutes(ctx: AppContext, guards: Guards) {
       },
       async (req, reply) => {
         const body = parse(loginBody, req.body);
-        const result = await owner.login(body.email, body.password, req.ip);
+        const result = await owner.login(body.email, body.password, clientIp(ctx.config, req));
         void reply.setCookie(REFRESH_COOKIE, result.refreshToken, {
           ...refreshCookieOptions,
           maxAge: ctx.config.refreshTtlSec,
@@ -72,7 +73,7 @@ export function authRoutes(ctx: AppContext, guards: Guards) {
       const body = parse(pinLoginBody, req.body);
       const device = req.device;
       if (!device) throw errors.unauthorized();
-      return pin.login(device, body.employee_id, body.pin, req.ip);
+      return pin.login(device, body.employee_id, body.pin, clientIp(ctx.config, req));
     });
 
     app.post('/auth/pin-logout', { preHandler: guards.employee }, async (req, reply) => {

@@ -15,6 +15,22 @@ describe('loadConfig', () => {
     expect(config.jwtPrivateKeyPem).toContain('BEGIN PRIVATE KEY');
   });
 
+  it('treats empty variables as unset', () => {
+    const config = loadConfig({
+      ...base,
+      SENTRY_DSN: '',
+      STORAGE_ENDPOINT: '',
+      STORAGE_BUCKET: '',
+      STORAGE_ACCESS_KEY_ID: '',
+      STORAGE_SECRET_ACCESS_KEY: '',
+      STORAGE_PUBLIC_BASE_URL: '',
+      COOKIE_SECURE: '',
+    });
+    expect(config.sentry).toBeNull();
+    expect(config.storage).toBeNull();
+    expect(config.cookieSecure).toBe(false);
+  });
+
   it('requires secrets in production and sets Secure cookies', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/JWT_PRIVATE_KEY/);
     const key = Buffer.from(loadConfig({ ...base }).jwtPrivateKeyPem).toString('base64');
@@ -28,6 +44,20 @@ describe('loadConfig', () => {
       PIN_FINGERPRINT_SECRET: 'x'.repeat(32),
     });
     expect(config.cookieSecure).toBe(true);
+  });
+
+  it('parses deployment settings (ADR-0011)', () => {
+    expect(loadConfig({ ...base, TRUST_PROXY: '1' }).trustProxy).toBe(1);
+    expect(loadConfig({ ...base, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...base }).dbPoolMax).toBe(5);
+    expect(loadConfig({ ...base }).sentry).toBeNull();
+    expect(
+      loadConfig({ ...base, SENTRY_DSN: 'https://k@o1.ingest.sentry.io/1', NODE_ENV: 'test' })
+        .sentry,
+    ).toEqual({ dsn: 'https://k@o1.ingest.sentry.io/1', environment: 'test' });
+    expect(() => loadConfig({ ...base, PROXY_SHARED_SECRET: 'short' })).toThrow(
+      /PROXY_SHARED_SECRET/,
+    );
   });
 
   it('rejects an invalid environment', () => {

@@ -16,7 +16,23 @@ const envSchema = z.object({
   /** Secret used to fingerprint PINs so they can be unique per outlet. At least 32 characters. */
   PIN_FINGERPRINT_SECRET: z.string().min(32).optional(),
   COOKIE_SECURE: booleanFromEnv.optional(),
-  TRUST_PROXY: booleanFromEnv.default(false),
+  /** `true`, `false` or the number of proxy hops in front of the API (Render: 1). */
+  TRUST_PROXY: z
+    .union([
+      z.enum(['true', 'false']).transform((value) => value === 'true'),
+      z.string().regex(/^\d+$/).transform(Number),
+    ])
+    .default(false),
+  /**
+   * Shared with the Cloudflare Pages Function proxy (ADR-0011). Requests carrying it may name the
+   * real client IP in `X-Client-IP`; everyone else gets the address seen by the proxy chain.
+   */
+  PROXY_SHARED_SECRET: z.string().min(32).optional(),
+  /** node-postgres pool size. Kept small for the Neon pooler on the free tier. */
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),
+  /** Sentry error reporting; disabled when unset. */
+  SENTRY_DSN: z.url().optional(),
+  SENTRY_ENVIRONMENT: z.string().min(1).optional(),
   CORS_ORIGINS: z.string().default(''),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(5),
   RATE_LIMIT_PAIR_MAX: z.coerce.number().int().min(1).default(10),
@@ -49,7 +65,11 @@ export interface Config {
   jwtPrivateKeyPem: string;
   pinFingerprintSecret: string;
   cookieSecure: boolean;
-  trustProxy: boolean;
+  trustProxy: boolean | number;
+  /** Secret the Pages Function proxy sends in `X-Proxy-Secret`; `null` when no proxy is trusted. */
+  proxySharedSecret: string | null;
+  dbPoolMax: number;
+  sentry: { dsn: string; environment: string } | null;
   corsOrigins: string[];
   rateLimit: { loginMax: number; pairMax: number };
   /** `null` when object storage is not configured: `POST /uploads` then answers 503. */
@@ -67,7 +87,9 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = envSchema.safeParse(env);
+  // An empty variable means "not set": compose files and .env templates pass optional values as `KEY=`.
+  const present = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const parsed = envSchema.safeParse(present);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid environment: ${problems}`);
@@ -135,6 +157,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pinFingerprintSecret,
     cookieSecure: e.COOKIE_SECURE ?? production,
     trustProxy: e.TRUST_PROXY,
+    proxySharedSecret: e.PROXY_SHARED_SECRET ?? null,
+    dbPoolMax: e.DB_POOL_MAX,
+    sentry: e.SENTRY_DSN
+      ? { dsn: e.SENTRY_DSN, environment: e.SENTRY_ENVIRONMENT ?? e.NODE_ENV }
+      : null,
     corsOrigins: e.CORS_ORIGINS.split(',')
       .map((o) => o.trim())
       .filter(Boolean),

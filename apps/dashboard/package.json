@@ -9,7 +9,7 @@
     "dev:mock": "vite --mode mock",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint src",
+    "lint": "eslint src functions",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },

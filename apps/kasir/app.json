@@ -16,7 +16,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -27,7 +28,8 @@
       "expo-secure-store",
       "expo-status-bar",
       "expo-dev-client",
-      "./plugins/withBluetooth"
+      "./plugins/withBluetooth",
+      "./plugins/withReleaseSigning"
     ]
   }
 }

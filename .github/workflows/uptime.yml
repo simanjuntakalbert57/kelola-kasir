@@ -1,0 +1,32 @@
+# Basic uptime check of the API on the VPS and the dashboard proxy (ADR-0012).
+# The VPS has no idle quota to protect, so it runs every 30 minutes, day and night.
+# Enable by setting the repository variables API_HEALTH_URL and DASHBOARD_URL; a failed run emails the owner.
+name: Uptime check
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.repository == 'simanjuntakalbert57/kelola-kasir' && vars.API_HEALTH_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+      DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+    steps:
+      - name: API /healthz (database included)
+        run: curl -fsS --max-time 20 --retry 2 --retry-delay 10 --retry-all-errors "$API_HEALTH_URL"
+      - name: Dashboard and its /v1 proxy
+        if: env.DASHBOARD_URL != ''
+        run: |
+          curl -fsS --max-time 30 -o /dev/null "$DASHBOARD_URL"
+          # Unauthenticated call through the Pages Function: 401 proves proxy + API are both up.
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${DASHBOARD_URL%/}/v1/me")"
+          echo "proxy /v1/me → ${code}"
+          [ "$code" = 401 ]
