@@ -48,8 +48,8 @@ DETERMINISTIC=()
 # Operations whose generated data Hypothesis sometimes filters out too heavily on CI fail the run with
 # "Failed Health Check: filter_too_much" although every generated case passes. The health check can only be
 # suppressed per run, so those operations get their own run and every other operation keeps the strict check.
-# approveVoidRequest / rejectVoidRequest: optional body with a single optional field; flaky on CI (PR #23).
-FILTER_HEAVY=(approveVoidRequest rejectVoidRequest)
+# The void decision operations: flaky on CI (PR #23, PR #24) although every generated case passes.
+FILTER_HEAVY=(approveVoidRequest rejectVoidRequest approveVoidWithOwnerPin)
 
 run_schemathesis() {
   SCHEMATHESIS_HOOKS="tests.contract.hooks" PYTHONPATH="$ROOT" \
