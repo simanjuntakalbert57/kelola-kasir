@@ -45,17 +45,36 @@ done <"$ROOT/tests/contract/pending-operations.txt"
 DETERMINISTIC=()
 [[ -z "${CONTRACT_RANDOM:-}" ]] && DETERMINISTIC=(--generation-deterministic)
 
-SCHEMATHESIS_HOOKS="tests.contract.hooks" PYTHONPATH="$ROOT" \
-  schemathesis run docs/api/openapi.yaml \
-  --url "$CONTRACT_BASE_URL" \
-  --checks all \
-  --generation-with-security-parameters false \
-  --generation-allow-x00 false \
-  ${DETERMINISTIC[@]+"${DETERMINISTIC[@]}"} \
-  --generation-codec ascii \
-  --max-examples "${CONTRACT_MAX_EXAMPLES:-25}" \
-  --phases examples,coverage,fuzzing \
-  --exclude-checks "ignored_auth,unsupported_method,missing_required_header,negative_data_rejection${CONTRACT_EXCLUDE_CHECKS:+,$CONTRACT_EXCLUDE_CHECKS}" \
-  ${EXCLUDES[@]+"${EXCLUDES[@]}"} \
-  --report junit --report-dir "${CONTRACT_REPORT_DIR:-$ROOT/tests/contract/reports}" \
-  "$@" || { echo "--- server log ---"; tail -50 "$WORK/server.log"; exit 1; }
+# Operations whose generated data Hypothesis sometimes filters out too heavily on CI fail the run with
+# "Failed Health Check: filter_too_much" although every generated case passes. The health check can only be
+# suppressed per run, so those operations get their own run and every other operation keeps the strict check.
+# approveVoidRequest / rejectVoidRequest: optional body with a single optional field; flaky on CI (PR #23).
+FILTER_HEAVY=(approveVoidRequest rejectVoidRequest)
+
+run_schemathesis() {
+  SCHEMATHESIS_HOOKS="tests.contract.hooks" PYTHONPATH="$ROOT" \
+    schemathesis run docs/api/openapi.yaml \
+    --url "$CONTRACT_BASE_URL" \
+    --checks all \
+    --generation-with-security-parameters false \
+    --generation-allow-x00 false \
+    ${DETERMINISTIC[@]+"${DETERMINISTIC[@]}"} \
+    --generation-codec ascii \
+    --max-examples "${CONTRACT_MAX_EXAMPLES:-25}" \
+    --phases examples,coverage,fuzzing \
+    --exclude-checks "ignored_auth,unsupported_method,missing_required_header,negative_data_rejection${CONTRACT_EXCLUDE_CHECKS:+,$CONTRACT_EXCLUDE_CHECKS}" \
+    --report junit --report-dir "${CONTRACT_REPORT_DIR:-$ROOT/tests/contract/reports}" \
+    "$@"
+}
+
+STRICT=(${EXCLUDES[@]+"${EXCLUDES[@]}"})
+LENIENT=()
+for op in "${FILTER_HEAVY[@]}"; do
+  STRICT+=(--exclude-operation-id "$op")
+  LENIENT+=(--include-operation-id "$op")
+done
+
+{
+  run_schemathesis "${STRICT[@]}" "$@" &&
+    run_schemathesis "${LENIENT[@]}" --suppress-health-check filter_too_much "$@"
+} || { echo "--- server log ---"; tail -50 "$WORK/server.log"; exit 1; }
