@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OutletSettings } from '@kelola-kasir/contracts';
+import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { ImageUpload } from '../components/ImageUpload';
@@ -15,7 +16,7 @@ import {
   Skeleton,
   TextareaField,
 } from '../components/ui';
-import { ApiError, api, patch } from '../lib/api';
+import { ApiError, api, patch, post } from '../lib/api';
 import { errorMessage } from '../lib/format';
 
 const KEY = ['settings'] as const;
@@ -60,6 +61,21 @@ const toForm = (s: OutletSettings): Form => ({
   qris_embed_amount: s.qris_embed_amount ?? false,
 });
 
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+interface DecodedQris {
+  qris_static_payload: string;
+  qris_merchant_name: string;
+  is_static: boolean;
+}
+
 const blankToNull = (v: string) => (v.trim() === '' ? null : v.trim());
 
 function SettingsForm({ settings }: { settings: OutletSettings }) {
@@ -83,7 +99,41 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
       form.reset(toForm(updated));
     },
   });
+  const [decodeNote, setDecodeNote] = useState<{ ok: boolean; text: string } | null>(null);
   const errors = form.formState.errors;
+
+  /** Fills "Kode QRIS" from the uploaded image; on failure the owner is asked to type it. */
+  async function decodeQris(file: File) {
+    setDecodeNote(null);
+    try {
+      const res = await post<DecodedQris>('/settings/qris/decode', {
+        image_base64: await toBase64(file),
+      });
+      if (!res.is_static) {
+        setDecodeNote({
+          ok: false,
+          text: 'QRIS pada gambar ini sudah berisi nominal (dinamis). Gunakan QRIS statis toko, atau isi kode QRIS secara manual.',
+        });
+        return;
+      }
+      form.setValue('qris_static_payload', res.qris_static_payload, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setDecodeNote({
+        ok: true,
+        text: `Kode QRIS terisi otomatis dari gambar (${res.qris_merchant_name}).`,
+      });
+    } catch (e) {
+      const unreadable = e instanceof ApiError && e.code === 'INVALID_QRIS_PAYLOAD';
+      setDecodeNote({
+        ok: false,
+        text: unreadable
+          ? 'Kode QRIS tidak terbaca dari gambar. Isi kode QRIS secara manual, atau unggah gambar yang lebih jelas (PNG/JPG).'
+          : 'Gambar tersimpan, tetapi kode QRIS belum bisa dibaca otomatis. Isi kode QRIS secara manual.',
+      });
+    }
+  }
   const [name, address, phone, header, footer, qrisPayload] = useWatch({
     control: form.control,
     name: [
@@ -173,12 +223,21 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 purpose="qris_image"
                 value={field.value}
                 onChange={field.onChange}
+                onUploaded={decodeQris}
               />
             )}
           />
+          {decodeNote ? (
+            <p
+              role={decodeNote.ok ? 'status' : 'alert'}
+              className={`-mt-2 mb-3 text-[13px] ${decodeNote.ok ? 'text-brand-text' : 'text-danger'}`}
+            >
+              {decodeNote.text}
+            </p>
+          ) : null}
           <TextareaField
             label="Kode QRIS"
-            hint="Teks QRIS statis toko. Wajib bila gambar QRIS diisi; tanpa kode, kasir tidak bisa menerima QRIS."
+            hint="Terisi otomatis saat gambar QRIS diunggah; bisa juga diisi manual. Wajib bila gambar QRIS diisi; tanpa kode, kasir tidak bisa menerima QRIS."
             error={errors.qris_static_payload?.message}
             {...form.register('qris_static_payload')}
           />
