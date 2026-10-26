@@ -17,8 +17,10 @@ info:
     - One open shift per outlet, shared by every paired device; each transaction records the employee who created it.
     Feature tags (P-xx / O-xx) refer to the PRD.
 servers:
-  - url: https://api.kelolakasir.example/v1
-    description: Production (placeholder)
+  - url: https://kelola-kasir.pages.dev/v1
+    description: Production, owner dashboard (same-origin proxy via Cloudflare Pages Functions, ADR-0011)
+  - url: https://kelola-kasir-api.onrender.com/v1
+    description: Production, direct (cashier app)
   - url: http://localhost:3000/v1
     description: Local development
 tags:
@@ -70,7 +72,7 @@ paths:
                 password: { type: string, minLength: 8 }
       responses:
         '200':
-          description: Logged in. Refresh token is set as HttpOnly cookie `kk_refresh`.
+          description: Logged in. Refresh token is set as cookie `kk_refresh` (`HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`, no `Domain`). The dashboard must call the API same-origin through the `/v1` proxy (ADR-0011).
           headers:
             Set-Cookie: { schema: { type: string } }
           content:
