@@ -1,6 +1,8 @@
 # Backup harian dan restore (B-14)
 
-Status: berlaku untuk MVP (TDD §6, ADR-0011 — menggantikan setup Railway dari ADR-0005). Skrip ada di `ops/backup/`.
+Status: berlaku untuk MVP (TDD §6, ADR-0011 — menggantikan setup Railway dari ADR-0005). Skrip ada di `ops/backup/`, workflow di `.github/workflows/backup.yml`. Setup akun lengkap: [deploy.md](deploy.md).
+
+Image backup memakai client PostgreSQL 16, jadi project Neon harus **Postgres 16**.
 
 ## Ringkasan
 

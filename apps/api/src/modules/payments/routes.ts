@@ -7,6 +7,7 @@ import { requireEmployee, type Guards } from '../../plugins/auth.js';
 import { loadSettings } from '../settings/serialize.js';
 import { toPayment } from './serialize.js';
 import { loadTransactionOf, type PaymentService } from './service.js';
+import { clientIp } from '../../lib/client-ip.js';
 
 const idParams = z.object({ payment_id: uuid });
 
@@ -29,7 +30,12 @@ export function paymentRoutes(ctx: AppContext, guards: Guards, service: PaymentS
     app.post('/payments/:payment_id/confirm', { preHandler: guards.employee }, async (req) => {
       const principal = requireEmployee(req);
       const { payment_id: id } = parse(idParams, req.params);
-      const transactionId = await service.confirm(principal.outletId, id, principal.id, req.ip);
+      const transactionId = await service.confirm(
+        principal.outletId,
+        id,
+        principal.id,
+        clientIp(ctx.config, req),
+      );
       return loadTransactionOf(db, transactionId);
     });
 

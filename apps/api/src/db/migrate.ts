@@ -13,9 +13,10 @@ export async function runMigrations(db: Database): Promise<void> {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const url = process.env['DATABASE_URL'];
+  // Migrations need a session (DDL, advisory lock): prefer Neon's direct URL over the pooler.
+  const url = process.env['DATABASE_URL_DIRECT'] || process.env['DATABASE_URL'];
   if (!url) {
-    console.error('DATABASE_URL is required');
+    console.error('DATABASE_URL_DIRECT or DATABASE_URL is required');
     process.exit(1);
   }
   const handle = createDb(url);

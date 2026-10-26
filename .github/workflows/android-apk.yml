@@ -1,0 +1,98 @@
+# Cashier app APK for sideloading (ADR-0011, docs/ops/apk-release.md).
+#  - Pull requests touching the app: staging APK (signed with the debug key) as a build check + QA artifact.
+#  - Manual run: `staging` or `release`. `release` signs with the owner's upload keystore from secrets.
+name: Android APK
+
+on:
+  pull_request:
+    paths:
+      - apps/kasir/**
+      - packages/**
+      - pnpm-lock.yaml
+      - .github/workflows/android-apk.yml
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: staging (debug key) or release (owner keystore)
+        type: choice
+        options: [staging, release]
+        default: staging
+      api_url:
+        description: 'API base URL including /v1 (default: repository variable KASIR_API_URL)'
+        required: false
+
+concurrency:
+  group: apk-${{ github.ref }}-${{ inputs.variant || 'staging' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build ${{ inputs.variant || 'staging' }} APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      VARIANT: ${{ inputs.variant || 'staging' }}
+      EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.KASIR_API_URL || 'https://kelola-kasir-api.onrender.com/v1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate the native Android project
+        working-directory: apps/kasir
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Decode the upload keystore (release only)
+        if: env.VARIANT == 'release'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KASIR_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secret KASIR_KEYSTORE_BASE64 is missing (docs/ops/apk-release.md)"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          echo "KASIR_KEYSTORE_FILE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
+
+      - name: Build the release APK
+        working-directory: apps/kasir/android
+        env:
+          KASIR_KEYSTORE_PASSWORD: ${{ secrets.KASIR_KEYSTORE_PASSWORD }}
+          KASIR_KEY_ALIAS: ${{ secrets.KASIR_KEY_ALIAS }}
+          KASIR_KEY_PASSWORD: ${{ secrets.KASIR_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Name the APK and print its checksum
+        id: apk
+        run: |
+          version="$(node -p "require('./apps/kasir/app.json').expo.version")"
+          name="kelola-kasir-${version}-${VARIANT}-${GITHUB_SHA::7}.apk"
+          mkdir -p dist-apk
+          cp apps/kasir/android/app/build/outputs/apk/release/app-release.apk "dist-apk/${name}"
+          (cd dist-apk && sha256sum "${name}" | tee "${name}.sha256")
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "API URL baked into the build: ${EXPO_PUBLIC_API_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK: ${name}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: dist-apk/
+          retention-days: 14
+          if-no-files-found: error

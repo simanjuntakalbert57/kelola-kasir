@@ -17,3 +17,6 @@ ios/
 tests/contract/reports/
 __pycache__/
 *.pyc
+
+# Cloudflare wrangler local state
+.wrangler/

@@ -30,6 +30,20 @@ describe('loadConfig', () => {
     expect(config.cookieSecure).toBe(true);
   });
 
+  it('parses deployment settings (ADR-0011)', () => {
+    expect(loadConfig({ ...base, TRUST_PROXY: '1' }).trustProxy).toBe(1);
+    expect(loadConfig({ ...base, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...base }).dbPoolMax).toBe(5);
+    expect(loadConfig({ ...base }).sentry).toBeNull();
+    expect(
+      loadConfig({ ...base, SENTRY_DSN: 'https://k@o1.ingest.sentry.io/1', NODE_ENV: 'test' })
+        .sentry,
+    ).toEqual({ dsn: 'https://k@o1.ingest.sentry.io/1', environment: 'test' });
+    expect(() => loadConfig({ ...base, PROXY_SHARED_SECRET: 'short' })).toThrow(
+      /PROXY_SHARED_SECRET/,
+    );
+  });
+
   it('rejects an invalid environment', () => {
     expect(() => loadConfig({})).toThrow(/DATABASE_URL/);
     expect(() => loadConfig({ ...base, PORT: 'abc' })).toThrow(/PORT/);

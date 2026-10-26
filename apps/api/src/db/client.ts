@@ -12,8 +12,19 @@ export interface DbHandle {
   close(): Promise<void>;
 }
 
-export function createDb(connectionString: string): DbHandle {
-  const pool = new pg.Pool({ connectionString, max: 10 });
+export interface DbOptions {
+  /** Pool size. Neon free tier: keep it small (ADR-0011). */
+  max?: number;
+}
+
+export function createDb(connectionString: string, options: DbOptions = {}): DbHandle {
+  const pool = new pg.Pool({
+    connectionString,
+    max: options.max ?? 10,
+    // Neon scales to zero; waking a compute takes a few hundred milliseconds, sometimes seconds.
+    connectionTimeoutMillis: 15_000,
+    idleTimeoutMillis: 60_000,
+  });
   const db = drizzle(pool, { schema });
   return { db, pool, close: () => pool.end() };
 }

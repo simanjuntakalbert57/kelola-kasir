@@ -1,0 +1,60 @@
+# Daily encrypted database backup to R2/B2 (B-14, ADR-0011, docs/ops/backup-restore.md).
+# The repository is public: the dump is never uploaded as an artifact and never printed.
+name: Database backup
+
+on:
+  schedule:
+    - cron: '0 18 * * *' # 01:00 WIB
+  workflow_dispatch:
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: pg_dump → age → object storage
+    # Forks have no secrets; never run the schedule there.
+    if: github.repository == 'simanjuntakalbert57/kelola-kasir'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the backup secrets are set
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+          BACKUP_TARGET: ${{ secrets.BACKUP_TARGET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          missing=0
+          for name in BACKUP_DATABASE_URL AGE_RECIPIENT BACKUP_TARGET R2_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::Secret ${name} is not set"; missing=1; fi
+          done
+          exit "$missing"
+
+      # Same image as local/manual runs: PostgreSQL 16 client, age and the AWS CLI.
+      - name: Build the backup image
+        run: docker build --quiet -t kelola-kasir-backup ops/backup
+
+      - name: Back up
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+          BACKUP_TARGET: ${{ secrets.BACKUP_TARGET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          RETENTION_DAYS: '30'
+        run: |
+          docker run --rm \
+            -e DATABASE_URL -e AGE_RECIPIENT -e BACKUP_TARGET -e R2_ENDPOINT \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e RETENTION_DAYS \
+            -e AWS_DEFAULT_REGION=auto \
+            kelola-kasir-backup

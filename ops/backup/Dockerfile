@@ -1,4 +1,5 @@
-# Image for the Railway cron service that runs the daily backup (see docs/ops/backup-restore.md).
+# Image the daily backup workflow runs (.github/workflows/backup.yml, docs/ops/backup-restore.md).
+# PostgreSQL 16 client: the Neon project must run Postgres 16.
 FROM postgres:16-alpine
 RUN apk add --no-cache bash age aws-cli coreutils
 COPY backup.sh restore.sh verify-restore.sh /opt/backup/

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Daily encrypted PostgreSQL backup to Cloudflare R2 (TDD §6, ADR-0005).
+# Daily encrypted PostgreSQL backup to Cloudflare R2 / Backblaze B2 (TDD §6, ADR-0011).
 #
 #   pg_dump (custom format) -> age (public-key encryption) -> R2 (S3 API), then prune old backups.
 #
-# Required environment (set in the Railway cron service, never in the repo):
+# Required environment (GitHub Actions secrets via .github/workflows/backup.yml, never in the repo):
 #   DATABASE_URL        connection string of the database to back up
 #   AGE_RECIPIENT       age public key (age1...); the private key is kept offline, see docs/ops/backup-restore.md
 #   BACKUP_TARGET       s3://<bucket>/<prefix>   (R2)   or   local:<directory>   (tests / manual runs)

@@ -1,12 +1,20 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb } from './db/client.js';
+import { createErrorReporter } from './lib/error-reporter.js';
 import { startExpiryJob } from './modules/payments/service.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const handle = createDb(config.databaseUrl);
-  const app = await buildApp({ config, db: handle.db });
+  const handle = createDb(config.databaseUrl, { max: config.dbPoolMax });
+  const reportError = config.sentry
+    ? createErrorReporter({
+        ...config.sentry,
+        // Render exposes the deployed commit; it becomes the Sentry release.
+        ...(process.env['RENDER_GIT_COMMIT'] ? { release: process.env['RENDER_GIT_COMMIT'] } : {}),
+      })
+    : undefined;
+  const app = await buildApp({ config, db: handle.db, ...(reportError ? { reportError } : {}) });
 
   const stopExpiry = startExpiryJob(app.payments, app.log);
 
