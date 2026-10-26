@@ -41,9 +41,10 @@ export function mockApi(routes: Record<string, (body: unknown) => Response>) {
     vi.fn(async (input: string, init?: RequestInit) => {
       const path = String(input).replace(/^.*\/v1/, '');
       const key = `${init?.method ?? 'GET'} ${path}`;
+      const route = key.split('?', 1)[0] ?? key;
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       calls.push({ key, body });
-      const handler = routes[key];
+      const handler = routes[key] ?? routes[route];
       if (!handler) throw new Error(`Unmocked request: ${key}`);
       return handler(body);
     }),

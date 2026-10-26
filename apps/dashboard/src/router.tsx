@@ -11,12 +11,16 @@ import { useEffect } from 'react';
 import { useAuth } from './auth/AuthProvider';
 import { Skeleton } from './components/ui';
 import { AppShell } from './layout/AppShell';
+import { DashboardPage } from './pages/DashboardPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { ComingSoon, MorePage } from './pages/StubPages';
+import { ShiftsPage } from './pages/ShiftsPage';
+import { TransactionsPage } from './pages/TransactionsPage';
+import { VoidPage } from './pages/VoidPage';
+import { MorePage } from './pages/StubPages';
 
 function Guard() {
   const { status } = useAuth();
@@ -79,13 +83,13 @@ const page = <P extends string>(path: P, component: () => React.JSX.Element) =>
 const routeTree = root.addChildren([
   login,
   app.addChildren([
-    page('/', () => <ComingSoon title="Dashboard" />),
-    page('/transaksi', () => <ComingSoon title="Transaksi" />),
+    page('/', DashboardPage),
+    page('/transaksi', TransactionsPage),
     page('/produk', ProductsPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),
-    page('/shift', () => <ComingSoon title="Shift & Kas" />),
-    page('/void', () => <ComingSoon title="Void" />),
+    page('/shift', ShiftsPage),
+    page('/void', VoidPage),
     page('/pengaturan', SettingsPage),
     page('/lainnya', MorePage),
   ]),
