@@ -199,6 +199,23 @@ describe('Shift & kas', () => {
     expect(screen.getByText(/−Rp\s?5\.000/)).toBeInTheDocument();
   });
 
+  it('"Hanya yang selisih" loads every page so older differences are not hidden', async () => {
+    let shiftCalls = 0;
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () =>
+        shiftCalls++ > 0
+          ? json({ data: [shift('old', -5000)], next_cursor: null })
+          : json({ data: [shift('new', 0)], next_cursor: 'c2' }),
+    });
+    renderApp('/shift');
+    expect(await screen.findByText('0 ✓ Pas')).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Hanya yang selisih'));
+    expect(await screen.findByText(/−Rp\s?5\.000 ▼ Kurang/)).toBeInTheDocument();
+    expect(screen.queryByText('0 ✓ Pas')).not.toBeInTheDocument();
+  });
+
   it('opens the shift summary with per-cashier breakdown', async () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
@@ -267,5 +284,21 @@ describe('Void', () => {
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Tolak void' }));
     expect(await within(dialog).findByText(/sudah diproses/)).toBeInTheDocument();
+  });
+
+  it('loads further pages of pending void requests', async () => {
+    const mk = (id: string, n: string) => ({ ...voidReq, id, transaction_number: n });
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /void-requests?status=pending&cursor=c2': () =>
+        json({ data: [mk('vr52', 'TRX-52')], next_cursor: null }),
+      'GET /void-requests?status=pending': () =>
+        json({ data: [mk('vr1', 'TRX-01')], next_cursor: 'c2' }),
+    });
+    renderApp('/void');
+    expect(await screen.findByText(/Menampilkan 1 permintaan/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Muat lebih banyak' }));
+    expect(await screen.findByRole('button', { name: /Setujui void TRX-52/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Muat lebih banyak' })).not.toBeInTheDocument();
   });
 });
