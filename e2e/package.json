@@ -1,0 +1,17 @@
+{
+  "name": "@kelola-kasir/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright E2E for the owner dashboard (Q-C)",
+  "type": "module",
+  "scripts": {
+    "e2e": "bash ./run.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "uuid": "^14.0.3"
+  }
+}
