@@ -1,0 +1,19 @@
+# HTTPS in front of the API (ADR-0012). Caddy gets and renews the Let's Encrypt certificate for
+# API_DOMAIN by itself; DNS must point API_DOMAIN at the VPS and ports 80/443 must be open.
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_DOMAIN} {
+	# Caddy replaces X-Forwarded-For with the real client address; the API trusts exactly one proxy.
+	reverse_proxy api:3000
+
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+}

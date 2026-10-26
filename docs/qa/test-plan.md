@@ -38,7 +38,7 @@ Aturan: test case milik dev (UT/IT) wajib mencakup minimal skenario berprioritas
 | Android | **≥1 HP Android** (Android 10+, layar 360–430 px lebar logis), idealnya 2 HP (satu RAM ≤3 GB) untuk uji performa & multi-perangkat |
 | Printer | **≥1 printer thermal Bluetooth ESC/POS 58 mm** (model rekomendasi TDD R-6); gulungan kertas cadangan |
 | Dashboard | Chrome & Firefox terbaru, Safari iOS/Chrome Android (responsif), viewport 1440 / 768 / 390 |
-| Backend | Staging: Render Free service kedua + project Neon Free terpisah dari produksi (kuota CU-jam Neon per project; jam instance Render dibagi satu workspace, staging tidur saat idle — ADR-0011); data seed: 1 outlet, 1 owner, 3 pegawai, 8 produk, 3 kategori |
+| Backend | Staging: VPS yang sama dengan produksi, dipakai sebagai staging selama UAT lalu data direset sebelum go-live (ADR-0012, `docs/ops/runbook.md`); data seed: 1 outlet, 1 owner, 3 pegawai, 8 produk, 3 kategori |
 | Data uji | Tanpa data/secret produksi; PIN & kredensial uji dari secret store CI, tidak di-commit |
 | QRIS | QR statis uji (sandbox/QR milik toko) + uji pindai di ≥3 e-wallet/m-banking (TDD §5.3) |
 | Jaringan | Mode pesawat / Wi-Fi off, throttle 3G, putus-sambung saat request berjalan |

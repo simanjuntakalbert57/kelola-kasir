@@ -19,6 +19,7 @@ import {
   voidDecisionSchema,
   voidDirectly,
 } from './service.js';
+import { clientIp } from '../../lib/client-ip.js';
 
 const transactionParams = z.object({ transaction_id: uuid });
 const voidParams = z.object({ void_request_id: uuid });
@@ -79,7 +80,7 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
           const row = await findVisibleTransaction(db, ctx.now(), principal, transactionId);
           await voidDirectly(
             ctx,
-            { outletId: principal.outletId, userId: principal.id, ip: req.ip },
+            { outletId: principal.outletId, userId: principal.id, ip: clientIp(ctx.config, req) },
             row.id,
             body.reason,
           );
@@ -96,7 +97,7 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
             employeeId: employee.id,
             deviceId: employee.deviceId,
             source: 'api',
-            ip: req.ip,
+            ip: clientIp(ctx.config, req),
           },
           transactionId,
           { id: body.id ?? randomUUID(), reason: body.reason, requestedAt: ctx.now() },
@@ -152,7 +153,7 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
               outletId: principal.outletId,
               userId: principal.id,
               channel: 'dashboard',
-              ip: req.ip,
+              ip: clientIp(ctx.config, req),
             },
             id,
             decision,
@@ -197,7 +198,7 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
             action: FAILED_PIN_ACTION,
             entityType: 'void_request',
             entityId: id,
-            meta: { device_id: employee.deviceId, ip: req.ip },
+            meta: { device_id: employee.deviceId, ip: clientIp(ctx.config, req) },
           });
           return { locked: false as const, ownerId: undefined };
         });
@@ -218,7 +219,7 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
             channel: 'device_pin',
             viaEmployeeId: employee.id,
             deviceId: employee.deviceId,
-            ip: req.ip,
+            ip: clientIp(ctx.config, req),
           },
           id,
           'approve',

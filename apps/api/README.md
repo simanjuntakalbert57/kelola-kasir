@@ -20,7 +20,9 @@ OWNER_EMAIL=owner@example.com OWNER_PASSWORD='at-least-12-chars' OUTLET_CODE=JUS
 pnpm --filter @kelola-kasir/api dev          # http://localhost:3000, base path /v1, health at /healthz
 ```
 
-Production: `pnpm --filter @kelola-kasir/api build`, then `node dist/db/migrate.js && node dist/server.js`.
+Production: `apps/api/Dockerfile` (Render, see [`docs/ops/deploy.md`](../../docs/ops/deploy.md)); the container runs
+`node dist/db/migrate.js` (via `DATABASE_URL_DIRECT` when set) and then `node dist/server.js`. `/livez` is the
+DB-free liveness probe, `/healthz` includes the database.
 Generate the signing key with `pnpm --filter @kelola-kasir/api keys:generate` and keep it in the secret manager.
 
 ## Tests

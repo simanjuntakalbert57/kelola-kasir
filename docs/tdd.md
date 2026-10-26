@@ -15,6 +15,12 @@ Status: v1.2 (v1.1 disetujui owner, dengan perubahan dari DEAR-6; v1.2 = hosting
 | 7 | Satu shift aktif per gerai. Pegawai lain bisa login di shift yang sama, dan setiap transaksi dicatat atas nama kasirnya. Serah terima = tutup lalu buka shift (Q-4). | §2.5, unique index shift terbuka per outlet, `ShiftSummary.by_employee`. Buka shift wajib online (R-8). |
 | 8 | Header/footer struk diatur owner di Pengaturan toko. | `outlet_settings.receipt_header` dan `receipt_footer`. |
 
+### Perubahan v1.2 → v1.3 (DEAR-19, ADR-0012)
+
+| # | Keputusan | Dampak di dokumen ini |
+|---|---|---|
+| 1 | API + PostgreSQL pindah dari Render Free + Neon Free ke **VPS (Rumahweb)** (Docker Compose + Caddy). Backup harian dijalankan timer di VPS ke R2/B2. Cold start dan kuota CU-jam Neon (R-9, R-10) tidak berlaku lagi. Ada biaya VPS bulanan (disetujui owner). | §0, §6, §7, B-14. Detail di ADR-0012 dan `docs/ops/`. |
+
 ### Perubahan v1.1 → v1.2 (DEAR-21, Q-5)
 
 | # | Keputusan | Dampak di dokumen ini |
@@ -35,7 +41,7 @@ Kelola Kasir terdiri dari tiga komponen dalam satu monorepo TypeScript:
 | `apps/dashboard` | React + Vite SPA + TanStack Query + Tailwind | Owner (web responsif) |
 | `packages/contracts` | Skema Zod + tipe yang di-generate dari OpenAPI | Dipakai bersama |
 
-Hosting (ADR-0011, Q-5 diputuskan owner 2026-10-26): **free tier**. API di Render Free (`kelola-kasir-api.onrender.com`), PostgreSQL di Neon Free, dashboard di Cloudflare Pages (`kelola-kasir.pages.dev`) dengan proxy `/v1` ke API, foto + backup di Cloudflare R2. Biaya **US$0/bulan**, tanpa kartu kredit. Jalur upgrade tanpa ubah kode: Render Starter ±US$7/bulan, Neon Launch (bayar per pemakaian), atau kembali ke Railway (ADR-0005).
+Hosting: **API + PostgreSQL di VPS (Rumahweb)** (ADR-0012, owner memilih "lanjut VPS" 2026-10-26). Dashboard tetap di Cloudflare Pages dengan proxy `/v1`, foto + backup di R2/B2. Rencana awal (ADR-0011, sekarang sebagian digantikan): **free tier**. API di Render Free (`kelola-kasir-api.onrender.com`), PostgreSQL di Neon Free, dashboard di Cloudflare Pages (`kelola-kasir.pages.dev`) dengan proxy `/v1` ke API, foto + backup di Cloudflare R2. Biaya **US$0/bulan**, tanpa kartu kredit. Jalur upgrade tanpa ubah kode: Render Starter ±US$7/bulan, Neon Launch (bayar per pemakaian), atau kembali ke Railway (ADR-0005).
 
 Keputusan desain kunci:
 1. **Uang = integer Rupiah** (`BIGINT`), tanpa desimal di seluruh lapisan (DB, API, aplikasi).
@@ -562,7 +568,7 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 - Secret hanya via environment variable platform (Render, Cloudflare Pages, GitHub Actions secrets untuk backup); `.env.example` tanpa nilai di repo; CI menjalankan secret scan (gitleaks).
 - Logging terstruktur (pino) tanpa PIN/password/token; error tracking Sentry (free tier) untuk API, dashboard, dan kasir.
 - Health check `/healthz`; uptime monitor (Better Stack / UptimeRobot free). Monitor dijalankan dengan interval jarang atau hanya saat jam buka, karena ping tiap 5 menit membuat API dan Neon tidak pernah tidur sehingga kuota CU-jam Neon habis (R-10).
-- Hosting (ADR-0011): Render Free (API, region Singapore) + Neon Free (Postgres 16, `ap-southeast-1`) + Cloudflare Pages (dashboard + proxy `/v1`) + R2. Koneksi DB: `DATABASE_URL` = URL **pooled** Neon (`-pooler`, driver `pg` tanpa prepared statement bernama) untuk runtime. `DATABASE_URL_DIRECT` = URL **direct** untuk `drizzle-kit migrate` (Render pre-deploy command) dan `pg_dump`.
+- Hosting: VPS (Rumahweb) dengan Docker Compose (API + PostgreSQL 16 + Caddy), deploy lewat `deploy-vps.yml`, backup harian dari VPS ke R2/B2 (ADR-0012, `docs/ops/deploy.md`). Rencana awal yang digantikan (ADR-0011): Render Free (API, region Singapore) + Neon Free (Postgres 16, `ap-southeast-1`) + Cloudflare Pages (dashboard + proxy `/v1`) + R2. Koneksi DB: `DATABASE_URL` = URL **pooled** Neon (`-pooler`, driver `pg` tanpa prepared statement bernama) untuk runtime. `DATABASE_URL_DIRECT` = URL **direct** untuk `drizzle-kit migrate` (Render pre-deploy command) dan `pg_dump`.
 - Backup: GitHub Actions `schedule` 01:00 WIB (`0 18 * * *` UTC) + `workflow_dispatch`: `pg_dump` (client 16) via URL direct → enkripsi age → R2 `postgres/` (`ops/backup/backup.sh`), retensi 30 hari. Repo publik: dump tidak boleh jadi artifact atau tercetak di log. Uji restore bulanan (task QA/Backend) sekaligus cek umur objek backup terbaru (< 26 jam). Setup: `docs/ops/backup-restore.md`.
 - Distribusi aplikasi kasir: APK signed release (EAS Build free tier atau build lokal) yang dipasang langsung (sideload) di HP kasir, tanpa Play Console. Update JS via EAS Update untuk perbaikan cepat. Keystore release disimpan owner di luar repo.
 

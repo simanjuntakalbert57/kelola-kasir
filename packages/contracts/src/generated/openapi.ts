@@ -996,6 +996,12 @@ export interface components {
             /** @default 0 */
             sort_order: number;
         };
+        /** @description Partial update of a category; at least one field. */
+        CategoryUpdate: {
+            /** @description Must contain a non-space character */
+            name?: string;
+            sort_order?: number;
+        };
         Product: {
             /** Format: uuid */
             id: string;
@@ -1993,7 +1999,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CategoryInput"];
+                "application/json": components["schemas"]["CategoryUpdate"];
             };
         };
         responses: {

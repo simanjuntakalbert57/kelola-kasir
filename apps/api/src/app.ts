@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import type { Database } from './db/client.js';
+import { AppError } from './errors.js';
+import { clientIp } from './lib/client-ip.js';
+import type { ErrorReporter } from './lib/error-reporter.js';
 import { TokenService } from './lib/jwt.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -29,6 +33,8 @@ export interface BuildAppOptions {
   db: Database;
   /** Override the clock (tests). */
   now?: () => Date;
+  /** Receives unexpected errors (HTTP 5xx), e.g. the Sentry reporter. */
+  reportError?: ErrorReporter;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -40,8 +46,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     now: options.now ?? (() => new Date()),
   };
 
+  const { trustProxy } = config;
   const app = Fastify({
-    trustProxy: config.trustProxy,
+    // A hop count trusts that many proxies in front of the API (Render's edge: 1).
+    trustProxy:
+      typeof trustProxy === 'number'
+        ? (_address: string, hop: number) => hop < trustProxy
+        : trustProxy,
     genReqId: () => randomUUID(),
     logger:
       config.logLevel === 'silent'
@@ -54,6 +65,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 'req.headers.authorization',
                 'req.headers.cookie',
                 'req.headers["x-device-token"]',
+                'req.headers["x-proxy-secret"]',
                 'res.headers["set-cookie"]',
               ],
               censor: '[redacted]',
@@ -62,12 +74,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   registerProblemHandlers(app);
+  const { reportError } = options;
+  if (reportError) {
+    app.addHook('onError', async (req, _reply, error: FastifyError) => {
+      // Domain errors (AppError) and client errors are expected; only report real failures.
+      if (error instanceof AppError || (error.statusCode !== undefined && error.statusCode < 500)) {
+        return;
+      }
+      void reportError(error, {
+        method: req.method,
+        route: req.routeOptions.url,
+        requestId: req.id,
+      });
+    });
+  }
   await app.register(cookie);
   await app.register(cors, {
     origin: config.corsOrigins.length > 0 ? config.corsOrigins : false,
     credentials: true,
   });
-  await app.register(rateLimit, { global: false });
+  // Render Free counts outbound bandwidth (ADR-0011): gzip JSON and CSV/XLSX exports.
+  await app.register(compress, { global: true, threshold: 1024, encodings: ['gzip'] });
+  await app.register(rateLimit, {
+    global: false,
+    keyGenerator: (req) => clientIp(config, req),
+  });
 
   const guards = createGuards(ctx);
   const payments = createPaymentService(ctx);

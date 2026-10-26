@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/.expo
+.git
+.env
+.env.*
+docs
+apps/kasir/assets
+apps/kasir/android
+apps/kasir/ios
+tests/contract/reports

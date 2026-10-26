@@ -18,9 +18,13 @@ info:
     Feature tags (P-xx / O-xx) refer to the PRD.
 servers:
   - url: https://kelola-kasir.pages.dev/v1
-    description: Production, owner dashboard (same-origin proxy via Cloudflare Pages Functions, ADR-0011)
-  - url: https://kelola-kasir-api.onrender.com/v1
-    description: Production, direct (cashier app)
+    description: Production, owner dashboard (same-origin proxy via Cloudflare Pages Functions, ADR-0011/ADR-0012)
+  - url: https://{api_domain}/v1
+    description: Production, direct (cashier app); the API on the VPS behind Caddy (ADR-0012)
+    variables:
+      api_domain:
+        default: api.example.com
+        description: API_DOMAIN from ops/vps/.env
   - url: http://localhost:3000/v1
     description: Local development
 tags:
@@ -427,7 +431,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CategoryInput' }
+            schema: { $ref: '#/components/schemas/CategoryUpdate' }
       responses:
         '200':
           description: Updated
@@ -1582,6 +1586,13 @@ components:
       properties:
         name: { type: string, maxLength: 40 }
         sort_order: { type: integer, default: 0 }
+    CategoryUpdate:
+      type: object
+      description: Partial update of a category; at least one field.
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40, pattern: '\S', description: Must contain a non-space character }
+        sort_order: { type: integer, minimum: -100000, maximum: 100000 }
     Product:
       type: object
       required: [id, category_id, name, price, is_active, is_sold_out]

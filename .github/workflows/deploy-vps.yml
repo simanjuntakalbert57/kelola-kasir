@@ -1,0 +1,154 @@
+# Build the API image, push it to GHCR and roll it out on the VPS (ADR-0012, docs/ops/runbook.md).
+#  - Automatic: after CI succeeds on a push to main.
+#  - Manual: Actions → Deploy API to VPS → Run workflow. With `tag` (a full commit SHA that was deployed
+#    before) it skips the build and redeploys that image: this is the rollback.
+# Needs: variables VPS_HOST, VPS_KNOWN_HOSTS, API_HEALTH_URL (+ optional VPS_USER), secret VPS_SSH_KEY.
+# Until VPS_HOST is set, only the image is built and pushed.
+name: Deploy API to VPS
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Rollback: full commit SHA of an image deployed before. Empty = build and deploy main.'
+        required: false
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/simanjuntakalbert57/kelola-kasir-api
+
+jobs:
+  deploy:
+    name: Build image and deploy
+    if: >-
+      github.repository == 'simanjuntakalbert57/kelola-kasir' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER || 'deploy' }}
+    steps:
+      - name: Pick the commit and image tag
+        id: pick
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::tag must be a full 40-character commit SHA"; exit 1
+            fi
+            echo "sha=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${RUN_SHA:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pick.outputs.sha }}
+
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push the API image
+        if: steps.pick.outputs.build == 'true'
+        env:
+          SHA: ${{ steps.pick.outputs.sha }}
+        run: |
+          docker build -f apps/api/Dockerfile \
+            --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
+            --label org.opencontainers.image.revision="$SHA" \
+            -t "$IMAGE:$SHA" -t "$IMAGE:main" .
+          docker push "$IMAGE:$SHA"
+          docker push "$IMAGE:main"
+          echo "Image: \`$IMAGE:$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check that the image exists (rollback)
+        if: steps.pick.outputs.build == 'false'
+        run: docker manifest inspect "$IMAGE:${{ steps.pick.outputs.sha }}" >/dev/null
+
+      - name: Skip the rollout until the VPS is configured
+        if: env.VPS_HOST == ''
+        run: echo "::notice::Variable VPS_HOST is not set; image pushed, nothing deployed (docs/ops/deploy.md step 6)."
+
+      - name: Set up SSH
+        if: env.VPS_HOST != ''
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "::error::Secret VPS_SSH_KEY and variable VPS_KNOWN_HOSTS are required (docs/ops/deploy.md step 6)"; exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host vps\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  BatchMode yes\n' \
+            "$VPS_HOST" "$VPS_USER" > ~/.ssh/config
+
+      - name: Copy compose files to /opt/kelola-kasir
+        if: env.VPS_HOST != ''
+        run: |
+          ops/vps/stage.sh "$RUNNER_TEMP/bundle"
+          tar -C "$RUNNER_TEMP/bundle" -czf - . | ssh vps 'tar -xzf - -C /opt/kelola-kasir'
+
+      - name: Roll out (previous release is restored if the new one is unhealthy)
+        if: env.VPS_HOST != ''
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.pick.outputs.sha }}
+        run: |
+          printf '%s' "$TOKEN" | ssh vps docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          ssh vps bash -s -- "$SHA" <<'REMOTE'
+          set -euo pipefail
+          tag="$1"
+          cd /opt/kelola-kasir
+          [ -f .env ] || { echo "/opt/kelola-kasir/.env is missing (docs/ops/deploy.md step 5)" >&2; exit 1; }
+          [ -f release.env ] && cp release.env release.env.prev
+          echo "API_TAG=$tag" > release.env
+          if ./compose.sh pull api && ./compose.sh up -d --wait --wait-timeout 240 --remove-orphans; then
+            ./compose.sh exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+            docker image prune -f >/dev/null
+            echo "deployed $tag"
+          else
+            echo "new release is unhealthy; last API logs:" >&2
+            ./compose.sh logs --tail 80 api >&2 || true
+            if [ -f release.env.prev ]; then
+              mv release.env.prev release.env
+              ./compose.sh up -d --wait --wait-timeout 240 || true
+              echo "restored $(cat release.env)" >&2
+            fi
+            exit 1
+          fi
+          REMOTE
+
+      - name: Log out of GHCR on the VPS
+        if: always() && env.VPS_HOST != ''
+        run: ssh vps 'docker logout ghcr.io' >/dev/null 2>&1 || true
+
+      - name: Check /healthz from outside
+        if: env.VPS_HOST != '' && vars.API_HEALTH_URL != ''
+        env:
+          API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+        run: curl -fsS --max-time 20 --retry 5 --retry-delay 5 --retry-all-errors "$API_HEALTH_URL"

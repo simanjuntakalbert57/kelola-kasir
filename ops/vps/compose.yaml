@@ -1,0 +1,113 @@
+# Production stack on the VPS (Rumahweb, ADR-0012, docs/ops/deploy.md).
+#   caddy (80/443, automatic HTTPS) -> api (Fastify) -> db (PostgreSQL 16, never published)
+#   backup (profile "backup"): pg_dump -> age -> R2/B2, started daily by the systemd timer from setup.sh.
+#
+# Run it through ./compose.sh, which loads .env (owner secrets, never in the repo) and release.env
+# (API_TAG written by the deploy workflow). Every value comes from those files.
+name: kelola-kasir
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kelola_kasir
+      POSTGRES_USER: kelola_kasir
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Read by initdb/10-backup-role.sh on the first start only.
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD in .env}
+    # Defaults fit a 2 GB VPS; on 4 GB set PG_SHARED_BUFFERS=512MB and PG_EFFECTIVE_CACHE_SIZE=1536MB in .env.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - max_connections=50
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U kelola_kasir -d kelola_kasir]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/simanjuntakalbert57/kelola-kasir-api}:${API_TAG:?API_TAG comes from release.env}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Caddy is the only proxy in front of the API.
+      TRUST_PROXY: '1'
+      DB_POOL_MAX: '10'
+      # The image applies migrations on every start, then starts the server.
+      DATABASE_URL: postgres://kelola_kasir:${POSTGRES_PASSWORD}@db:5432/kelola_kasir
+      DATABASE_URL_DIRECT: postgres://kelola_kasir:${POSTGRES_PASSWORD}@db:5432/kelola_kasir
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?set JWT_PRIVATE_KEY in .env}
+      PIN_FINGERPRINT_SECRET: ${PIN_FINGERPRINT_SECRET:?set PIN_FINGERPRINT_SECRET in .env}
+      # Same value as in the Cloudflare Pages project (dashboard proxy).
+      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?set PROXY_SHARED_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+    healthcheck:
+      test: [CMD-SHELL, wget -qO- http://127.0.0.1:3000/healthz >/dev/null || exit 1]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backup:
+    profiles: [backup]
+    build: ./backup
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://backup_ro:${BACKUP_DB_PASSWORD}@db:5432/kelola_kasir
+      AGE_RECIPIENT: ${AGE_RECIPIENT:-}
+      BACKUP_TARGET: ${BACKUP_TARGET:-}
+      R2_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: auto
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+    volumes:
+      # Only used by local:<dir> targets (CI smoke test, emergency copies); empty otherwise.
+      - ./backups:/backups
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
