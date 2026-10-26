@@ -22,6 +22,18 @@ export async function pendingCount(db: Db): Promise<number> {
   return row?.n ?? 0;
 }
 
+/**
+ * Sales still waiting for the server. Closing a shift cares only about these: a deferred or parked
+ * void request / sold-out toggle must not push an online close onto the offline path.
+ */
+export async function unsyncedSalesCount(db: Db): Promise<number> {
+  const row = await get<{ n: number }>(
+    db,
+    "SELECT COUNT(*) AS n FROM outbox WHERE state = 'pending' AND type = 'transaction.create'",
+  );
+  return row?.n ?? 0;
+}
+
 export async function rejectedCount(db: Db): Promise<number> {
   const row = await get<{ n: number }>(
     db,

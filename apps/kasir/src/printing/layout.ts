@@ -157,8 +157,8 @@ export function buildReceiptLines(r: ReceiptData): ReceiptLine[] {
   left(DASHES);
   for (const t of wrap(`No ${r.number}`)) left(t);
   left(formatDateTime(r.createdAt, r.timeZone));
-  left(`Kasir: ${r.cashierName}`);
-  if (r.customerLabel) left(`Pelanggan: ${r.customerLabel}`);
+  for (const t of wrap(`Kasir: ${r.cashierName}`)) left(t);
+  if (r.customerLabel) for (const t of wrap(`Pelanggan: ${r.customerLabel}`)) left(t);
   left(DASHES);
   for (const item of r.items) {
     for (const t of wrap(`${item.quantity}x ${item.name}`, COLS, 3)) left(t);

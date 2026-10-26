@@ -88,6 +88,17 @@ describe('receipt layout (32 columns)', () => {
     expect(text).not.toContain('CETAK ULANG');
   });
 
+  it('wraps long cashier and customer lines instead of cutting them', () => {
+    const lines = buildReceiptLines({
+      ...RECEIPT,
+      cashierName: 'Siti Nurhaliza Binti Abdullah Rahman',
+      customerLabel: 'Meja 12 dekat jendela belakang',
+    }).map((l) => l.text);
+    expect(lines.join(' ')).toContain('Rahman');
+    expect(lines.join(' ')).toContain('belakang');
+    expect(lines.every((l) => l.length <= COLS)).toBe(true);
+  });
+
   it('marks reprints, voids and unsynced receipts', () => {
     expect(receiptText({ ...RECEIPT, reprint: true })).toContain('*** CETAK ULANG ***');
     expect(receiptText({ ...RECEIPT, status: 'void_requested' })).toContain('MENUNGGU VOID');

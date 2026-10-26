@@ -177,6 +177,7 @@ describe('void request (M-14)', () => {
       transaction_id: sale.id,
       reason: 'Salah pesan menu',
     });
+    expect(JSON.parse(queue[1]?.payload ?? '{}')).not.toHaveProperty('id');
   });
 
   it('needs a reason and a paid transaction', async () => {
@@ -310,6 +311,41 @@ describe('close shift (M-13)', () => {
       closed_offline: true,
       unsynced_count: 1,
     });
+  });
+
+  it('a deferred void request does not push an online close onto the offline path', async () => {
+    const sale = await sell(10000, 1);
+    await pushOutbox(
+      { syncPush: async () => ({ results: [{ id: sale.id, status: 'applied' }] }) },
+      db,
+    );
+    await requestVoid(db, { transactionId: sale.id, reason: 'salah input', employeeId: 'e1' });
+    await pushOutbox(
+      {
+        syncPush: async (mutations: { id: string }[]) => ({
+          results: mutations.map((m) => ({
+            id: m.id,
+            status: 'rejected' as const,
+            code: 'UNSUPPORTED_MUTATION',
+          })),
+        }),
+      } as never,
+      db,
+    );
+    expect(await pendingCount(db)).toBe(1); // the void is still pending
+    const api = {
+      closeShift: vi.fn(async () => {
+        throw new ApiError(409, 'PENDING_QRIS_EXISTS', 'pending qris');
+      }),
+    };
+    await expect(
+      closeShift(
+        { api, db },
+        { shift: SHIFT, employeeId: 'e1', actualCash: 1, allowOffline: false },
+      ),
+    ).rejects.toMatchObject({ code: 'PENDING_QRIS_EXISTS' });
+    expect(api.closeShift).toHaveBeenCalledTimes(1); // online path was taken and its check ran
+    expect((await db.all("SELECT id FROM outbox WHERE type = 'shift.close'")).length).toBe(0);
   });
 
   it('with sales still queued it does not close online ahead of them', async () => {

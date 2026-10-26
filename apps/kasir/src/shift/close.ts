@@ -1,7 +1,7 @@
 import type { Shift, ShiftSummary } from '@kelola-kasir/contracts';
 import { ApiError, NetworkError, type ApiClient } from '../api/client';
 import { get, type Db } from '../db/types';
-import { enqueueMutation, pendingCount } from '../sync/outbox';
+import { enqueueMutation, unsyncedSalesCount } from '../sync/outbox';
 
 /** Totals as the closing screen shows them (same fields as the server's `ShiftSummary`). */
 export interface ShiftTotals {
@@ -97,7 +97,7 @@ export class OfflineCloseNotConfirmed extends Error {
 }
 
 /**
- * Closes the shift (M-13). Online with nothing queued: `POST /shifts/{id}/close`, the server's
+ * Closes the shift (M-13). Online with no unsynced sale: `POST /shifts/{id}/close`, the server's
  * summary is final. Offline (or while sales are still queued): queue `shift.close` behind them in
  * the outbox with `closed_offline=true` once the cashier confirmed the warning; the server
  * recomputes the summary when it applies the mutation.
@@ -111,7 +111,7 @@ export async function closeShift(
   const now = input.now ?? new Date();
   const note = input.note?.trim();
   const closedAt = now.toISOString();
-  const unsynced = await pendingCount(db);
+  const unsynced = await unsyncedSalesCount(db);
   const totals = await localShiftTotals(db, input.shift);
 
   if (unsynced === 0) {

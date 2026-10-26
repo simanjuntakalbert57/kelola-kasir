@@ -44,7 +44,8 @@ export async function requestVoid(
       type: 'void_request.create',
       employeeId: input.employeeId,
       clientCreatedAt: now.toISOString(),
-      payload: { id, transaction_id: input.transactionId, reason },
+      // The mutation id is the void request id; the payload matches the server's sync schema.
+      payload: { transaction_id: input.transactionId, reason },
     });
   });
 }
