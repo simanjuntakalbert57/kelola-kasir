@@ -22,6 +22,12 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-status-bar", "expo-dev-client"]
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-dev-client",
+      "./plugins/withBluetooth"
+    ]
   }
 }

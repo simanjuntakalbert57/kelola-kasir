@@ -1,7 +1,7 @@
 import type { TransactionCreate } from '@kelola-kasir/contracts';
 import { cashChange } from '@kelola-kasir/money';
 import type { Db } from '../db/types';
-import { get } from '../db/types';
+import { enqueueMutation } from '../sync/outbox';
 import { uuidv7 } from '../lib/uuid';
 import { totalsOf, type Cart } from './cart';
 import { reserveNumber } from './number';
@@ -102,21 +102,21 @@ export async function createCashSale(
 ): Promise<CashSale> {
   const total = totalsOf(cart).total;
   const change = cashChange(total, cashTendered);
-  return db.transaction(async () => {
-    const number = await reserveNumber(db, ctx, now);
+  return db.transaction(async (dbTx) => {
+    const number = await reserveNumber(dbTx, ctx, now);
     const { body } = baseBody(cart, ctx, number, now);
     const tx: TransactionCreate = {
       ...body,
       payment: { id: uuidv7(now.getTime()), method: 'cash', cash_tendered: cashTendered },
     };
-    await insertLocal(db, tx, ctx, { status: 'paid', cashChange: change, syncState: 'pending' });
-    const seq =
-      (await get<{ n: number }>(db, 'SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM outbox'))?.n ?? 1;
-    await db.run(
-      `INSERT INTO outbox (id, seq, type, employee_id, client_created_at, payload, state)
-       VALUES (?, ?, 'transaction.create', ?, ?, ?, 'pending')`,
-      [tx.id, seq, ctx.employee.id, tx.client_created_at, JSON.stringify(tx)],
-    );
+    await insertLocal(dbTx, tx, ctx, { status: 'paid', cashChange: change, syncState: 'pending' });
+    await enqueueMutation(dbTx, {
+      id: tx.id,
+      type: 'transaction.create',
+      employeeId: ctx.employee.id,
+      clientCreatedAt: tx.client_created_at,
+      payload: tx,
+    });
     return { id: tx.id, number, total, cashTendered, change };
   });
 }
@@ -128,8 +128,8 @@ export async function buildQrisTransaction(
   cart: Cart,
   now: Date = new Date(),
 ): Promise<TransactionCreate> {
-  return db.transaction(async () => {
-    const number = await reserveNumber(db, ctx, now);
+  return db.transaction(async (dbTx) => {
+    const number = await reserveNumber(dbTx, ctx, now);
     const { body } = baseBody(cart, ctx, number, now);
     return { ...body, payment: { id: uuidv7(now.getTime()), method: 'qris' as const } };
   });
@@ -137,7 +137,7 @@ export async function buildQrisTransaction(
 
 /** Keeps a paid QRIS sale in local history (already on the server, so nothing to push). */
 export async function recordPaidQris(db: Db, ctx: SaleContext, tx: TransactionCreate) {
-  await db.transaction(() =>
-    insertLocal(db, tx, ctx, { status: 'paid', cashChange: null, syncState: 'synced' }),
+  await db.transaction((dbTx) =>
+    insertLocal(dbTx, tx, ctx, { status: 'paid', cashChange: null, syncState: 'synced' }),
   );
 }

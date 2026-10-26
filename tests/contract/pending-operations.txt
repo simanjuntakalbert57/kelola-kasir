@@ -1,14 +1,4 @@
 # OpenAPI operations the API does not implement yet (operationId  # route).
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Waiting for Backend 3 (DEAR-15): void, export, dashboard, reports, webhook.
-exportTransactions  # GET /transactions/export
-createVoidRequest  # POST /transactions/{transaction_id}/void-requests
 paymentWebhook  # POST /webhooks/payments/{provider}
-listVoidRequests  # GET /void-requests
-approveVoidRequest  # POST /void-requests/{void_request_id}/approve
-rejectVoidRequest  # POST /void-requests/{void_request_id}/reject
-approveVoidWithOwnerPin  # POST /void-requests/{void_request_id}/approve-with-pin
-getDashboardSummary  # GET /dashboard/summary
-getSalesSeries  # GET /dashboard/sales-series
-getTopProducts  # GET /dashboard/top-products
-getSalesReport  # GET /reports/sales

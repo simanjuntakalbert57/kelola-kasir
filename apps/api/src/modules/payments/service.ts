@@ -63,6 +63,24 @@ async function expire(
   });
 }
 
+/** Expire this shift's pending QRIS payments that are past their deadline (used when closing). */
+export async function expireOverdueInShift(tx: DbOrTx, shiftId: string, now: Date): Promise<void> {
+  const due = await tx
+    .select({ payment: payments, transaction: transactions })
+    .from(payments)
+    .innerJoin(transactions, eq(transactions.id, payments.transactionId))
+    .where(
+      and(
+        eq(transactions.shiftId, shiftId),
+        eq(payments.status, 'pending'),
+        eq(payments.method, 'qris'),
+        lte(payments.expiresAt, now),
+      ),
+    )
+    .for('update', { of: [payments, transactions] });
+  for (const row of due) await expire(tx, row.payment, row.transaction, now);
+}
+
 async function markCancelled(
   tx: DbOrTx,
   payment: PaymentRow,

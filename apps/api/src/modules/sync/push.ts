@@ -4,6 +4,7 @@ import type { AppContext } from '../../context.js';
 import { AppError } from '../../errors.js';
 import { setSoldOut } from '../catalog/availability.js';
 import { closeBodySchema, closeShift } from '../shifts/close.js';
+import { requestVoid, voidReasonSchema } from '../voids/service.js';
 import { createTransaction, transactionCreateSchema } from '../transactions/service.js';
 
 export const MAX_MUTATIONS = 50;
@@ -40,6 +41,7 @@ export interface PushDevice {
 }
 
 const shiftCloseSchema = closeBodySchema.extend({ shift_id: uuid });
+const voidRequestSchema = z.object({ transaction_id: uuid, reason: voidReasonSchema });
 const soldOutSchema = z.object({ product_id: uuid, is_sold_out: z.boolean() });
 
 const reject = (id: string, code: string, detail: string): MutationResult => ({
@@ -110,8 +112,24 @@ async function apply(
       if (!result) return reject(m.id, 'NOT_FOUND', 'Product not found');
       return { id: m.id, status: result.changed ? 'applied' : 'duplicate' };
     }
-    case 'void_request.create':
-      return reject(m.id, 'UNSUPPORTED_MUTATION', 'Void requests are not available yet');
+    case 'void_request.create': {
+      if (!m.employee_id) return reject(m.id, 'EMPLOYEE_REQUIRED', 'employee_id is required');
+      const parsed = voidRequestSchema.safeParse(m.payload);
+      if (!parsed.success) return reject(m.id, 'VALIDATION_ERROR', schemaProblem(parsed.error));
+      const result = await requestVoid(
+        ctx,
+        {
+          outletId: device.outletId,
+          employeeId: m.employee_id,
+          deviceId: device.id,
+          source: 'sync',
+          ...(ip ? { ip } : {}),
+        },
+        parsed.data.transaction_id,
+        { id: m.id, reason: parsed.data.reason, requestedAt: m.client_created_at },
+      );
+      return { id: m.id, status: result.created ? 'applied' : 'duplicate' };
+    }
     default:
       return reject(m.id, 'UNKNOWN_MUTATION', `Unknown mutation type "${m.type}"`);
   }
