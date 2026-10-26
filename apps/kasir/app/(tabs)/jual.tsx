@@ -1,18 +1,234 @@
+import type { Category } from '@kelola-kasir/contracts';
+import { formatRupiah } from '@kelola-kasir/money';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../src/auth/SessionProvider';
-import { colors } from '../../src/theme';
-import { EmptyState, TopBar } from '../../src/ui/components';
+import type { CatalogProduct } from '../../src/catalog/repository';
+import { addProduct, itemCount, summaryLabel, totalsOf } from '../../src/sales/cart';
+import { qrisAvailability } from '../../src/sales/qris';
+import { useSales } from '../../src/sales/SalesProvider';
+import { colors, radius, space } from '../../src/theme';
+import { Banner, Button, Chip, EmptyState, TopBar } from '../../src/ui/components';
+
+export function pendingBanner(n: number): string {
+  return `${n} transaksi belum tersinkron`;
+}
 
 export default function JualScreen() {
-  const { paired, shift } = useSession();
+  const router = useRouter();
+  const { paired } = useSession();
+  const { catalog, catalogVersion, cart, setCart, online, pending } = useSales();
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selected, setSelected] = useState<string>('favorit');
+  const [search, setSearch] = useState('');
+  const [products, setProducts] = useState<CatalogProduct[] | null>(null);
+
+  useEffect(() => {
+    if (!catalog) return;
+    void catalog.listCategories().then(setCategories);
+  }, [catalog, catalogVersion]);
+
+  useEffect(() => {
+    if (!catalog) return;
+    // A search looks across every category; chips only apply when the box is empty.
+    const query = search.trim() ? { search } : { category: selected };
+    void catalog.listProducts(query).then(setProducts);
+  }, [catalog, catalogVersion, selected, search]);
+
+  const count = itemCount(cart);
+  const qris = qrisAvailability(online);
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <TopBar title={`🍹 ${paired?.outlet.name ?? ''}`} />
-      <EmptyState
-        icon="🍹"
-        title="Katalog segera hadir"
-        body={`Shift terbuka sejak ${shift ? new Date(shift.opened_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}. Katalog dan keranjang dikerjakan di task M-2/M-6/M-8.`}
+    <SafeAreaView style={styles.root} edges={['top']}>
+      <TopBar
+        title={`🍹 ${paired?.outlet.name ?? ''}`}
+        right={
+          <Text style={[styles.net, { color: online ? colors.greenText : colors.warn }]}>
+            {online ? '● Online' : '● Offline'}
+          </Text>
+        }
       />
+      {!online ? (
+        <Banner tone="warn">Offline — transaksi cash tetap tersimpan dan disinkron nanti</Banner>
+      ) : null}
+      {pending > 0 ? <Banner tone="info">{pendingBanner(pending)}</Banner> : null}
+      <View style={styles.searchRow}>
+        <TextInput
+          testID="search"
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Cari menu…"
+          placeholderTextColor={colors.muted}
+          style={styles.search}
+        />
+      </View>
+      <View style={{ height: 52 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chips}
+        >
+          <Chip
+            label="⭐ Favorit"
+            on={!search && selected === 'favorit'}
+            onPress={() => setSelected('favorit')}
+          />
+          {categories.map((c) => (
+            <Chip
+              key={c.id}
+              label={c.name}
+              on={!search && selected === c.id}
+              onPress={() => setSelected(c.id)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+      {products === null ? null : products.length === 0 ? (
+        <EmptyState
+          icon="🍹"
+          title={search ? 'Menu tidak ditemukan' : 'Belum ada menu'}
+          body={
+            search
+              ? 'Coba kata kunci lain.'
+              : 'Owner menambah menu di dashboard; menu tersinkron otomatis saat online.'
+          }
+        />
+      ) : (
+        <FlatList
+          data={products}
+          keyExtractor={(p) => p.id}
+          numColumns={2}
+          contentContainerStyle={styles.grid}
+          columnWrapperStyle={{ gap: space.s3 }}
+          renderItem={({ item }) => {
+            const inCart = cart.lines.find((l) => l.productId === item.id)?.quantity ?? 0;
+            return (
+              <Pressable
+                testID={`product-${item.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.name} ${formatRupiah(item.price)}`}
+                onPress={() => setCart((c) => addProduct(c, item))}
+                style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
+              >
+                {inCart > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{inCart}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.cardName} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                <Text style={styles.cardPrice}>{formatRupiah(item.price)}</Text>
+              </Pressable>
+            );
+          }}
+        />
+      )}
+      <View style={styles.payBar}>
+        <Pressable
+          testID="cart-summary"
+          accessibilityRole="button"
+          disabled={count === 0}
+          onPress={() => router.push('/cart')}
+          style={{ flex: 1 }}
+        >
+          <Text style={styles.payLabel}>
+            {count === 0 ? 'Keranjang kosong' : summaryLabel(cart, formatRupiah)}
+          </Text>
+          <Text style={styles.payHint}>
+            {count === 0 ? 'Tap menu untuk menambah' : 'Ketuk untuk ubah pesanan'}
+          </Text>
+        </Pressable>
+        <Button
+          testID="pay-cash"
+          label="Cash"
+          variant="accent"
+          large
+          disabled={count === 0 || totalsOf(cart).total <= 0}
+          onPress={() => router.push('/cash')}
+          style={styles.payBtn}
+        />
+        <Button
+          testID="pay-qris"
+          label="QRIS"
+          variant="primary"
+          large
+          disabled={count === 0 || !qris.enabled}
+          onPress={() => router.push('/qris')}
+          style={styles.payBtn}
+        />
+      </View>
+      {qris.hint && count > 0 ? <Text style={styles.qrisHint}>{qris.hint}</Text> : null}
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  net: { fontSize: 13, fontWeight: '700' },
+  searchRow: { paddingHorizontal: space.s4, paddingTop: space.s3 },
+  search: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    color: colors.ink,
+    paddingHorizontal: space.s4,
+    fontSize: 16,
+  },
+  chips: { gap: space.s2, paddingHorizontal: space.s4, alignItems: 'center' },
+  grid: { padding: space.s4, gap: space.s3 },
+  card: {
+    flex: 1,
+    minHeight: 96,
+    padding: space.s3,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    justifyContent: 'space-between',
+  },
+  cardName: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+  cardPrice: {
+    color: colors.greenText,
+    fontSize: 15,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  badge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.orange,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    zIndex: 1,
+  },
+  badgeText: { color: '#fff', fontWeight: '800' },
+  payBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.s2,
+    padding: space.s3,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  payLabel: { color: colors.ink, fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  payHint: { color: colors.muted, fontSize: 12 },
+  payBtn: { minWidth: 84 },
+  qrisHint: {
+    color: colors.warn,
+    textAlign: 'center',
+    fontSize: 12,
+    paddingBottom: 6,
+    backgroundColor: colors.surface,
+  },
+});

@@ -80,7 +80,32 @@ export async function loadPairing(
 
 /** Revoked/unpaired device: wipe every local credential and cache. */
 export async function wipeDevice(store: KeyValueStore): Promise<void> {
+  const count = (await getJson<number>(store, STORAGE_KEYS.employees)) ?? 0;
+  for (let i = 0; i < count; i++) await store.remove(employeeKey(i));
   for (const key of Object.values(STORAGE_KEYS)) await store.remove(key);
+}
+
+/**
+ * SecureStore caps a value at 2048 bytes, so the employee cache is one key per employee
+ * (`employee.<n>`); `employees_cache` only holds how many there are. Neither grows with headcount.
+ */
+const employeeKey = (index: number) => `employee.${index}`;
+
+async function readEmployeeCache(store: KeyValueStore): Promise<CachedEmployee[]> {
+  const count = (await getJson<number>(store, STORAGE_KEYS.employees)) ?? 0;
+  const found: CachedEmployee[] = [];
+  for (let i = 0; i < count; i++) {
+    const e = await getJson<CachedEmployee>(store, employeeKey(i));
+    if (e) found.push(e);
+  }
+  return found;
+}
+
+async function writeEmployeeCache(store: KeyValueStore, employees: CachedEmployee[]) {
+  const previous = (await getJson<number>(store, STORAGE_KEYS.employees)) ?? 0;
+  for (let i = employees.length; i < previous; i++) await store.remove(employeeKey(i));
+  for (const [i, e] of employees.entries()) await setJson(store, employeeKey(i), e);
+  await setJson(store, STORAGE_KEYS.employees, employees.length);
 }
 
 /**
@@ -93,10 +118,11 @@ export async function loadEmployees(
 ): Promise<{ employees: CachedEmployee[]; fromCache: boolean }> {
   try {
     const { data } = await api.listDeviceEmployees();
-    const previous = (await getJson<CachedEmployee[]>(store, STORAGE_KEYS.employees)) ?? [];
+    const previous = await readEmployeeCache(store);
     let hashes = new Map(previous.map((e) => [e.id, e.pin_hash ?? null]));
     try {
       const pull = await api.syncPull();
+      if (pull.device_revoked) throw new ApiError(401, 'DEVICE_REVOKED', 'Perangkat dicabut.');
       const fresh = pull.changes.employees ?? [];
       if (fresh.length > 0) hashes = new Map(fresh.map((e) => [e.id, e.pin_hash ?? null]));
     } catch (error) {
@@ -108,11 +134,11 @@ export async function loadEmployees(
       name: e.name,
       pin_hash: hashes.get(e.id) ?? null,
     }));
-    await setJson(store, STORAGE_KEYS.employees, employees);
+    await writeEmployeeCache(store, employees);
     return { employees, fromCache: false };
   } catch (error) {
     if (error instanceof NetworkError) {
-      const cached = (await getJson<CachedEmployee[]>(store, STORAGE_KEYS.employees)) ?? [];
+      const cached = await readEmployeeCache(store);
       return { employees: cached, fromCache: true };
     }
     throw error;

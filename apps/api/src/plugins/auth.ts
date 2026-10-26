@@ -15,6 +15,8 @@ export interface Guards {
   employee: preHandlerAsyncHookHandler;
   /** Either an owner token, or an employee token with its device. */
   ownerOrEmployee: preHandlerAsyncHookHandler;
+  /** Owner bearer token, or else a paired device (`X-Device-Token`); no employee session needed. */
+  ownerOrDevice: preHandlerAsyncHookHandler;
 }
 
 function bearerToken(req: FastifyRequest): string | null {
@@ -131,6 +133,15 @@ export function createGuards(ctx: AppContext): Guards {
       if (claims.kind !== 'employee') throw errors.forbidden('Employee access is required');
       req.principal = await loadEmployee(req, claims);
     }),
+    ownerOrDevice: wrap(async (req) => {
+      if (bearerToken(req) && !req.headers['x-device-token']) {
+        const claims = await verifyBearer(req);
+        if (claims.kind !== 'owner') throw errors.forbidden('Owner or device access is required');
+        req.principal = await loadOwner(claims);
+        return;
+      }
+      await loadDevice(req);
+    }),
     ownerOrEmployee: wrap(async (req) => {
       const claims = await verifyBearer(req);
       req.principal =
@@ -147,4 +158,11 @@ export function requireUser(req: FastifyRequest): UserPrincipal {
 export function requireEmployee(req: FastifyRequest): EmployeePrincipal {
   if (req.principal?.type !== 'employee') throw errors.forbidden('Employee access is required');
   return req.principal;
+}
+
+/** Outlet of whoever called an `ownerOrDevice` (or any authenticated) endpoint. */
+export function requestOutletId(req: FastifyRequest): string {
+  const outletId = req.principal?.outletId ?? req.device?.outletId;
+  if (!outletId) throw errors.unauthorized();
+  return outletId;
 }

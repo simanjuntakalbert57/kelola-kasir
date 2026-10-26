@@ -5,7 +5,8 @@ Backend API: Fastify 5, Drizzle ORM, PostgreSQL 16, Zod. Contract: [`docs/api/op
 
 Implemented so far (DEAR-8): skeleton, owner auth (B-2), devices (B-3), employees + PIN login + RBAC (B-4),
 shifts (B-7), backup tooling (B-14, see [`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md)).
-Catalog, transactions, payments, sync, dashboard and settings follow in B-5/B-6/B-8..B-13.
+DEAR-11: catalog (B-5), store settings and static QRIS (B-6), transactions (B-8), payments (B-9), offline sync (B-10).
+Dashboard, reports, export and void requests follow in B-11..B-13, B-15.
 
 ## Run locally
 
@@ -32,7 +33,8 @@ TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres pnpm --filter @kel
 ```
 
 Each test file works in a throw-away database and each test seeds its own outlet, so tests never truncate tables
-(the audit log is append-only by design). `pnpm --filter @kelola-kasir/api test:coverage` prints coverage.
+(the audit log is append-only by design). `pnpm test` prints coverage and fails when `transactions`, `payments` or `sync`
+drop below 80%.
 
 ## Migrations
 
@@ -46,7 +48,8 @@ append-only audit log.
 - Money is integer Rupiah (`BIGINT`). Timestamps are UTC; business days (`date_from`/`date_to`) are WIB (UTC+7).
 - Services take the database or a transaction handle. Every audited change writes its `audit_logs` row in the same
   transaction. PINs, passwords and tokens are never logged or audited.
-- RBAC is enforced per route by guards in `src/plugins/auth.ts`: `owner`, `device`, `employee`, `ownerOrEmployee`.
+- RBAC is enforced per route by guards in `src/plugins/auth.ts`: `owner`, `device`, `employee`, `ownerOrEmployee`,
+  `ownerOrDevice`. The `manager` role is treated exactly like `owner` (TDD §2.3).
   A valid token of the wrong kind is `403 FORBIDDEN`; missing/invalid credentials are `401`.
 
 ## Implemented endpoints
@@ -69,8 +72,38 @@ append-only audit log.
 | `GET /shifts/{id}/summary`                                                       | owner or employee | Employees: the open shift or a shift they closed                                                                                    |
 | `POST /shifts/{id}/close`                                                        | employee          | `expected_cash = opening + cash sales (paid + void_requested, created <= closed_at)`; `409 SHIFT_CLOSED`, `409 PENDING_QRIS_EXISTS` |
 
-Error codes added beyond the contract's examples: `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED` (429), `RATE_LIMITED` (429),
-`DEVICE_REVOKED`, `INVALID_PAIRING_CODE`, `DEVICE_LIMIT_REACHED`, `ID_CONFLICT`, `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR`.
+### Catalog, settings, transactions, payments and sync (DEAR-11)
+
+| Endpoint                                                                          | Auth                         | Notes                                                                                                                                                     |
+| --------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /catalog`                                                                    | owner or device              | Categories + active products and a `/sync/pull` cursor                                                                                                    |
+| `GET/POST /categories`, `PATCH/DELETE /categories/{id}`                           | owner                        | Soft delete; `409 CATEGORY_NOT_EMPTY` while products remain                                                                                               |
+| `GET/POST /products`, `GET/PATCH/DELETE /products/{id}`                           | owner                        | One price per product, `is_favorite` + `sort_order`; price changes audited (`product.price_changed`); soft delete keeps transaction snapshots             |
+| `PATCH /products/{id}/availability`                                               | owner or employee            | Sold-out flag, audited, idempotent                                                                                                                        |
+| `POST /uploads`                                                                   | owner                        | Presigned PUT (SigV4, Cloudflare R2). `503 UPLOADS_NOT_CONFIGURED` without `STORAGE_*` env vars. Content type is signed, size capped at 2 MiB             |
+| `GET /settings`, `PATCH /settings`                                                | owner or device / owner      | Receipt header/footer, quick cash, offline login, owner PIN (hashed, must differ from employee PINs). QRIS payload validated (`422 INVALID_QRIS_PAYLOAD`) |
+| `POST /settings/qris/decode`                                                      | owner                        | Reads the QRIS payload from a PNG/JPEG of the shop's QR (jsQR) and validates structure + CRC                                                              |
+| `GET/POST /transactions`, `GET /transactions/{id}`, `GET .../receipt`             | employee / owner             | Employees: open shift or today only. Create is idempotent on `id`, recomputes totals, snapshots prices, flags `price_mismatch`                            |
+| `GET /payments/{id}`, `POST /payments/{id}/confirm`, `POST /payments/{id}/cancel` | owner or employee / employee | Static QRIS with manual confirmation, 15 minute expiry (job every 30 s + lazy on read)                                                                    |
+| `GET /sync/pull`, `POST /sync/push`                                               | device                       | Cursor pull with tombstones, batch push (max 50) idempotent per mutation id                                                                               |
+
+All error codes are enumerated in the contract (`ErrorCode` in `docs/api/openapi.yaml`, also in `@kelola-kasir/contracts`).
+
+### Static QRIS
+
+`StaticQrisProvider` (ADR-0007) shows the shop's own QR with manual confirmation. With `qris_embed_amount` it inserts the
+amount (EMVCo tag 54), switches tag 01 to `12` and recomputes the CRC16 so buyers need not type it (test with real
+e-wallets before enabling it in production). `outlet_settings.qris_mode = dynamic` is reserved for the gateway providers (phase 2) and
+currently answers `503 QRIS_PROVIDER_UNAVAILABLE`. The expiry job (`startExpiryJob`, started by `src/server.ts`) turns
+pending payments older than 15 minutes into `expired` and their transaction into `cancelled`; an advisory lock keeps several
+instances from doing it twice.
+
+### Sync
+
+`/sync/pull` returns changes with `updated_seq > cursor` (omit the cursor for a full snapshot without tombstones),
+at most `limit` (default 500) per page. Employees carry `pin_hash` only when the owner enabled offline login.
+`/sync/push` applies mutations in order, each in its own DB transaction; the answer per mutation is `applied`, `duplicate`
+(replay, safe) or `rejected` with a `code`. See TDD §2.4 and ADR-0008 for the conflict rules.
 
 ## Design notes
 
@@ -79,5 +112,7 @@ Error codes added beyond the contract's examples: `INVALID_CREDENTIALS`, `ACCOUN
 - **PIN lockout** counts the attempt _before_ verifying (row lock), so parallel guesses cannot outrun the lock.
 - **Sessions**: employee JWTs (EdDSA, 12 h) carry a `jti` backed by `employee_sessions`; every request re-checks the session,
   the employee, and the device token, so logout, deactivation and device revocation take effect at once.
+- **Transactions** are append-only: the DB trigger of `0001_triggers.sql` refuses edits of financial columns once a
+  transaction left `pending`, and `POST /transactions` + `shift.close` + QRIS confirmation never touch them afterwards.
 - **Closing a shift** marks transactions created after `closed_at` as `after_shift_close` and reports them as `late_*`;
   a closed shift keeps the totals recorded at close.
