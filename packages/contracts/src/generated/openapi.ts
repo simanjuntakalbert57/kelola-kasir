@@ -1371,7 +1371,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Logged in. Refresh token is set as HttpOnly cookie `kk_refresh`. */
+            /** @description Logged in. Refresh token is set as cookie `kk_refresh` (`HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`, no `Domain`). The dashboard must call the API same-origin through the `/v1` proxy (ADR-0011). */
             200: {
                 headers: {
                     "Set-Cookie"?: string;

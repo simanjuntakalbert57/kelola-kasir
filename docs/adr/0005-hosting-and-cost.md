@@ -1,6 +1,8 @@
 ADR-0005 — Hosting: Railway + Cloudflare & estimasi biaya bulanan
 
-Status: Proposed — **butuh persetujuan biaya dari Chief of Staff/owner** · Tanggal: 2026-10-26
+Status: Superseded by [ADR-0011](0011-free-tier-hosting.md) (Q-5 diputuskan owner 2026-10-26: mulai dengan free tier) · Tanggal: 2026-10-26
+
+> Dokumen ini disimpan sebagai referensi jalur upgrade "kembali ke Railway" di ADR-0011.
 
 ## Konteks
 Skala MVP: 1 gerai, 1–2 perangkat, ≤ 500 transaksi/hari, 1 owner. Owner sudah memakai Railway untuk Dear Fruity. Kebutuhan: API selalu hidup, Postgres terkelola dengan backup, penyimpanan foto produk, hosting dashboard, region dekat Indonesia bila memungkinkan.

@@ -1,6 +1,6 @@
 Technical Design Document — Kelola Kasir (Toko Jus) · MVP v1.1
 
-Status: v1.1 (disetujui owner, dengan perubahan dari DEAR-6) · Penyusun: Tech Lead · Tanggal: 2026-10-26 · Sumber: PRD Kelola Kasir v1 (DEAR-3 / DEAR-4), desain final DEAR-5
+Status: v1.2 (v1.1 disetujui owner, dengan perubahan dari DEAR-6; v1.2 = hosting free tier, DEAR-21) · Penyusun: Tech Lead · Tanggal: 2026-10-26 · Sumber: PRD Kelola Kasir v1 (DEAR-3 / DEAR-4), desain final DEAR-5
 
 ### Perubahan v1 → v1.1
 
@@ -15,6 +15,15 @@ Status: v1.1 (disetujui owner, dengan perubahan dari DEAR-6) · Penyusun: Tech L
 | 7 | Satu shift aktif per gerai. Pegawai lain bisa login di shift yang sama, dan setiap transaksi dicatat atas nama kasirnya. Serah terima = tutup lalu buka shift (Q-4). | §2.5, unique index shift terbuka per outlet, `ShiftSummary.by_employee`. Buka shift wajib online (R-8). |
 | 8 | Header/footer struk diatur owner di Pengaturan toko. | `outlet_settings.receipt_header` dan `receipt_footer`. |
 
+### Perubahan v1.1 → v1.2 (DEAR-21, Q-5)
+
+| # | Keputusan | Dampak di dokumen ini |
+|---|---|---|
+| 1 | Hosting mulai dari free tier: API di Render Free, Postgres di Neon Free, dashboard di Cloudflare Pages, foto + backup di R2 (ADR-0011 menggantikan ADR-0005). Biaya US$0/bulan. | §0, §2.1, §3.2, §6, §7 (R-7, R-9–R-11 baru, Q-5 ditutup), B-1, B-9, B-14, F-1. |
+| 2 | Dashboard memanggil API same-origin lewat proxy `/v1/*` (Cloudflare Pages Functions). Kebijakan cookie refresh tetap `SameSite=Strict`. | §2.3, ADR-0004, `servers` OpenAPI. |
+| 3 | Kedaluwarsa QRIS dievaluasi lazy (tanpa worker). Backup harian dijalankan GitHub Actions terjadwal. | §2.1, §5.3, §6. |
+| 4 | Domain = subdomain gratis. APK dipasang langsung (sideload) dengan signed release. Printer sudah dimiliki owner. | §6. |
+
 ## 0. Ringkasan
 
 Kelola Kasir terdiri dari tiga komponen dalam satu monorepo TypeScript:
@@ -26,7 +35,7 @@ Kelola Kasir terdiri dari tiga komponen dalam satu monorepo TypeScript:
 | `apps/dashboard` | React + Vite SPA + TanStack Query + Tailwind | Owner (web responsif) |
 | `packages/contracts` | Skema Zod + tipe yang di-generate dari OpenAPI | Dipakai bersama |
 
-Hosting: Railway (API + Postgres, sudah dipakai di proyek Dear Fruity), Cloudflare R2 (foto produk + backup), Cloudflare Pages (dashboard). Estimasi biaya **±US$10–25/bulan (±Rp160–400 ribu)** di skala 1 gerai — lihat ADR-0005. Biaya ini perlu persetujuan Chief of Staff/owner sebelum akun dibuat.
+Hosting (ADR-0011, Q-5 diputuskan owner 2026-10-26): **free tier**. API di Render Free (`kelola-kasir-api.onrender.com`), PostgreSQL di Neon Free, dashboard di Cloudflare Pages (`kelola-kasir.pages.dev`) dengan proxy `/v1` ke API, foto + backup di Cloudflare R2. Biaya **US$0/bulan**, tanpa kartu kredit. Jalur upgrade tanpa ubah kode: Render Starter ±US$7/bulan, Neon Launch (bayar per pemakaian), atau kembali ke Railway (ADR-0005).
 
 Keputusan desain kunci:
 1. **Uang = integer Rupiah** (`BIGINT`), tanpa desimal di seluruh lapisan (DB, API, aplikasi).
@@ -38,7 +47,7 @@ Keputusan desain kunci:
 7. **Cetak struk ESC/POS 58 mm dari aplikasi kasir** (Bluetooth), diformat dari data lokal sehingga tetap jalan saat offline.
 
 Dokumen terkait:
-- ADR: `docs/adr/0001`–`0010`
+- ADR: `docs/adr/0001`–`0011`
 - API contract: `docs/api/openapi.yaml` (OpenAPI 3.1, v0.2.0-draft)
 - Desain: `docs/design/` (DEAR-5, tema gelap, kasir HP portrait)
 
@@ -78,28 +87,31 @@ flowchart LR
   end
 
   subgraph Cloud["Cloud"]
-    API["API Server<br/>Fastify (Node 24)"]
-    PG[("PostgreSQL 16")]
+    PX["Cloudflare Pages Function<br/>proxy /v1 (same-origin)"]
+    API["API Server<br/>Fastify (Node 24)<br/>Render Free"]
+    PG[("PostgreSQL 16<br/>Neon Free")]
     R2[("Cloudflare R2<br/>foto produk, backup")]
-    JOB["Worker terjadwal<br/>backup harian, expire QRIS"]
+    JOB["GitHub Actions terjadwal<br/>backup harian"]
   end
 
   PGW["Payment Gateway<br/>Midtrans/Xendit (fase 2)"]
 
   K -- "HTTPS /v1 (device + employee token)" --> API
-  W -- "HTTPS /v1 (owner token, cookie refresh)" --> API
+  W -- "HTTPS /v1 same-origin (owner token, cookie refresh)" --> PX
+  PX --> API
   API --> PG
   API -- presigned URL --> R2
   W -- upload foto (presigned PUT) --> R2
   K -- unduh foto (CDN) --> R2
-  JOB --> PG
-  JOB --> R2
+  JOB -- "pg_dump (direct URL)" --> PG
+  JOB -- "dump terenkripsi age" --> R2
   API -. "create charge" .-> PGW
   PGW -. "webhook paid" .-> API
 ```
 
 Prinsip:
 - **API adalah sumber kebenaran.** Aplikasi kasir menyimpan salinan katalog dan antrean transaksi (outbox) untuk kecepatan dan mode offline.
+- **Tanpa worker terpisah** (Render Free tidak punya cron): QRIS `pending` yang lewat `expires_at` ditandai `cancelled` secara lazy saat transaksi/payment dibaca atau diubah dan saat `sync/pull`. Backup dijalankan GitHub Actions (§6).
 - **Modular monolith** di `apps/api` (modul: `auth`, `devices`, `catalog`, `shifts`, `transactions`, `payments`, `voids`, `reports`, `settings`, `audit`, `sync`). Tidak perlu microservice di skala ini.
 - **Real-time owner dashboard** cukup dengan polling 30 detik (TanStack Query `refetchInterval`) di MVP; SSE bisa ditambah nanti tanpa ubah kontrak.
 - **Sinkron produk ke kasir < 1 menit** (PRD §6): kasir menarik `/v1/sync/pull` setiap 30 detik saat online + saat app kembali ke foreground.
@@ -149,7 +161,7 @@ sequenceDiagram
 
 | Aktor | Kredensial | Token | Catatan |
 |---|---|---|---|
-| Owner | email + password (argon2id) | Access JWT 15 menit + refresh token rotasi (cookie `HttpOnly; Secure; SameSite=Strict`) | Lockout 10 menit setelah 5 gagal. Opsional 2FA fase 2. |
+| Owner | email + password (argon2id) | Access JWT 15 menit + refresh token rotasi (cookie `kk_refresh`: `HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`, tanpa `Domain`; dashboard memanggil API same-origin lewat proxy `/v1`, ADR-0011) | Lockout 10 menit setelah 5 gagal. Opsional 2FA fase 2. |
 | Perangkat | pairing code sekali pakai | `device_token` opaque 256-bit, di DB disimpan sebagai hash SHA-256 | Owner bisa cabut (revoke) perangkat dari dashboard → semua sesi pegawai di perangkat itu gugur. |
 | Pegawai | PIN 6 digit (argon2id) | Access JWT 12 jam, klaim `sub=employee_id, did=device_id, oid=outlet_id, role=cashier` | Hanya valid bila dikirim bersama `X-Device-Token` yang aktif. 5 PIN salah → kunci pegawai 5 menit di perangkat tsb. PIN unik per outlet. |
 | Owner di perangkat (approve void) | PIN owner 6 digit | Tidak membuat sesi; hanya dipakai di `POST /v1/void-requests/{id}/approve-with-pin` | Diaudit. |
@@ -402,7 +414,7 @@ Tabel pendukung (tidak digambar): `refresh_tokens`, `device_pairing_codes`, `ide
 | Integer Rupiah | Semua kolom uang `BIGINT NOT NULL CHECK (>= 0)` (kecuali `cash_difference` boleh negatif). JSON API memakai integer; klien format dengan `packages/money`. |
 | Pegawai tidak bisa lihat omzet keseluruhan | Endpoint `/v1/reports/*` & `/v1/dashboard/*` hanya untuk role owner; endpoint kasir `/v1/transactions` di-scope ke perangkat + shift/hari ini. Ringkasan tutup shift hanya untuk shift milik pegawai itu. |
 | Audit log void & perubahan harga | `audit_logs` ditulis dalam transaksi DB yang sama untuk: `transaction.void_requested/approved/rejected`, `product.price_changed`, `product.deleted`, `shift.closed_offline`, `employee.pin_reset`, `device.revoked`, `payment.qris_manual_confirmed`, `sync.price_mismatch`. Tabel append-only (role DB aplikasi tidak punya `UPDATE/DELETE`). |
-| Backup harian | Snapshot Railway + `pg_dump` harian terenkripsi ke R2, retensi 30 hari (ADR-0005). |
+| Backup harian | `pg_dump` harian terenkripsi (age) ke R2 oleh GitHub Actions terjadwal, retensi 30 hari, ditambah PITR Neon 6 jam (ADR-0011). |
 
 Perhitungan (dihitung di klien untuk UX, **divalidasi ulang di server**):
 - `unit_price` = snapshot `products.price`
@@ -488,7 +500,7 @@ export interface PaymentProvider {
 }
 ```
 
-Provider dipilih per outlet dari `outlet_settings.qris_mode` (`static` → `StaticQrisProvider`, `dynamic` → `MidtransQrisProvider`/`XenditQrisProvider`). Kredensial gateway disimpan di secret manager/env Railway, **tidak** di DB atau repo.
+Provider dipilih per outlet dari `outlet_settings.qris_mode` (`static` → `StaticQrisProvider`, `dynamic` → `MidtransQrisProvider`/`XenditQrisProvider`). Kredensial gateway disimpan di environment variable Render, **tidak** di DB atau repo.
 
 ### 5.2 Alur (sama untuk kedua mode dari sisi kasir)
 
@@ -530,7 +542,7 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 - Owner mengunggah gambar QRIS toko di Pengaturan (O-10); API mendekode payload EMVCo (`qris_static_payload`) dari gambar atau owner menempelkannya.
 - **Opsional (disarankan)**: API membentuk QRIS "statis bernominal" dengan menyisipkan tag 54 (amount) dan menghitung ulang CRC16 di payload statis, sehingga pembeli tidak perlu mengetik nominal → mengurangi salah bayar. Perlu uji dengan 3–4 aplikasi e-wallet/m-banking; jika ada yang menolak, fallback ke QR asli + nominal besar di layar.
 - Konfirmasi manual dicatat: `payments.confirmed_by`, audit `payment.qris_manual_confirmed`. Owner melihat di dashboard daftar QRIS yang dikonfirmasi manual per shift untuk dicocokkan dengan mutasi bank (rekonsiliasi QRIS manual — risiko R-2).
-- Kedaluwarsa: `pending` > 15 menit → job menandai `cancelled` (payment `expired`).
+- Kedaluwarsa: `pending` > 15 menit → ditandai `cancelled` (payment `expired`) secara lazy saat transaksi/payment disentuh atau saat `sync/pull` (tanpa worker, ADR-0011). Aplikasi kasir tetap menjalankan hitung mundur sendiri.
 
 ### 5.4 Migrasi ke QRIS dinamis (fase 2)
 
@@ -540,14 +552,15 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 
 ## 6. Keamanan, Observability, Operasional
 
-- HTTPS saja; HSTS di dashboard; CORS hanya domain dashboard.
+- HTTPS saja; HSTS di dashboard. Dashboard memanggil API same-origin lewat proxy `/v1`, jadi CORS produksi tidak membuka origin mana pun. Aplikasi kasir native memanggil API langsung.
 - Rate limit: login owner 5/menit/IP, PIN login 5 gagal → lock, pairing code 10/jam/IP.
 - Validasi input dengan Zod di setiap route; query lewat Drizzle (parametrized).
-- Secret hanya via environment variable platform (Railway/Cloudflare); `.env.example` tanpa nilai di repo; CI menjalankan secret scan (gitleaks).
+- Secret hanya via environment variable platform (Render, Cloudflare Pages, GitHub Actions secrets untuk backup); `.env.example` tanpa nilai di repo; CI menjalankan secret scan (gitleaks).
 - Logging terstruktur (pino) tanpa PIN/password/token; error tracking Sentry (free tier) untuk API, dashboard, dan kasir.
-- Health check `/healthz`; uptime monitor (Better Stack / UptimeRobot free).
-- Backup: harian `pg_dump` → R2 (enkripsi age), retensi 30 hari; uji restore bulanan (task QA/Backend).
-- Distribusi aplikasi kasir: APK via EAS Build (internal distribution) atau Google Play internal testing; update JS via EAS Update untuk perbaikan cepat.
+- Health check `/healthz`; uptime monitor (Better Stack / UptimeRobot free). Monitor dijalankan dengan interval jarang atau hanya saat jam buka, karena ping tiap 5 menit membuat API dan Neon tidak pernah tidur sehingga kuota CU-jam Neon habis (R-10).
+- Hosting (ADR-0011): Render Free (API, region Singapore) + Neon Free (Postgres 16, `ap-southeast-1`) + Cloudflare Pages (dashboard + proxy `/v1`) + R2. Koneksi DB: `DATABASE_URL` = URL **pooled** Neon (`-pooler`, postgres.js `prepare: false`) untuk runtime. `DATABASE_URL_DIRECT` = URL **direct** untuk `drizzle-kit migrate` (Render pre-deploy command) dan `pg_dump`.
+- Backup: GitHub Actions `schedule` 01:00 WIB (`0 18 * * *` UTC) + `workflow_dispatch`: `pg_dump` (client 16) via URL direct → enkripsi age → R2 `backups/`, retensi 30 hari lewat lifecycle rule. Repo publik: dump tidak boleh jadi artifact atau tercetak di log. Uji restore bulanan (task QA/Backend) sekaligus cek umur `backups/latest.json`.
+- Distribusi aplikasi kasir: APK signed release (EAS Build free tier atau build lokal) yang dipasang langsung (sideload) di HP kasir, tanpa Play Console. Update JS via EAS Update untuk perbaikan cepat. Keystore release disimpan owner di luar repo.
 
 ## 7. Risiko & Open Question
 
@@ -559,8 +572,11 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 | R-4 | Jam perangkat salah → laporan per jam keliru. | Simpan `server_received_at`, tandai skew > 10 menit, aplikasi menampilkan peringatan jam. |
 | R-5 | Brute-force PIN dari cache offline. | Argon2id berat, cache hanya di perangkat terdaftar, revoke perangkat, opsi mematikan login offline. |
 | R-6 | Printer Bluetooth beragam merek; koneksi BT putus-sambung; izin Bluetooth Android 12+. | ESC/POS generik 58 mm, 1 model rekomendasi untuk diuji (mis. RPP02N); auto-reconnect; gagal cetak tidak memblokir transaksi; struk digital sebagai cadangan. |
-| R-7 | Biaya hosting naik dari estimasi. | Budget alert Railway; skala MVP kecil. |
+| R-7 | Kuota free tier berubah atau terlampaui → service disuspend (tanpa kartu tidak ada tagihan, tetapi layanan berhenti). | Batas & tanggal cek dicatat di ADR-0011, dicek ulang tiap kuartal dan sebelum rilis. Jalur upgrade tanpa ubah kode (Render Starter ±US$7/bulan, Neon Launch, atau Railway); keputusan biaya ke Chief of Staff. |
 | R-8 | Buka shift wajib online (konsekuensi satu shift per gerai) → bila internet mati sebelum buka toko, kasir tidak bisa mulai berjualan. | Shift biasanya dibuka sekali per hari; HP kasir bisa memakai data seluler sebagai cadangan. Bila sering terjadi, fase 2: buka shift offline "sementara" yang digabung server ke shift aktif. |
+| R-9 | **Cold start Render Free ±30–60 detik** pada request pertama setelah 15 menit tanpa trafik (mis. pagi saat buka shift, atau owner membuka dashboard malam hari). | Aplikasi kasir offline-first: transaksi cash, cetak struk, dan login PIN offline tidak menunggu server. Saat buka shift, login PIN online, pairing, dan login dashboard: tampilkan "Menghubungkan ke server…" + spinner, timeout klien ≥ 75 detik, retry otomatis dengan backoff. Kasir boleh memanggil `/healthz` saat app dibuka untuk "membangunkan" API lebih awal. Selama jam buka, polling sync 30 detik menjaga API tetap bangun. Bila mengganggu → Render Starter. |
+| R-10 | **Kuota compute Neon 100 CU-jam/bulan** (≈ 13 jam aktif/hari pada 0.25 CU) habis karena polling membuat DB tidak pernah idle 5 menit. | Compute dikunci 0.25 CU. `sync/pull` tanpa perubahan dijawab dari cursor in-memory tanpa query DB. Validasi device token di-cache in-memory (dihapus saat revoke). Polling dashboard berhenti saat tab tidak aktif. Pemakaian dipantau mingguan; > 80% → Neon Launch (±US$0.106/CU-jam). |
+| R-11 | **Bandwidth Render 5 GB/bulan**; bila habis tanpa kartu, semua service disuspend sampai akhir bulan. | Gzip respons. Foto/logo tidak pernah lewat API (presigned R2). Ekspor dibatasi rentang tanggal. Perkiraan < 0,5 GB/bulan. Pantau dashboard Render. |
 
 | ID | Pertanyaan | Status |
 |---|---|---|
@@ -568,7 +584,7 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 | Q-2 | D-1/D-2/D-3 | **Diputuskan**: lihat §1 |
 | Q-3 | Tutup shift saat offline | **Diputuskan**: boleh, dengan peringatan keras, sinkron belakangan |
 | Q-4 | Pemakaian shift oleh beberapa pegawai | **Diputuskan**: satu shift aktif per gerai, transaksi atas nama kasirnya, serah terima = tutup lalu buka |
-| Q-5 | Persetujuan biaya: Railway (~US$5–20), domain (~Rp150 ribu/tahun), opsional Play Console (US$25 sekali), printer uji 58 mm (±Rp300–600 ribu) | **Terbuka** → Chief of Staff |
+| Q-5 | Persetujuan biaya hosting, domain, Play Console, printer | **Tertutup** (owner, 2026-10-26): mulai dengan free tier (Render + Neon + Cloudflare, ADR-0011), subdomain gratis, APK sideload, printer 58 mm sudah dimiliki owner. Upgrade dinilai setelah ada data pemakaian nyata. |
 | Q-6 | Nama repo | **Diputuskan**: `simanjuntakalbert57/kelola-kasir` |
 
 **Dampak ke UI/UX (sudah tercakup di desain final DEAR-5):**
@@ -594,7 +610,7 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 ### 8.2 Backend
 | ID | Task | Est | Bergantung |
 |---|---|---|---|
-| B-1 | Skeleton Fastify, config, logging, error problem+json, healthz, Drizzle + migrasi awal semua tabel §3 | 2d | T-1 |
+| B-1 | Skeleton Fastify, config, logging, error problem+json, healthz, Drizzle + migrasi awal semua tabel §3; Dockerfile untuk Render, `DATABASE_URL` pooled + `DATABASE_URL_DIRECT` untuk migrasi (ADR-0011), `trustProxy` + IP dari `CF-Connecting-IP` | 2d | T-1 |
 | B-2 | Auth owner (login, refresh rotasi, logout, me), argon2id, rate limit | 1.5d | B-1 |
 | B-3 | Perangkat: create + pairing code, pair, revoke, device token middleware | 1d | B-2 |
 | B-4 | Pegawai CRUD + PIN login/lockout + JWT pegawai + RBAC guard | 1.5d | B-3 |
@@ -602,12 +618,12 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | B-6 | Pengaturan toko (termasuk header/footer struk) + QRIS statis (upload & decode payload) | 1d | B-5 |
 | B-7 | Shift: satu shift terbuka per outlet (unique index), buka, current, summary + rincian per kasir, tutup (online & offline via sync) | 2d | B-4 |
 | B-8 | Transaksi: create (validasi harga, snapshot, nomor, cash), list/detail ber-scope role, data struk (`/receipt`), trigger immutability | 2d | B-5, B-7 |
-| B-9 | Payments: `PaymentProvider` + `StaticQrisProvider` (+ amount tag 54/CRC), confirm, cancel, job expire | 2d | B-8, B-6 |
+| B-9 | Payments: `PaymentProvider` + `StaticQrisProvider` (+ amount tag 54/CRC), confirm, cancel, expire lazy (tanpa worker) | 2d | B-8, B-6 |
 | B-10 | Sync pull (cursor `updated_seq`, tombstone, `current_shift`) + push batch idempoten (termasuk `shift.close`) + penanda price_mismatch/clock_skew/after_shift_close | 2.5d | B-8 |
 | B-11 | Dashboard summary, sales series, top products (WIB) | 1.5d | B-8 |
 | B-12 | Ekspor CSV/XLSX transaksi (streaming) | 1d | B-8 |
 | B-13 | Void request + approve/reject (dashboard & PIN owner) + audit *(Should)* | 1.5d | B-8 |
-| B-14 | Backup harian ke R2 + dokumen restore | 0.5d | B-1 |
+| B-14 | Backup harian: workflow GitHub Actions terjadwal (`pg_dump` → age → R2, lifecycle 30 hari) + dokumen restore | 0.5d | B-1 |
 | B-15 | Laporan O-09 *(Should)* | 1.5d | B-11 |
 
 ### 8.3 Mobile (aplikasi kasir)
@@ -630,7 +646,7 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 ### 8.4 Frontend (dashboard owner)
 | ID | Task | Est | Bergantung |
 |---|---|---|---|
-| F-1 | Skeleton Vite + router + auth (login, refresh, guard) + layout responsif | 1.5d | T-3, B-2, DEAR-5 |
+| F-1 | Skeleton Vite + router + auth (login, refresh, guard) + layout responsif + Pages Function proxy `/v1/*` ke API (ADR-0011) + state "Menghubungkan ke server…" untuk cold start | 1.5d | T-3, B-2, DEAR-5 |
 | F-2 | Dashboard ringkasan + grafik per jam/hari + produk terlaris | 2d | F-1, B-11 |
 | F-3 | Daftar transaksi + filter + detail + ekspor | 2d | F-1, B-8, B-12 |
 | F-4 | Kategori + produk (form, upload foto, status aktif) | 2d | F-1, B-5 |
