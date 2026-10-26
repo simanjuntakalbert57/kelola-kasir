@@ -3,14 +3,36 @@
   "version": "0.0.0",
   "private": true,
   "description": "Cashier app for Android phones in portrait (React Native / Expo, offline-first)",
-  "type": "module",
+  "main": "expo-router/entry",
   "scripts": {
-    "lint": "eslint src",
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "web": "expo start --web",
+    "lint": "eslint src app",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~58.0.15",
     "@kelola-kasir/contracts": "workspace:*",
-    "@kelola-kasir/money": "workspace:*"
+    "@kelola-kasir/money": "workspace:*",
+    "@noble/hashes": "^2.4.0",
+    "expo": "~58.0.19",
+    "expo-constants": "~58.0.13",
+    "expo-dev-client": "~58.0.15",
+    "expo-linking": "~58.0.14",
+    "expo-router": "~58.0.26",
+    "expo-secure-store": "~58.0.2",
+    "expo-status-bar": "~58.0.4",
+    "expo-system-ui": "~58.0.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-web": "^0.21.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0"
   }
 }
