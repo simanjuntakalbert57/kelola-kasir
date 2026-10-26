@@ -3,17 +3,17 @@
 Point-of-sale system for a juice shop: backend API, cashier app for Android phones (portrait,
 offline-first, Bluetooth receipt printing) and a web dashboard for the owner.
 
-| Path                    | What                                                            | Status            |
-| ----------------------- | --------------------------------------------------------------- | ----------------- |
-| `apps/api`              | Fastify + Drizzle + PostgreSQL API                              | placeholder (B-1) |
-| `apps/kasir`            | React Native (Expo) cashier app                                 | placeholder (M-1) |
-| `apps/dashboard`        | React + Vite owner dashboard                                    | placeholder (F-1) |
-| `packages/contracts`    | TypeScript types generated from `docs/api/openapi.yaml`         | ready             |
-| `packages/money`        | Integer Rupiah helpers (format, parse, cart totals, change)     | ready             |
-| `docs/tdd.md`           | Technical design (v1.1)                                         |                   |
-| `docs/adr/`             | Architecture decision records                                   |                   |
-| `docs/api/openapi.yaml` | API contract (OpenAPI 3.1, source of truth)                     |                   |
-| `docs/design/`          | Final UI design (open `kasir.html` / `owner.html` in a browser) |                   |
+| Path                    | What                                                            | Status              |
+| ----------------------- | --------------------------------------------------------------- | ------------------- |
+| `apps/api`              | Fastify + Drizzle + PostgreSQL API                              | B-1..B-4, B-7, B-14 |
+| `apps/kasir`            | React Native (Expo) cashier app                                 | placeholder (M-1)   |
+| `apps/dashboard`        | React + Vite owner dashboard                                    | placeholder (F-1)   |
+| `packages/contracts`    | TypeScript types generated from `docs/api/openapi.yaml`         | ready               |
+| `packages/money`        | Integer Rupiah helpers (format, parse, cart totals, change)     | ready               |
+| `docs/tdd.md`           | Technical design (v1.1)                                         |                     |
+| `docs/adr/`             | Architecture decision records                                   |                     |
+| `docs/api/openapi.yaml` | API contract (OpenAPI 3.1, source of truth)                     |                     |
+| `docs/design/`          | Final UI design (open `kasir.html` / `owner.html` in a browser) |                     |
 
 ## Requirements
 
