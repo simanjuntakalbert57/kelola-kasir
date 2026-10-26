@@ -2,6 +2,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditLogs, transactionItems, transactions } from '../src/db/schema.js';
 import { pgError } from '../src/db/client.js';
+import { wibDate } from '../src/modules/transactions/access.js';
 import {
   bearer,
   cashierSession,
@@ -507,7 +508,28 @@ describe('listing and detail are scoped by role', () => {
     expect(today.data).toHaveLength(1);
   });
 
-  it('lets the owner filter by employee, method, status, shift and text, and paginate', async () => {
+  // 16:59 / 17:00 / 23:59 UTC straddle the WIB (UTC+7) midnight: the store date is still the UTC
+  // date at 16:59 but already the next day from 17:00.
+  const SIMULATED_NOW = [
+    ['16:59 UTC', '2026-03-10T16:59:00.000Z', '2026-03-10'],
+    ['17:00 UTC', '2026-03-10T17:00:00.000Z', '2026-03-11'],
+    ['23:59 UTC', '2026-03-10T23:59:00.000Z', '2026-03-11'],
+  ] as const;
+
+  it.each(SIMULATED_NOW)(
+    'lets the owner filter by employee, method, status, shift and text, and paginate (%s)',
+    async (_label, at, expectedWibDate) => {
+      const realNow = env.clock.now;
+      env.clock.now = new Date(at);
+      try {
+        await ownerFilters(expectedWibDate);
+      } finally {
+        env.clock.now = realNow;
+      }
+    },
+  );
+
+  async function ownerFilters(expectedWibDate: string) {
     const { shop, budi, mine, theirs } = await scenario();
     const owner = bearer(shop.ownerToken);
     const ids = async (qs: string) =>
@@ -521,7 +543,8 @@ describe('listing and detail are scoped by role', () => {
     expect(await ids('status=voided')).toEqual([]);
     expect(await ids(`shift_id=${shop.shiftId}`)).toHaveLength(2);
     expect(await ids(`q=${mine.number.slice(-9)}`)).toEqual([mine.id]);
-    const today = env.clock.now.toISOString().slice(0, 10);
+    const today = wibDate(env.clock.now);
+    expect(today).toBe(expectedWibDate);
     expect(await ids(`date_from=${today}&date_to=${today}`)).toHaveLength(2);
     expect(await ids('date_from=2000-01-01&date_to=2000-01-31')).toEqual([]);
 
@@ -541,7 +564,7 @@ describe('listing and detail are scoped by role', () => {
     expect(page2.data.map((t) => t.id)).toEqual([mine.id]);
     expect(page2.next_cursor).toBeNull();
     expect((await get(env, '/v1/transactions?cursor=bogus', owner)).statusCode).toBe(400);
-  });
+  }
 
   it('never crosses outlets', async () => {
     const { mine } = await scenario();
