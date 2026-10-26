@@ -48,14 +48,14 @@ Keputusan: **dashboard memanggil API secara same-origin** lewat Cloudflare Pages
 Alternatif yang ditolak: `SameSite=None` + CORS dengan credentials. Cara ini membuka permukaan CSRF dan bergantung pada dukungan cookie pihak ketiga di browser (Safari ITP memblokirnya).
 
 ### Koneksi database (Neon)
-- `DATABASE_URL` = **pooled** connection string (host `-pooler`, PgBouncer mode transaction) untuk runtime API. Driver `postgres`/`pg` biasa via Drizzle; jangan pakai prepared statement bernama (`prepare: false` di postgres.js).
+- `DATABASE_URL` = **pooled** connection string (host `-pooler`, PgBouncer mode transaction) untuk runtime API. Driver `pg` (node-postgres) via Drizzle, seperti di `apps/api/src/db/client.ts`; query tanpa nama aman untuk pooler mode transaction, jadi jangan pakai prepared statement bernama (opsi `name` di `pg`).
 - `DATABASE_URL_DIRECT` = **direct** connection string (tanpa `-pooler`) untuk `drizzle-kit migrate` dan `pg_dump`. Migrasi berjalan sebagai Render pre-deploy command atau langkah CI. Jangan lewat pooler, karena advisory lock dan DDL butuh sesi.
 - `sslmode=require` di kedua URL. Pool aplikasi kecil (max 5) dan `connect_timeout` ≥ 10 detik, karena Neon butuh beberapa ratus milidetik untuk bangun dari scale-to-zero.
 
 ### Backup
-- GitHub Actions workflow `backup.yml`, `schedule: cron '0 18 * * *'` (01:00 WIB) + `workflow_dispatch`: `pg_dump` (client PostgreSQL 16) dari `DATABASE_URL_DIRECT` → kompres → enkripsi `age` (kunci publik) → upload ke R2 `backups/` (S3 API). Retensi 30 hari lewat lifecycle rule bucket. Workflow gagal → notifikasi email GitHub ke owner.
+- GitHub Actions workflow `backup.yml`, `schedule: cron '0 18 * * *'` (01:00 WIB) + `workflow_dispatch`: `pg_dump` (client PostgreSQL 16) dari `DATABASE_URL_DIRECT` → kompres → enkripsi `age` (kunci publik) → upload ke R2 `postgres/` (S3 API) memakai `ops/backup/backup.sh` yang sudah ada. Retensi 30 hari (dipangkas `backup.sh`; lifecycle rule bucket boleh ditambah sebagai pengaman). Workflow gagal → notifikasi email GitHub ke owner.
 - Repo **publik**: dump tidak boleh menjadi artifact Actions dan tidak boleh tercetak di log. Kredensial hanya dari GitHub Actions secrets. Role DB khusus backup bersifat read-only.
-- GitHub menonaktifkan workflow terjadwal di repo publik setelah 60 hari tanpa aktivitas, dan jadwal bisa terlambat beberapa menit. Monitor: job menulis objek `backups/latest.json`, dan QA mengecek umurnya saat uji restore bulanan.
+- GitHub menonaktifkan workflow terjadwal di repo publik setelah 60 hari tanpa aktivitas, dan jadwal bisa terlambat beberapa menit. Monitor: QA mengecek umur objek terbaru di bucket (< 26 jam) saat uji restore bulanan. Langkah setup: `docs/ops/backup-restore.md`.
 - PITR bawaan Neon (6 jam) adalah lapisan tambahan, bukan pengganti backup harian.
 
 ### Job terjadwal di API

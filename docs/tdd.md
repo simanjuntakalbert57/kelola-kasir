@@ -558,8 +558,8 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 - Secret hanya via environment variable platform (Render, Cloudflare Pages, GitHub Actions secrets untuk backup); `.env.example` tanpa nilai di repo; CI menjalankan secret scan (gitleaks).
 - Logging terstruktur (pino) tanpa PIN/password/token; error tracking Sentry (free tier) untuk API, dashboard, dan kasir.
 - Health check `/healthz`; uptime monitor (Better Stack / UptimeRobot free). Monitor dijalankan dengan interval jarang atau hanya saat jam buka, karena ping tiap 5 menit membuat API dan Neon tidak pernah tidur sehingga kuota CU-jam Neon habis (R-10).
-- Hosting (ADR-0011): Render Free (API, region Singapore) + Neon Free (Postgres 16, `ap-southeast-1`) + Cloudflare Pages (dashboard + proxy `/v1`) + R2. Koneksi DB: `DATABASE_URL` = URL **pooled** Neon (`-pooler`, postgres.js `prepare: false`) untuk runtime. `DATABASE_URL_DIRECT` = URL **direct** untuk `drizzle-kit migrate` (Render pre-deploy command) dan `pg_dump`.
-- Backup: GitHub Actions `schedule` 01:00 WIB (`0 18 * * *` UTC) + `workflow_dispatch`: `pg_dump` (client 16) via URL direct → enkripsi age → R2 `backups/`, retensi 30 hari lewat lifecycle rule. Repo publik: dump tidak boleh jadi artifact atau tercetak di log. Uji restore bulanan (task QA/Backend) sekaligus cek umur `backups/latest.json`.
+- Hosting (ADR-0011): Render Free (API, region Singapore) + Neon Free (Postgres 16, `ap-southeast-1`) + Cloudflare Pages (dashboard + proxy `/v1`) + R2. Koneksi DB: `DATABASE_URL` = URL **pooled** Neon (`-pooler`, driver `pg` tanpa prepared statement bernama) untuk runtime. `DATABASE_URL_DIRECT` = URL **direct** untuk `drizzle-kit migrate` (Render pre-deploy command) dan `pg_dump`.
+- Backup: GitHub Actions `schedule` 01:00 WIB (`0 18 * * *` UTC) + `workflow_dispatch`: `pg_dump` (client 16) via URL direct → enkripsi age → R2 `postgres/` (`ops/backup/backup.sh`), retensi 30 hari. Repo publik: dump tidak boleh jadi artifact atau tercetak di log. Uji restore bulanan (task QA/Backend) sekaligus cek umur objek backup terbaru (< 26 jam). Setup: `docs/ops/backup-restore.md`.
 - Distribusi aplikasi kasir: APK signed release (EAS Build free tier atau build lokal) yang dipasang langsung (sideload) di HP kasir, tanpa Play Console. Update JS via EAS Update untuk perbaikan cepat. Keystore release disimpan owner di luar repo.
 
 ## 7. Risiko & Open Question
@@ -623,7 +623,7 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | B-11 | Dashboard summary, sales series, top products (WIB) | 1.5d | B-8 |
 | B-12 | Ekspor CSV/XLSX transaksi (streaming) | 1d | B-8 |
 | B-13 | Void request + approve/reject (dashboard & PIN owner) + audit *(Should)* | 1.5d | B-8 |
-| B-14 | Backup harian: workflow GitHub Actions terjadwal (`pg_dump` → age → R2, lifecycle 30 hari) + dokumen restore | 0.5d | B-1 |
+| B-14 | Backup harian: workflow GitHub Actions terjadwal (`pg_dump` → age → R2 via `ops/backup/backup.sh`, retensi 30 hari) + dokumen restore | 0.5d | B-1 |
 | B-15 | Laporan O-09 *(Should)* | 1.5d | B-11 |
 
 ### 8.3 Mobile (aplikasi kasir)

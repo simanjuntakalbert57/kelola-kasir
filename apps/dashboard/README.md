@@ -11,7 +11,7 @@ pnpm --filter @kelola-kasir/dashboard dev:mock   # dashboard against the mock
 pnpm --filter @kelola-kasir/dashboard dev        # dashboard against the real API (VITE_API_PROXY, default :3000)
 ```
 
-Auth: access token is kept in memory; the refresh token is the `kk_refresh` HttpOnly cookie, so the dashboard and API must share a site (the dev proxy keeps them same-origin). Setting `VITE_API_URL` to a different site makes the browser withhold the `SameSite=Strict` cookie, so refresh and session restore fail; keep `app.` and `api.` under the same registrable domain.
+Auth: access token is kept in memory; the refresh token is the `kk_refresh` HttpOnly cookie, so the dashboard and API must share a site (the dev proxy keeps them same-origin). Setting `VITE_API_URL` to a different site makes the browser withhold the `SameSite=Strict` cookie, so refresh and session restore fail; in production the dashboard keeps `VITE_API_URL=/v1` and a Cloudflare Pages Function proxies `/v1/*` to the API (ADR-0011).
 
 ## Layout
 
