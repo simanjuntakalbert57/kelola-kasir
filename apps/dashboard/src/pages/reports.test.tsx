@@ -139,6 +139,33 @@ describe('Transaksi', () => {
     expect(screen.getByRole('button', { name: 'Reset filter' })).toBeInTheDocument();
   });
 
+  it('filters by shift when opened from a shift link', async () => {
+    const shiftId = '11111111-1111-4111-8111-111111111111';
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
+    });
+    renderApp(`/transaksi?shift_id=${shiftId}&date_from=2026-10-25&date_to=2026-10-26`);
+    expect(await screen.findByText('Menampilkan 1 transaksi')).toBeInTheDocument();
+    expect(
+      calls.some(
+        (c) =>
+          c.key.includes('GET /transactions?') &&
+          c.key.includes(`shift_id=${shiftId}`) &&
+          c.key.includes('date_from=2026-10-25') &&
+          c.key.includes('date_to=2026-10-26'),
+      ),
+    ).toBe(true);
+    expect(screen.queryByRole('button', { name: '⬇ CSV' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Hapus filter shift' }));
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.key.includes('GET /transactions?') && !c.key.includes('shift_id')),
+      ).toBe(true),
+    );
+  });
+
   it('downloads an export through the authenticated client', async () => {
     const create = vi.fn(() => 'blob:x');
     vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: vi.fn() });
@@ -199,6 +226,23 @@ describe('Shift & kas', () => {
     expect(screen.getByText(/−Rp\s?5\.000/)).toBeInTheDocument();
   });
 
+  it('"Hanya yang selisih" loads every page so older differences are not hidden', async () => {
+    let shiftCalls = 0;
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () =>
+        shiftCalls++ > 0
+          ? json({ data: [shift('old', -5000)], next_cursor: null })
+          : json({ data: [shift('new', 0)], next_cursor: 'c2' }),
+    });
+    renderApp('/shift');
+    expect(await screen.findByText('0 ✓ Pas')).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Hanya yang selisih'));
+    expect(await screen.findByText(/−Rp\s?5\.000 ▼ Kurang/)).toBeInTheDocument();
+    expect(screen.queryByText('0 ✓ Pas')).not.toBeInTheDocument();
+  });
+
   it('opens the shift summary with per-cashier breakdown', async () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
@@ -230,6 +274,50 @@ describe('Shift & kas', () => {
     expect(await within(dialog).findByText(/^Rp\s?640\.000$/)).toBeInTheDocument();
     expect(within(dialog).getByText(/ditutup saat offline/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Sari · 30 transaksi/)).toBeInTheDocument();
+  });
+
+  it('links a shift that crosses midnight to the full opened-to-closed date range', async () => {
+    const id = '22222222-2222-4222-8222-222222222222';
+    const night = shift(id, 0, {
+      opened_at: '2026-10-25T13:00:00Z', // 25 Oct 20:00 WIB
+      closed_at: '2026-10-25T19:00:00Z', // 26 Oct 02:00 WIB
+    });
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () => json({ data: [night], next_cursor: null }),
+      [`GET /shifts/${id}/summary`]: () =>
+        json({
+          shift: night,
+          total_cash_sales: 0,
+          total_qris_sales: 0,
+          total_sales: 0,
+          transaction_count: 0,
+          expected_cash: 840000,
+          actual_cash: 840000,
+          cash_difference: 0,
+          pending_void_count: 0,
+          pending_void_amount: 0,
+          voided_count: 0,
+          voided_amount: 0,
+          by_employee: [],
+        }),
+      'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
+    });
+    renderApp('/shift');
+    await userEvent.click(await screen.findByRole('button', { name: /Detail shift/ }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Lihat daftar transaksi' }));
+    await vi.waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.key.includes('GET /transactions?') &&
+            c.key.includes(`shift_id=${id}`) &&
+            c.key.includes('date_from=2026-10-25') &&
+            c.key.includes('date_to=2026-10-26'),
+        ),
+      ).toBe(true),
+    );
   });
 });
 
@@ -267,5 +355,21 @@ describe('Void', () => {
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Tolak void' }));
     expect(await within(dialog).findByText(/sudah diproses/)).toBeInTheDocument();
+  });
+
+  it('loads further pages of pending void requests', async () => {
+    const mk = (id: string, n: string) => ({ ...voidReq, id, transaction_number: n });
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /void-requests?status=pending&cursor=c2': () =>
+        json({ data: [mk('vr52', 'TRX-52')], next_cursor: null }),
+      'GET /void-requests?status=pending': () =>
+        json({ data: [mk('vr1', 'TRX-01')], next_cursor: 'c2' }),
+    });
+    renderApp('/void');
+    expect(await screen.findByText(/Menampilkan 1 permintaan/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Muat lebih banyak' }));
+    expect(await screen.findByRole('button', { name: /Setujui void TRX-52/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Muat lebih banyak' })).not.toBeInTheDocument();
   });
 });

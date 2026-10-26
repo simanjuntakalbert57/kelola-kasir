@@ -45,17 +45,18 @@ done <"$ROOT/tests/contract/pending-operations.txt"
 DETERMINISTIC=()
 [[ -z "${CONTRACT_RANDOM:-}" ]] && DETERMINISTIC=(--generation-deterministic)
 
-# Operations whose generated data Hypothesis sometimes filters out too heavily on CI fail the run with
-# "Failed Health Check: filter_too_much" although every generated case passes. The health check can only be
-# suppressed per run, so those operations get their own run and every other operation keeps the strict check.
-# The void decision operations: flaky on CI (PR #23, PR #24) although every generated case passes.
-FILTER_HEAVY=(approveVoidRequest rejectVoidRequest approveVoidWithOwnerPin)
+# `filter_too_much` is suppressed for every operation: Hypothesis (Python 3.12 on CI) intermittently gives up on
+# operations with narrow patterns (updateCategory's partial body, approveVoidWithOwnerPin's `^[0-9]{6}$`) and fails
+# the run with "Failed Health Check" although the API behaves. It is a property of the data generator, not of the
+# API, and which operation trips it varies between runs, so a per-operation list kept breaking PRs unrelated to it.
+# Every other check (status, schema, content type, 5xx, ...) stays strict.
 
 run_schemathesis() {
   SCHEMATHESIS_HOOKS="tests.contract.hooks" PYTHONPATH="$ROOT" \
     schemathesis run docs/api/openapi.yaml \
     --url "$CONTRACT_BASE_URL" \
     --checks all \
+    --suppress-health-check filter_too_much \
     --generation-with-security-parameters false \
     --generation-allow-x00 false \
     ${DETERMINISTIC[@]+"${DETERMINISTIC[@]}"} \
@@ -67,14 +68,4 @@ run_schemathesis() {
     "$@"
 }
 
-STRICT=(${EXCLUDES[@]+"${EXCLUDES[@]}"})
-LENIENT=()
-for op in "${FILTER_HEAVY[@]}"; do
-  STRICT+=(--exclude-operation-id "$op")
-  LENIENT+=(--include-operation-id "$op")
-done
-
-{
-  run_schemathesis "${STRICT[@]}" "$@" &&
-    run_schemathesis "${LENIENT[@]}" --suppress-health-check filter_too_much "$@"
-} || { echo "--- server log ---"; tail -50 "$WORK/server.log"; exit 1; }
+run_schemathesis ${EXCLUDES[@]+"${EXCLUDES[@]}"} "$@" || { echo "--- server log ---"; tail -50 "$WORK/server.log"; exit 1; }

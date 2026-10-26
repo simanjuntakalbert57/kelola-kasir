@@ -80,11 +80,32 @@ const app = createRoute({ getParentRoute: () => root, id: 'app', component: Guar
 const page = <P extends string>(path: P, component: () => React.JSX.Element) =>
   createRoute({ getParentRoute: () => app, path, component });
 
+const transactions = createRoute({
+  getParentRoute: () => app,
+  path: '/transaksi',
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { shift_id?: string; date_from?: string; date_to?: string } => {
+    const shiftId = search['shift_id'];
+    const dateOk = (v: unknown): v is string =>
+      typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const from = search['date_from'];
+    const to = search['date_to'];
+    return {
+      ...(typeof shiftId === 'string' && /^[0-9a-f-]{36}$/i.test(shiftId)
+        ? { shift_id: shiftId }
+        : {}),
+      ...(dateOk(from) && dateOk(to) ? { date_from: from, date_to: to } : {}),
+    };
+  },
+  component: TransactionsPage,
+});
+
 const routeTree = root.addChildren([
   login,
   app.addChildren([
     page('/', DashboardPage),
-    page('/transaksi', TransactionsPage),
+    transactions,
     page('/produk', ProductsPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),

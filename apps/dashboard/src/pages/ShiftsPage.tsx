@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { Employee, Shift, ShiftSummary } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DateRangePicker, initialRange } from '../components/DateRangePicker';
 import {
   Alert,
@@ -17,6 +17,7 @@ import {
   Skeleton,
 } from '../components/ui';
 import { api, qs } from '../lib/api';
+import { wibDate } from '../lib/dates';
 import { errorMessage, formatDateTime } from '../lib/format';
 
 type Page = { data: Shift[]; next_cursor: string | null };
@@ -104,6 +105,11 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
           ) : null}
           <Link
             to="/transaksi"
+            search={{
+              shift_id: shift.id,
+              date_from: wibDate(new Date(shift.opened_at)),
+              date_to: wibDate(shift.closed_at ? new Date(shift.closed_at) : new Date()),
+            }}
             className="mt-3 inline-block text-brand-text underline"
             onClick={onClose}
           >
@@ -135,6 +141,13 @@ export function ShiftsPage() {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   const all = list.data?.pages.flatMap((p) => p.data) ?? [];
+  // The filter only sees loaded pages, so while it is on, keep loading until
+  // every page is in; otherwise older shifts with a difference stay hidden.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, isError } = list;
+  useEffect(() => {
+    if (onlyDiff && hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
+  }, [onlyDiff, hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
+  const scanning = onlyDiff && !!hasNextPage && !isError;
   const rows = onlyDiff ? all.filter((s) => (s.cash_difference ?? 0) !== 0) : all;
 
   return (
@@ -172,7 +185,12 @@ export function ShiftsPage() {
           </button>
         </Alert>
       ) : null}
-      {list.data && rows.length === 0 ? (
+      {scanning ? (
+        <p role="status" className="mb-2 text-sm text-muted">
+          Memeriksa semua shift untuk mencari selisih…
+        </p>
+      ) : null}
+      {list.data && rows.length === 0 && !scanning ? (
         <Card>
           <EmptyState icon="💵" title="Tidak ada shift untuk filter ini" />
         </Card>
@@ -216,7 +234,7 @@ export function ShiftsPage() {
           ))}
         </ul>
       ) : null}
-      {list.hasNextPage ? (
+      {list.hasNextPage && !onlyDiff ? (
         <div className="mt-3">
           <Button
             small

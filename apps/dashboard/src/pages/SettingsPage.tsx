@@ -20,17 +20,32 @@ import { errorMessage } from '../lib/format';
 
 const KEY = ['settings'] as const;
 
-const schema = z.object({
-  display_name: z.string().trim().min(1, 'Nama toko wajib diisi.').max(60, 'Maksimal 60 karakter.'),
-  address: z.string().max(200, 'Maksimal 200 karakter.'),
-  phone: z.string().max(20, 'Maksimal 20 karakter.'),
-  logo_url: z.string().nullable(),
-  receipt_header: z.string().max(200, 'Maksimal 200 karakter.'),
-  receipt_footer: z.string().max(200, 'Maksimal 200 karakter.'),
-  qris_static_image_url: z.string().nullable(),
-  qris_static_payload: z.string(),
-  qris_embed_amount: z.boolean(),
-});
+const schema = z
+  .object({
+    display_name: z
+      .string()
+      .trim()
+      .min(1, 'Nama toko wajib diisi.')
+      .max(60, 'Maksimal 60 karakter.'),
+    address: z.string().max(200, 'Maksimal 200 karakter.'),
+    phone: z.string().max(20, 'Maksimal 20 karakter.'),
+    logo_url: z.string().nullable(),
+    receipt_header: z.string().max(200, 'Maksimal 200 karakter.'),
+    receipt_footer: z.string().max(200, 'Maksimal 200 karakter.'),
+    qris_static_image_url: z.string().nullable(),
+    qris_static_payload: z.string(),
+    qris_embed_amount: z.boolean(),
+  })
+  .superRefine((v, ctx) => {
+    // The API rejects every QRIS sale (503) when the shop has no QRIS code, so an image alone is not enough.
+    if (v.qris_static_payload.trim() === '' && (v.qris_static_image_url || v.qris_embed_amount)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['qris_static_payload'],
+        message: 'Kode QRIS wajib diisi agar kasir bisa menerima pembayaran QRIS.',
+      });
+    }
+  });
 type Form = z.infer<typeof schema>;
 
 const toForm = (s: OutletSettings): Form => ({
@@ -69,7 +84,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     },
   });
   const errors = form.formState.errors;
-  const [name, address, phone, header, footer, qrisImage, qrisPayload] = useWatch({
+  const [name, address, phone, header, footer, qrisPayload] = useWatch({
     control: form.control,
     name: [
       'display_name',
@@ -77,11 +92,9 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
       'phone',
       'receipt_header',
       'receipt_footer',
-      'qris_static_image_url',
       'qris_static_payload',
     ],
   });
-  const hasQris = Boolean(qrisImage) || qrisPayload.trim() !== '';
   const badQris = save.error instanceof ApiError && save.error.code === 'INVALID_QRIS_PAYLOAD';
 
   return (
@@ -164,13 +177,14 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             )}
           />
           <TextareaField
-            label="Kode QRIS (opsional)"
-            hint="Isi teks QRIS statis bila ingin nominal ditanam otomatis."
+            label="Kode QRIS"
+            hint="Teks QRIS statis toko. Wajib bila gambar QRIS diisi; tanpa kode, kasir tidak bisa menerima QRIS."
+            error={errors.qris_static_payload?.message}
             {...form.register('qris_static_payload')}
           />
           <CheckboxField
             label="Tanamkan nominal ke QRIS"
-            disabled={!hasQris}
+            disabled={qrisPayload.trim() === ''}
             {...form.register('qris_embed_amount')}
           />
         </Card>
