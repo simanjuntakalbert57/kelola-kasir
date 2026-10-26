@@ -36,6 +36,17 @@ Berkas: `ops/vps/` (compose, Caddyfile, `setup.sh`, `env.example`, `backup-now.s
 - Batas Render/Neon, cold start, mitigasi kuota CU-jam Neon. **DEAR-29 (mitigasi CU-jam) tidak lagi wajib sebelum go-live.** Cache in-memory tetap boleh dikerjakan sebagai optimasi.
 - `DATABASE_URL` pooled vs direct: di VPS keduanya menunjuk ke database yang sama (`db:5432`) tanpa PgBouncer. Pool aplikasi 10.
 
+### Biaya dan kontrak
+Diisi owner/Chief of Staff setelah order (angka dari invoice Hostinger, bukan perkiraan).
+
+| Item | Perkiraan saat keputusan | Aktual | Tanggal perpanjangan |
+|---|---|---|---|
+| VPS Hostinger KVM 1 | ±US$5/bulan (harga promo kontrak 24 bulan; harga perpanjangan lebih mahal) | _belum diorder_ | _diisi setelah order_ |
+| Domain API (opsional) | ±Rp150–250 ribu/tahun | _belum_ | _diisi setelah beli_ |
+| R2/B2, Cloudflare Pages, Sentry, healthchecks.io, GitHub Actions | US$0 (free tier) | | |
+
+Tanggal perpanjangan juga dicatat di kalender owner (runbook § Perawatan server).
+
 ## Keamanan server
 - `ops/vps/setup.sh` (sekali, sebagai root): update otomatis keamanan (`unattended-upgrades`), firewall `ufw` (22, 80, 443 saja), `fail2ban` untuk SSH, login SSH hanya dengan key (password dimatikan setelah root punya key), swap 2 GB, rotasi log Docker.
 - User `deploy` hanya untuk GitHub Actions: login dengan key, tanpa sudo. Anggota grup `docker` setara root di host, jadi private key-nya hanya disimpan di GitHub secret `VPS_SSH_KEY`. Host key VPS dipin di variable `VPS_KNOWN_HOSTS`.
