@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePrinter } from '../src/printing/PrinterProvider';
 import { quickCashAmounts, totalsOf } from '../src/sales/cart';
 import { createCashSale } from '../src/sales/checkout';
 import { toCompleted, useSales } from '../src/sales/SalesProvider';
@@ -14,6 +15,7 @@ import { PrintToggle } from '../src/ui/PrintToggle';
 export default function CashScreen() {
   const router = useRouter();
   const { db, cart, saleContext, completeSale, printReceipt, setPrintReceipt } = useSales();
+  const { autoPrint } = usePrinter();
   const total = totalsOf(cart).total;
   const [digits, setDigits] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,10 @@ export default function CashScreen() {
     setBusy(true);
     setError(null);
     try {
-      completeSale(toCompleted(await createCashSale(db, saleContext, cart, amount)));
+      const sale = await createCashSale(db, saleContext, cart, amount);
+      completeSale(toCompleted(sale));
+      // The sale is already saved: printing runs on its own and can fail without touching it.
+      if (printReceipt) autoPrint(sale.id);
       router.replace('/success');
     } catch {
       setError('Gagal menyimpan transaksi. Coba lagi.');

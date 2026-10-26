@@ -2,7 +2,17 @@ import type { Category } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  FlatList,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../src/auth/SessionProvider';
 import type { CatalogProduct } from '../../src/catalog/repository';
@@ -18,8 +28,9 @@ export function pendingBanner(n: number): string {
 
 export default function JualScreen() {
   const router = useRouter();
-  const { paired } = useSession();
-  const { catalog, catalogVersion, cart, setCart, online, pending } = useSales();
+  const { paired, session } = useSession();
+  const { catalog, catalogVersion, cart, setCart, online, pending, refreshPending, syncNow } =
+    useSales();
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string>('favorit');
   const [search, setSearch] = useState('');
@@ -36,6 +47,29 @@ export default function JualScreen() {
     const query = search.trim() ? { search } : { category: selected };
     void catalog.listProducts(query).then(setProducts);
   }, [catalog, catalogVersion, selected, search]);
+
+  // Long-press = "Tandai habis" (M-14): hidden at once, synced to the owner/other devices later.
+  const markSoldOut = (item: CatalogProduct) => {
+    const run = async () => {
+      await catalog?.setSoldOut(item.id, true, session?.employeeId ?? null);
+      setCart((c) => ({ ...c, lines: c.lines.filter((l) => l.productId !== item.id) }));
+      setProducts((list) => list?.filter((p) => p.id !== item.id) ?? list);
+      await refreshPending();
+      void syncNow();
+    };
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(`Tandai "${item.name}" habis?`)) void run();
+      return;
+    }
+    Alert.alert(
+      `Tandai "${item.name}" habis?`,
+      'Menu disembunyikan dari kasir sampai ditandai tersedia lagi (Shift → Menu habis).',
+      [
+        { text: 'Batal', style: 'cancel' },
+        { text: 'Tandai habis', style: 'destructive', onPress: () => void run() },
+      ],
+    );
+  };
 
   const count = itemCount(cart);
   const qris = qrisAvailability(online);
@@ -110,6 +144,7 @@ export default function JualScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`${item.name} ${formatRupiah(item.price)}`}
                 onPress={() => setCart((c) => addProduct(c, item))}
+                onLongPress={() => markSoldOut(item)}
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
               >
                 {inCart > 0 ? (

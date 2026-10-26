@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
 import { useSession } from '../src/auth/SessionProvider';
+import { usePrinter } from '../src/printing/PrinterProvider';
 import { totalsOf } from '../src/sales/cart';
 import {
   cancelQris,
@@ -35,6 +36,7 @@ export default function QrisScreen() {
   const { api } = useSession();
   const { db, cart, saleContext, completeSale, printReceipt, setPrintReceipt, setQris, online } =
     useSales();
+  const { autoPrint } = usePrinter();
   const total = totalsOf(cart).total;
   const [session, setSession] = useState<QrisSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +93,8 @@ export default function QrisScreen() {
     setBusy(true);
     try {
       await confirmQris(api, db, saleContext, session);
-      completeSale({ number: session.body.number, total, method: 'qris' });
+      completeSale({ id: session.body.id, number: session.body.number, total, method: 'qris' });
+      if (printReceipt) autoPrint(session.body.id);
       router.replace('/success');
     } catch (e) {
       setError(

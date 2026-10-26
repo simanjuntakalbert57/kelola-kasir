@@ -12,10 +12,10 @@ export async function createTestDb(): Promise<Db> {
       Promise.resolve(void native.prepare(sql).run(...(params as SqlValue[]))),
     all: <T>(sql: string, params: readonly SqlValue[] = []) =>
       Promise.resolve(native.prepare(sql).all(...(params as SqlValue[])) as T[]),
-    transaction: async <T>(fn: () => Promise<T>) => {
+    transaction: async <T>(fn: (tx: Db) => Promise<T>) => {
       if (depth++ === 0) native.exec('BEGIN');
       try {
-        const out = await fn();
+        const out = await fn(db);
         if (--depth === 0) native.exec('COMMIT');
         return out;
       } catch (error) {

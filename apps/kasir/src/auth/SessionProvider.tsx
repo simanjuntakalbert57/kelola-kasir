@@ -14,7 +14,7 @@ import { API_BASE_URL, APP_VERSION } from '../config';
 import { getJson, setJson, STORAGE_KEYS } from '../lib/storage';
 import { secureStore } from '../lib/secureStore';
 import { openOrJoinShift } from '../shift/open';
-import { loadSuggestedOpeningCash } from '../shift/prefill';
+import { loadSuggestedOpeningCash, rememberClosingCash } from '../shift/prefill';
 import {
   loadPairing,
   loginWithPin,
@@ -43,6 +43,10 @@ export interface SessionValue {
   openShift: (openingCash: number) => Promise<{ joined: boolean }>;
   suggestedOpeningCash: () => Promise<number | null>;
   resetDevice: () => Promise<void>;
+  /** The shift was closed from this device: forget the cached shift, remember the counted cash. */
+  markShiftClosed: (actualCash: number) => Promise<void>;
+  /** After the closing summary: drop the shift and sign out. */
+  leaveClosedShift: () => Promise<void>;
 }
 
 const Ctx = createContext<SessionValue | null>(null);
@@ -158,6 +162,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       suggestedOpeningCash: () => loadSuggestedOpeningCash(secureStore),
       resetDevice,
+      markShiftClosed: async (actualCash) => {
+        // Only the stored copy goes now; the screen keeps showing the summary until "Keluar".
+        await secureStore.remove(STORAGE_KEYS.currentShift);
+        await rememberClosingCash(secureStore, actualCash);
+      },
+      leaveClosedShift: async () => {
+        try {
+          if (accessToken.current) await api.pinLogout();
+        } catch {
+          // Signing out locally must always work, even offline.
+        }
+        accessToken.current = null;
+        setShift(null);
+        setSession(null);
+        setShiftChecked(false);
+      },
     }),
     [boot, api, paired, session, shift, shiftChecked, checkShift, resetDevice, storeShift],
   );

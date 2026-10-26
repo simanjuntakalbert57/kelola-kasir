@@ -4,6 +4,9 @@ export const META = {
   cursor: 'sync_cursor',
   settings: 'outlet_settings',
   printReceipt: 'print_receipt',
+  printerAddress: 'printer_address',
+  printerName: 'printer_name',
+  printerLastConnected: 'printer_last_connected',
 } as const;
 
 export async function getMeta(db: Db, key: string): Promise<string | null> {

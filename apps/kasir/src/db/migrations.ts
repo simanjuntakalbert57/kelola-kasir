@@ -57,15 +57,19 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX outbox_state ON outbox (state, seq);
   `,
+  `
+  ALTER TABLE transactions ADD COLUMN void_reason TEXT;
+  CREATE INDEX transactions_shift ON transactions (shift_id, created_at);
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {
   const row = await get<{ user_version: number }>(db, 'PRAGMA user_version');
   const current = row?.user_version ?? 0;
   for (let v = current; v < MIGRATIONS.length; v++) {
-    await db.transaction(async () => {
-      await db.exec(MIGRATIONS[v] ?? '');
-      await db.exec(`PRAGMA user_version = ${v + 1}`);
+    await db.transaction(async (tx) => {
+      await tx.exec(MIGRATIONS[v] ?? '');
+      await tx.exec(`PRAGMA user_version = ${v + 1}`);
     });
   }
 }
