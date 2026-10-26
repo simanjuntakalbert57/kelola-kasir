@@ -1,5 +1,11 @@
 import { useEffect, useId, useRef } from 'react';
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from 'react';
 
 type Variant = 'primary' | 'secondary' | 'danger';
 
@@ -75,6 +81,91 @@ export function Field({
           {hint}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+const controlCls = (error?: string) =>
+  `min-h-12 w-full rounded-[12px] bg-surface px-3 py-2.5 text-base text-ink ring-1 ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-line'}`;
+
+export function SelectField({
+  label,
+  error,
+  children,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; error?: string | undefined }) {
+  const id = useId();
+  return (
+    <div className="mb-3.5">
+      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+        {label}
+      </label>
+      <select
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-err` : undefined}
+        className={controlCls(error)}
+        {...props}
+      >
+        {children}
+      </select>
+      {error ? (
+        <p id={`${id}-err`} role="alert" className="mt-1 text-[13px] text-danger">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function TextareaField({
+  label,
+  error,
+  hint,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label: string;
+  error?: string | undefined;
+  hint?: string;
+}) {
+  const id = useId();
+  return (
+    <div className="mb-3.5">
+      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        rows={2}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-err` : hint ? `${id}-hint` : undefined}
+        className={controlCls(error)}
+        {...props}
+      />
+      {error ? (
+        <p id={`${id}-err`} role="alert" className="mt-1 text-[13px] text-danger">
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={`${id}-hint`} className="mt-1 text-[13px] text-muted">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function CheckboxField({
+  label,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: string }) {
+  const id = useId();
+  return (
+    <div className="mb-3.5 flex min-h-12 items-center gap-3">
+      <input id={id} type="checkbox" className="size-5 accent-brand-600" {...props} />
+      <label htmlFor={id} className="text-sm font-semibold">
+        {label}
+      </label>
     </div>
   );
 }
