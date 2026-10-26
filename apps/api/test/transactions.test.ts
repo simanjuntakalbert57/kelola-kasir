@@ -525,6 +525,11 @@ describe('listing and detail are scoped by role', () => {
     expect(await ids(`date_from=${today}&date_to=${today}`)).toHaveLength(2);
     expect(await ids('date_from=2000-01-01&date_to=2000-01-31')).toEqual([]);
 
+    for (const bad of ['date_from=0001-01-01', 'date_to=9999-12-31', 'date_from=1999-12-31']) {
+      const res = await get(env, `/v1/transactions?${bad}`, owner);
+      expect(res.statusCode, bad).toBe(400);
+    }
+
     const page1 = json<{ data: TxDto[]; next_cursor: string }>(
       await get(env, '/v1/transactions?limit=1', owner),
     );

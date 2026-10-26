@@ -69,10 +69,19 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     },
   });
   const errors = form.formState.errors;
-  const [name, address, phone, header, footer] = useWatch({
+  const [name, address, phone, header, footer, qrisImage, qrisPayload] = useWatch({
     control: form.control,
-    name: ['display_name', 'address', 'phone', 'receipt_header', 'receipt_footer'],
+    name: [
+      'display_name',
+      'address',
+      'phone',
+      'receipt_header',
+      'receipt_footer',
+      'qris_static_image_url',
+      'qris_static_payload',
+    ],
   });
+  const hasQris = Boolean(qrisImage) || qrisPayload.trim() !== '';
   const badQris = save.error instanceof ApiError && save.error.code === 'INVALID_QRIS_PAYLOAD';
 
   return (
@@ -159,7 +168,11 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             hint="Isi teks QRIS statis bila ingin nominal ditanam otomatis."
             {...form.register('qris_static_payload')}
           />
-          <CheckboxField label="Tanamkan nominal ke QRIS" {...form.register('qris_embed_amount')} />
+          <CheckboxField
+            label="Tanamkan nominal ke QRIS"
+            disabled={!hasQris}
+            {...form.register('qris_embed_amount')}
+          />
         </Card>
         <Button type="submit" variant="primary" disabled={save.isPending}>
           Simpan perubahan

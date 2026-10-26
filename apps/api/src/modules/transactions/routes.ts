@@ -5,7 +5,7 @@ import type { AppContext, Principal } from '../../context.js';
 import { employees, shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { escapeLike, parse, uuid } from '../../lib/validate.js';
+import { businessDate, escapeLike, parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, type Guards } from '../../plugins/auth.js';
 import { loadSettings } from '../settings/serialize.js';
 import { formatReceipt } from './receipt.js';
@@ -20,8 +20,8 @@ import {
 const idParams = z.object({ transaction_id: uuid });
 const listQuery = z.object({
   scope: z.enum(['shift', 'today']).default('shift'),
-  date_from: z.iso.date().optional(),
-  date_to: z.iso.date().optional(),
+  date_from: businessDate.optional(),
+  date_to: businessDate.optional(),
   employee_id: uuid.optional(),
   shift_id: uuid.optional(),
   payment_method: z.enum(['cash', 'qris']).optional(),
