@@ -78,7 +78,7 @@ curl -fsSLO https://raw.githubusercontent.com/simanjuntakalbert57/kelola-kasir/m
 less setup.sh                      # baca dulu isinya
 bash setup.sh '<isi file kelola-kasir-deploy.pub: satu baris ssh-ed25519 AAAA... github-deploy>'
 ```
-Script ini memasang Docker (di AlmaLinux: Docker CE dari repo resmi Docker), firewall (22/80/443; `firewalld` di AlmaLinux, `ufw` di Ubuntu), fail2ban, update keamanan otomatis, swap, user `deploy`, folder `/opt/kelola-kasir`, dan timer backup 01:00 WIB. Di akhir, script mencetak satu baris **host key** (`<ip> ssh-ed25519 AAAA...`). Salin baris itu untuk langkah 6.
+Script ini memasang Docker (di AlmaLinux: Docker CE dari repo resmi Docker; di Ubuntu yang sudah membawa Docker CE, seperti image Hostinger, Docker CE itu dipakai dan hanya plugin Compose yang ditambahkan), firewall (22/80/443; `firewalld` di AlmaLinux, `ufw` di Ubuntu), fail2ban, update keamanan otomatis, swap, user `deploy`, folder `/opt/kelola-kasir`, dan timer backup 01:00 WIB. Di akhir, script mencetak satu baris **host key** (`<ip> ssh-ed25519 AAAA...`). Salin baris itu untuk langkah 6.
 - [ ] Bila muncul peringatan "SSH password login stays ON", pasang SSH key dulu (`ssh-copy-id root@<ip-vps>`), lalu jalankan script lagi.
 
 ### 5. Isi `/opt/kelola-kasir/.env` di VPS
