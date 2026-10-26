@@ -22,10 +22,11 @@ function Guard() {
   const { pathname, searchStr } = useLocation();
   const redirect = pathname + searchStr;
   useEffect(() => {
-    if (status === 'anonymous') {
+    // While the router is mid-transition Guard still renders with the /login location; do not redirect again.
+    if (status === 'anonymous' && pathname !== '/login') {
       void router.navigate({ to: '/login', search: { redirect }, replace: true });
     }
-  }, [status, redirect, router]);
+  }, [status, pathname, redirect, router]);
   if (status === 'loading') {
     return (
       <div className="p-6">
