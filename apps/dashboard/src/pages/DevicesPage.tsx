@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Device } from '@kelola-kasir/contracts';
+import type { Device, ResponseBody } from '@kelola-kasir/contracts';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -23,11 +23,7 @@ const schema = z.object({
   name: z.string().trim().min(1, 'Nama perangkat wajib diisi.').max(60, 'Maksimal 60 karakter.'),
 });
 
-interface Created {
-  device: Device;
-  pairing_code: string;
-  pairing_expires_at: string;
-}
+type Created = ResponseBody<'/devices', 'post', 201>;
 
 const STATUS = {
   pending_pairing: { tone: 'warn', label: 'Menunggu pairing' },

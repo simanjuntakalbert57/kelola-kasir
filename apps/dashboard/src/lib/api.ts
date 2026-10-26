@@ -71,9 +71,12 @@ export function refreshSession(): Promise<OwnerSession | null> {
   return refreshing;
 }
 
+// Only login/refresh themselves are excluded; e.g. logout must refresh and retry so the server revokes the cookie.
+const NO_REFRESH_PATHS = new Set(['/auth/login', '/auth/refresh']);
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res = await send(path, init, accessToken);
-  if (res.status === 401 && !path.startsWith('/auth/')) {
+  if (res.status === 401 && !NO_REFRESH_PATHS.has(path)) {
     const session = await refreshSession();
     if (!session) {
       onUnauthorized?.();

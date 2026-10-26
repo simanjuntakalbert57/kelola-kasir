@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -23,7 +22,6 @@ function loginErrorText(error: unknown): string {
 
 export function LoginPage() {
   const { login } = useAuth();
-  const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const {
@@ -36,7 +34,6 @@ export function LoginPage() {
     setFormError(null);
     try {
       await login(email, password);
-      await navigate({ to: '/' });
     } catch (e) {
       setFormError(loginErrorText(e));
     }

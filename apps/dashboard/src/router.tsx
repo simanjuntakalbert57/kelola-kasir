@@ -1,10 +1,13 @@
 import {
   Navigate,
+  useLocation,
+  useRouter,
   Outlet,
   createRootRoute,
   createRoute,
   createRouter,
 } from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { useAuth } from './auth/AuthProvider';
 import { Skeleton } from './components/ui';
 import { AppShell } from './layout/AppShell';
@@ -15,6 +18,14 @@ import { ComingSoon, MorePage } from './pages/StubPages';
 
 function Guard() {
   const { status } = useAuth();
+  const router = useRouter();
+  const { pathname, searchStr } = useLocation();
+  const redirect = pathname + searchStr;
+  useEffect(() => {
+    if (status === 'anonymous') {
+      void router.navigate({ to: '/login', search: { redirect }, replace: true });
+    }
+  }, [status, redirect, router]);
   if (status === 'loading') {
     return (
       <div className="p-6">
@@ -22,18 +33,38 @@ function Guard() {
       </div>
     );
   }
-  if (status === 'anonymous') return <Navigate to="/login" />;
+  if (status === 'anonymous') return null;
   return <AppShell />;
+}
+
+/** Only same-origin paths are accepted, so `?redirect=` cannot bounce the owner to another site. */
+function safeRedirect(value: unknown): string | undefined {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && value !== '/login'
+    ? value
+    : undefined;
 }
 
 function LoginRoute() {
   const { status } = useAuth();
-  if (status === 'authenticated') return <Navigate to="/" />;
+  const router = useRouter();
+  const { redirect } = login.useSearch();
+  useEffect(() => {
+    if (status === 'authenticated' && redirect) router.history.replace(redirect);
+  }, [status, redirect, router]);
+  if (status === 'authenticated') return redirect ? null : <Navigate to="/" />;
   return <LoginPage />;
 }
 
 const root = createRootRoute({ component: Outlet });
-const login = createRoute({ getParentRoute: () => root, path: '/login', component: LoginRoute });
+const login = createRoute({
+  getParentRoute: () => root,
+  path: '/login',
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+    const redirect = safeRedirect(search['redirect']);
+    return redirect ? { redirect } : {};
+  },
+  component: LoginRoute,
+});
 const app = createRoute({ getParentRoute: () => root, id: 'app', component: Guard });
 
 const page = <P extends string>(path: P, component: () => React.JSX.Element) =>

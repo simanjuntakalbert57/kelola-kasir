@@ -67,3 +67,37 @@ describe('auth guard & login', () => {
     );
   });
 });
+
+describe('logout with an expired access token', () => {
+  it('refreshes and retries so the server revokes the cookie', async () => {
+    let logoutCalls = 0;
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'POST /auth/logout': () => (++logoutCalls === 1 ? problem(401, 'UNAUTHORIZED') : new Response(null, { status: 204 })),
+    });
+    renderApp('/');
+    await userEvent.click(await screen.findByRole('button', { name: 'Keluar' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument());
+    expect(logoutCalls).toBe(2);
+    expect(calls.filter((c) => c.key === 'POST /auth/refresh')).toHaveLength(2);
+  });
+});
+
+describe('redirect after login', () => {
+  it('returns the owner to the page they asked for', async () => {
+    let authed = false;
+    mockApi({
+      'POST /auth/refresh': () => (authed ? json(session) : problem(401, 'UNAUTHORIZED')),
+      'POST /auth/login': () => {
+        authed = true;
+        return json(session);
+      },
+      'GET /devices': () => json({ data: [] }),
+    });
+    renderApp('/perangkat');
+    await userEvent.type(await screen.findByLabelText('Email'), 'albert@contoh.com');
+    await userEvent.type(screen.getByLabelText('Kata sandi'), 'rahasia123');
+    await userEvent.click(screen.getByRole('button', { name: 'Masuk' }));
+    expect(await screen.findByRole('heading', { name: 'Perangkat' })).toBeInTheDocument();
+  });
+});
