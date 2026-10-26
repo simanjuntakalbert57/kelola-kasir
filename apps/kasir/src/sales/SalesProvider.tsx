@@ -11,11 +11,12 @@ import {
 import { NetworkError } from '../api/client';
 import { useSession } from '../auth/SessionProvider';
 import { createCatalogRepository, type CatalogRepository } from '../catalog/repository';
+import { resetCatalog } from '../catalog/reset';
 import { pullCatalog } from '../catalog/sync';
 import { openDatabase } from '../db/expoDb';
 import { getMeta, META, setMeta } from '../db/meta';
 import type { Db } from '../db/types';
-import { pendingCount, pushOutbox, PUSH_INTERVAL_MS } from '../sync/outbox';
+import { pendingCount, pushOutbox, PUSH_INTERVAL_MS, resetDeferred } from '../sync/outbox';
 import { emptyCart, type Cart } from './cart';
 import type { CashSale, SaleContext } from './checkout';
 import type { QrisSession } from './qris';
@@ -24,6 +25,7 @@ import type { QrisSession } from './qris';
 export const PULL_INTERVAL_MS = 60_000;
 
 export interface CompletedSale {
+  id: string;
   number: string;
   total: number;
   method: 'cash' | 'qris';
@@ -63,6 +65,7 @@ export function useSales(): SalesValue {
 
 export function toCompleted(sale: CashSale): CompletedSale {
   return {
+    id: sale.id,
     number: sale.number,
     total: sale.total,
     method: 'cash',
@@ -72,7 +75,7 @@ export function toCompleted(sale: CashSale): CompletedSale {
 }
 
 export function SalesProvider({ children }: { children: ReactNode }) {
-  const { api, paired, session, shift, resetDevice } = useSession();
+  const { boot, api, paired, session, shift, resetDevice } = useSession();
   const [db, setDb] = useState<Db | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [cart, setCartState] = useState<Cart>(emptyCart);
@@ -85,6 +88,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void openDatabase().then(async (opened) => {
+      await resetDeferred(opened);
       setDb(opened);
       setPrintReceiptState((await getMeta(opened, META.printReceipt)) !== '0');
       setPending(await pendingCount(opened));
@@ -93,6 +97,13 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   const catalog = useMemo(() => (db ? createCatalogRepository(db) : null), [db]);
   const paired_ = !!paired;
+
+  // Unpaired (revoked or reset): drop catalog + cursor so the next pairing starts clean. The outbox stays.
+  useEffect(() => {
+    if (db && boot === 'ready' && !paired_) {
+      void resetCatalog(db).then(() => setCatalogVersion((v) => v + 1));
+    }
+  }, [db, boot, paired_]);
 
   const refreshPending = useCallback(async () => {
     if (db) setPending(await pendingCount(db));

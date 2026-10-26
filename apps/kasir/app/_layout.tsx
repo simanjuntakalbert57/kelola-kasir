@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../src/auth/SessionProvider';
+import { PrinterProvider } from '../src/printing/PrinterProvider';
 import { SalesProvider } from '../src/sales/SalesProvider';
 import { colors } from '../src/theme';
 
@@ -33,6 +34,10 @@ function Routes() {
         <Stack.Screen name="cash" />
         <Stack.Screen name="qris" />
         <Stack.Screen name="success" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="printer" />
+        <Stack.Screen name="transaction/[id]" />
+        <Stack.Screen name="sold-out" />
+        <Stack.Screen name="close-shift" />
       </Stack.Protected>
     </Stack>
   );
@@ -44,7 +49,9 @@ export default function RootLayout() {
       <SessionProvider>
         <StatusBar style="light" />
         <SalesProvider>
-          <Routes />
+          <PrinterProvider>
+            <Routes />
+          </PrinterProvider>
         </SalesProvider>
       </SessionProvider>
     </SafeAreaProvider>

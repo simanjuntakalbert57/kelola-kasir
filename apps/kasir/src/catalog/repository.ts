@@ -1,5 +1,7 @@
 import type { Category, Product } from '@kelola-kasir/contracts';
 import { get, type Db } from '../db/types';
+import { uuidv7 } from '../lib/uuid';
+import { enqueueMutation } from '../sync/outbox';
 
 export interface CatalogProduct {
   id: string;
@@ -45,16 +47,25 @@ export function createCatalogRepository(db: Db, now: () => number = Date.now) {
       products?: readonly Product[];
       deleted?: readonly { entity: string; id: string }[];
     }): Promise<void> {
-      await db.transaction(async () => {
+      await db.transaction(async (tx) => {
+        // A sold-out toggle still waiting in the outbox wins over the server's older value.
+        const queued = new Map<string, boolean>();
+        const rows = await tx.all<{ payload: string }>(
+          "SELECT payload FROM outbox WHERE type = 'product.mark_sold_out' AND state = 'pending' ORDER BY seq",
+        );
+        for (const r of rows) {
+          const m = JSON.parse(r.payload) as { product_id: string; is_sold_out: boolean };
+          queued.set(m.product_id, m.is_sold_out);
+        }
         for (const c of changes.categories ?? []) {
-          await db.run(
+          await tx.run(
             `INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`,
             [c.id, c.name, c.sort_order],
           );
         }
         for (const p of changes.products ?? []) {
-          await db.run(
+          await tx.run(
             `INSERT INTO products (id, category_id, name, image_url, price, is_active, is_sold_out, sort_order)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET category_id = excluded.category_id, name = excluded.name,
@@ -67,15 +78,15 @@ export function createCatalogRepository(db: Db, now: () => number = Date.now) {
               p.image_url ?? null,
               p.price,
               p.is_active ? 1 : 0,
-              p.is_sold_out ? 1 : 0,
+              (queued.get(p.id) ?? p.is_sold_out) ? 1 : 0,
               p.sort_order ?? 0,
             ],
           );
         }
         for (const d of changes.deleted ?? []) {
-          if (d.entity === 'product') await db.run('DELETE FROM products WHERE id = ?', [d.id]);
+          if (d.entity === 'product') await tx.run('DELETE FROM products WHERE id = ?', [d.id]);
           if (d.entity === 'category') {
-            await db.run('DELETE FROM categories WHERE id = ?', [d.id]);
+            await tx.run('DELETE FROM categories WHERE id = ?', [d.id]);
           }
         }
       });
@@ -122,6 +133,37 @@ export function createCatalogRepository(db: Db, now: () => number = Date.now) {
         params,
       );
       return rows.map(toProduct);
+    },
+
+    /** Sold-out menu, so the cashier can bring an item back (it is hidden from the grid). */
+    async listSoldOut(): Promise<CatalogProduct[]> {
+      const rows = await db.all<ProductRow>(
+        `SELECT id, category_id, name, image_url, price FROM products
+         WHERE is_active = 1 AND is_sold_out = 1 ORDER BY name`,
+      );
+      return rows.map(toProduct);
+    },
+
+    /** Flips availability locally at once and queues `product.mark_sold_out` for the server (M-14). */
+    async setSoldOut(
+      productId: string,
+      soldOut: boolean,
+      employeeId: string | null,
+      at: Date = new Date(),
+    ): Promise<void> {
+      await db.transaction(async (tx) => {
+        await tx.run('UPDATE products SET is_sold_out = ? WHERE id = ?', [
+          soldOut ? 1 : 0,
+          productId,
+        ]);
+        await enqueueMutation(tx, {
+          id: uuidv7(at.getTime()),
+          type: 'product.mark_sold_out',
+          employeeId,
+          clientCreatedAt: at.toISOString(),
+          payload: { product_id: productId, is_sold_out: soldOut },
+        });
+      });
     },
 
     async productCount(): Promise<number> {

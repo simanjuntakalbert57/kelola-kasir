@@ -5,6 +5,9 @@ import type {
   TransactionCreate,
 } from '@kelola-kasir/contracts';
 
+/** Render Free cold start can take over a minute (TDD R-9); a shorter timeout reads as "offline". */
+export const API_TIMEOUT_MS = 90_000;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -23,6 +26,14 @@ export class NetworkError extends Error {
     super(message);
     this.name = 'NetworkError';
   }
+}
+
+export interface ShiftCloseBody {
+  actual_cash: number;
+  closed_at: string;
+  closing_note?: string;
+  closed_offline?: boolean;
+  unsynced_count?: number;
 }
 
 export interface ApiClientOptions {
@@ -44,7 +55,7 @@ interface RequestOptions {
 
 export function createApiClient(options: ApiClientOptions) {
   const doFetch = options.fetchImpl ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 15_000;
+  const timeoutMs = options.timeoutMs ?? API_TIMEOUT_MS;
 
   async function request(
     method: string,
@@ -147,6 +158,35 @@ export function createApiClient(options: ApiClientOptions) {
       if (res.status === 204) return null;
       return (await res.json()) as ResponseBody<'/shifts/current', 'get'>;
     },
+    getShiftSummary: (shiftId: string) =>
+      json<ResponseBody<'/shifts/{shift_id}/summary', 'get'>>('GET', `/shifts/${shiftId}/summary`, {
+        device: true,
+        employee: true,
+      }),
+    closeShift: (shiftId: string, body: ShiftCloseBody) =>
+      json<ResponseBody<'/shifts/{shift_id}/close', 'post'>>('POST', `/shifts/${shiftId}/close`, {
+        device: true,
+        employee: true,
+        body,
+      }),
+    listTransactions: (scope: 'shift' | 'today', limit = 100) =>
+      json<ResponseBody<'/transactions', 'get'>>('GET', '/transactions', {
+        device: true,
+        employee: true,
+        query: { scope, limit: String(limit) },
+      }),
+    getReceipt: (transactionId: string) =>
+      json<ResponseBody<'/transactions/{transaction_id}/receipt', 'get'>>(
+        'GET',
+        `/transactions/${transactionId}/receipt`,
+        { device: true, employee: true },
+      ),
+    createVoidRequest: (transactionId: string, body: { id: string; reason: string }) =>
+      json<ResponseBody<'/transactions/{transaction_id}/void-requests', 'post', 201>>(
+        'POST',
+        `/transactions/${transactionId}/void-requests`,
+        { device: true, employee: true, body },
+      ),
     openShift: (input: { id: string; opening_cash: number; opened_at: string }) =>
       json<ResponseBody<'/shifts', 'post', 201>>('POST', '/shifts', {
         device: true,
