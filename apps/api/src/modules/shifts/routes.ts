@@ -6,7 +6,7 @@ import { isUniqueViolation } from '../../db/client.js';
 import { shifts } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { parse } from '../../lib/validate.js';
+import { isoTimestamp, parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { closeBodySchema, closeShift, closerOf, MAX_CLOCK_SKEW_MS } from './close.js';
@@ -15,13 +15,12 @@ import { buildShiftSummary, toShiftDtos, type ShiftRow } from './summary.js';
 const ONE_OPEN_INDEX = 'shifts_one_open_per_outlet';
 
 const rupiah = z.number().int().min(0).max(1_000_000_000_000);
-const isoDate = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
-const idParams = z.object({ shift_id: z.uuid() });
-const openBody = z.object({ id: z.uuid(), opening_cash: rupiah, opened_at: isoDate });
+const idParams = z.object({ shift_id: uuid });
+const openBody = z.object({ id: uuid, opening_cash: rupiah, opened_at: isoTimestamp });
 const listQuery = z.object({
   date_from: z.iso.date().optional(),
   date_to: z.iso.date().optional(),
-  employee_id: z.uuid().optional(),
+  employee_id: uuid.optional(),
   status: z.enum(['open', 'closed']).optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -36,7 +35,7 @@ function encodeCursor(row: ShiftRow): string {
 function decodeCursor(cursor: string): { t: Date; id: string } {
   try {
     const parsed = z
-      .object({ t: z.iso.datetime(), id: z.uuid() })
+      .object({ t: z.iso.datetime(), id: uuid })
       .parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     return { t: new Date(parsed.t), id: parsed.id };
   } catch {

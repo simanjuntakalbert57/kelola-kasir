@@ -168,10 +168,25 @@ describe('open shift', () => {
       { opening_cash: '1000' },
       { id: 'not-a-uuid' },
       { opened_at: 'yesterday' },
+      { opened_at: '1775-08-07T21:39:24.272511Z' },
+      { opened_at: '0001-01-01T00:00:00Z' },
+      { opened_at: '9999-12-31T23:59:59Z' },
     ]) {
       const res = await openShift(w.a, bad);
       expect(res.statusCode, JSON.stringify(bad)).toBe(400);
     }
+  });
+
+  it('accepts non-RFC 4122 UUIDs for the shift id, as the spec does', async () => {
+    const w = await world();
+    const id = 'e3e70682-c209-4cac-629f-6fbed82c07cd';
+    expect((await openShift(w.a, { id })).statusCode).toBe(201);
+    const current = await env.app.inject({
+      method: 'GET',
+      url: '/v1/shifts/current',
+      headers: w.a.headers,
+    });
+    expect(current.statusCode).toBe(200);
   });
 
   it('does not let one outlet replay another outlet’s shift id', async () => {
@@ -416,6 +431,9 @@ describe('shift summary and close', () => {
         })
       ).statusCode,
     ).toBe(400);
+    for (const closed_at of ['1775-08-07T21:39:24.272511Z', '0001-01-01T00:00:00Z']) {
+      expect((await closeShift(w.a, shiftId, { closed_at })).statusCode, closed_at).toBe(400);
+    }
     expect((await closeShift(w.a, newShiftId())).statusCode).toBe(404);
     const other = await world();
     expect((await closeShift(other.a, shiftId)).statusCode).toBe(404);

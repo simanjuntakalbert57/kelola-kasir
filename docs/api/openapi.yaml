@@ -187,7 +187,7 @@ paths:
               type: object
               required: [name]
               properties:
-                name: { type: string, maxLength: 60, examples: ['Tablet Kasir Depan'] }
+                name: { type: string, minLength: 1, maxLength: 60, examples: ['Tablet Kasir Depan'] }
       responses:
         '201':
           description: Device created with pairing code (valid 10 minutes)
@@ -214,7 +214,7 @@ paths:
               type: object
               required: [pairing_code]
               properties:
-                pairing_code: { type: string }
+                pairing_code: { type: string, minLength: 1 }
                 app_version: { type: string }
                 platform: { type: string, enum: [android, ios] }
       responses:
@@ -304,7 +304,7 @@ paths:
               type: object
               required: [name, pin]
               properties:
-                name: { type: string, maxLength: 60 }
+                name: { type: string, minLength: 1, maxLength: 60 }
                 pin: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '201':
@@ -331,7 +331,7 @@ paths:
             schema:
               type: object
               properties:
-                name: { type: string, maxLength: 60 }
+                name: { type: string, minLength: 1, maxLength: 60 }
                 is_active: { type: boolean }
       responses:
         '200':

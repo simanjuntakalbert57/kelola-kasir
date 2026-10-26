@@ -5,7 +5,7 @@ import type { AppContext, Principal } from '../../context.js';
 import { employees, shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { escapeLike, parse } from '../../lib/validate.js';
+import { escapeLike, parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, type Guards } from '../../plugins/auth.js';
 import { loadSettings } from '../settings/serialize.js';
 import { formatReceipt } from './receipt.js';
@@ -17,13 +17,13 @@ import {
   type TransactionRow,
 } from './serialize.js';
 
-const idParams = z.object({ transaction_id: z.uuid() });
+const idParams = z.object({ transaction_id: uuid });
 const listQuery = z.object({
   scope: z.enum(['shift', 'today']).default('shift'),
   date_from: z.iso.date().optional(),
   date_to: z.iso.date().optional(),
-  employee_id: z.uuid().optional(),
-  shift_id: z.uuid().optional(),
+  employee_id: uuid.optional(),
+  shift_id: uuid.optional(),
   payment_method: z.enum(['cash', 'qris']).optional(),
   status: z.enum(['pending', 'paid', 'void_requested', 'voided', 'cancelled']).optional(),
   q: z.string().trim().max(60).optional(),
@@ -39,7 +39,7 @@ const encodeCursor = (row: TransactionRow): string =>
 function decodeCursor(cursor: string): { t: Date; id: string } {
   try {
     const parsed = z
-      .object({ t: z.iso.datetime(), id: z.uuid() })
+      .object({ t: z.iso.datetime(), id: uuid })
       .parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     return { t: new Date(parsed.t), id: parsed.id };
   } catch {

@@ -6,7 +6,7 @@ import type { DbOrTx } from '../../db/client.js';
 import { categories, products } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { imageUrlSchema } from '../../lib/urls.js';
-import { escapeLike, parse } from '../../lib/validate.js';
+import { escapeLike, parse, uuid } from '../../lib/validate.js';
 import { requestOutletId, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { setSoldOut } from './availability.js';
@@ -14,8 +14,8 @@ import { toCategory, toProduct } from './serialize.js';
 
 const rupiah = z.number().int().min(0).max(1_000_000_000);
 const sortOrder = z.number().int().min(-100_000).max(100_000);
-const categoryId = z.object({ category_id: z.uuid() });
-const productId = z.object({ product_id: z.uuid() });
+const categoryId = z.object({ category_id: uuid });
+const productId = z.object({ product_id: uuid });
 
 const categoryBody = z.object({ name: z.string().trim().min(1).max(40), sort_order: sortOrder });
 const categoryCreate = categoryBody.partial({ sort_order: true });
@@ -24,7 +24,7 @@ const categoryUpdate = categoryBody
   .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field' });
 
 const listProductsQuery = z.object({
-  category_id: z.uuid().optional(),
+  category_id: uuid.optional(),
   is_active: z.enum(['true', 'false']).optional(),
   q: z.string().trim().max(60).optional(),
 });
@@ -45,7 +45,7 @@ export function catalogRoutes(ctx: AppContext, guards: Guards) {
   const { db, config } = ctx;
   const imageUrl = imageUrlSchema(config.storage?.publicBaseUrl);
   const productBody = z.object({
-    category_id: z.uuid(),
+    category_id: uuid,
     name: z.string().trim().min(1).max(60),
     image_url: imageUrl.nullable(),
     price: rupiah,
