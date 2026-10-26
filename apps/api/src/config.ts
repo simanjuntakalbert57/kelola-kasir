@@ -87,7 +87,9 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = envSchema.safeParse(env);
+  // An empty variable means "not set": compose files and .env templates pass optional values as `KEY=`.
+  const present = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const parsed = envSchema.safeParse(present);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid environment: ${problems}`);

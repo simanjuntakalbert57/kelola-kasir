@@ -15,6 +15,22 @@ describe('loadConfig', () => {
     expect(config.jwtPrivateKeyPem).toContain('BEGIN PRIVATE KEY');
   });
 
+  it('treats empty variables as unset', () => {
+    const config = loadConfig({
+      ...base,
+      SENTRY_DSN: '',
+      STORAGE_ENDPOINT: '',
+      STORAGE_BUCKET: '',
+      STORAGE_ACCESS_KEY_ID: '',
+      STORAGE_SECRET_ACCESS_KEY: '',
+      STORAGE_PUBLIC_BASE_URL: '',
+      COOKIE_SECURE: '',
+    });
+    expect(config.sentry).toBeNull();
+    expect(config.storage).toBeNull();
+    expect(config.cookieSecure).toBe(false);
+  });
+
   it('requires secrets in production and sets Secure cookies', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/JWT_PRIVATE_KEY/);
     const key = Buffer.from(loadConfig({ ...base }).jwtPrivateKeyPem).toString('base64');
