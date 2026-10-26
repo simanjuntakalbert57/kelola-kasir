@@ -35,3 +35,11 @@ export const isoTimestamp = z.iso
     (d) => d.getTime() >= MIN_TIMESTAMP_MS && d.getTime() < MAX_TIMESTAMP_MS,
     'Timestamp is out of the supported range (2020-2099)',
   );
+
+/** Business date `yyyy-mm-dd` limited to 2000-2099 so the WIB day boundaries always serialise. */
+export const businessDate = z.iso
+  .date()
+  .refine(
+    (v) => v >= '2000-01-01' && v < '2100-01-01',
+    'Date is out of the supported range (2000-2099)',
+  );
