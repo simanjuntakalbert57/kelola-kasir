@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
 import { errors } from '../../errors.js';
-import { parse, UUID_PATTERN } from '../../lib/validate.js';
+import { parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { OwnerAuthService } from './owner-service.js';
 import { PinAuthService } from './pin-service.js';
@@ -18,7 +18,7 @@ const loginBody = z.object({
   password: z.string().min(8).max(200),
 });
 const pinLoginBody = z.object({
-  employee_id: z.string().regex(UUID_PATTERN, 'Invalid UUID'),
+  employee_id: uuid,
   pin: z.string().regex(/^[0-9]{6}$/, 'PIN must be 6 digits'),
 });
 

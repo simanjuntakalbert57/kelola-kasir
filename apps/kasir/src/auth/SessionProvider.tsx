@@ -13,7 +13,8 @@ import { ApiError, createApiClient, NetworkError, type ApiClient } from '../api/
 import { API_BASE_URL, APP_VERSION } from '../config';
 import { getJson, setJson, STORAGE_KEYS } from '../lib/storage';
 import { secureStore } from '../lib/secureStore';
-import { loadSuggestedOpeningCash, openShiftInput } from '../shift/prefill';
+import { openOrJoinShift } from '../shift/open';
+import { loadSuggestedOpeningCash } from '../shift/prefill';
 import {
   loadPairing,
   loginWithPin,
@@ -151,18 +152,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
       checkShift,
       openShift: async (openingCash) => {
-        try {
-          const opened = await api.openShift(openShiftInput(openingCash));
-          await storeShift(opened);
-          return { joined: false };
-        } catch (error) {
-          // 409 SHIFT_ALREADY_OPEN: another employee/device opened it; join that shift (TDD §2.5).
-          if (error instanceof ApiError && error.code === 'SHIFT_ALREADY_OPEN') {
-            await storeShift(await api.getCurrentShift());
-            return { joined: true };
-          }
-          throw error;
-        }
+        const { shift: opened, joined } = await openOrJoinShift(api, openingCash);
+        await storeShift(opened);
+        return { joined };
       },
       suggestedOpeningCash: () => loadSuggestedOpeningCash(secureStore),
       resetDevice,

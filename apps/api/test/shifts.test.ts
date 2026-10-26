@@ -64,6 +64,33 @@ const summary = (headers: Record<string, string>, shiftId: string) =>
   env.app.inject({ method: 'GET', url: `/v1/shifts/${shiftId}/summary`, headers });
 
 describe('open shift', () => {
+  it('limits opened_at clock drift to 10 minutes in the future, like closing', async () => {
+    const w = await world();
+    const at = (minutes: number) =>
+      new Date(env.clock.now.getTime() + minutes * 60_000).toISOString();
+
+    const tooFar = await openShift(w.a, { opened_at: at(11) });
+    expect(tooFar.statusCode).toBe(400);
+    expect(json(tooFar)).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      errors: [{ path: 'opened_at' }],
+    });
+    // Nothing was created, so a correct request still opens the shift.
+    expect(
+      (await env.app.inject({ method: 'GET', url: '/v1/shifts/current', headers: w.a.headers }))
+        .statusCode,
+    ).toBe(204);
+
+    const withinDrift = await openShift(w.a, { opened_at: at(9) });
+    expect(withinDrift.statusCode).toBe(201);
+  });
+
+  it('still accepts a past opened_at (device that was offline before reconnecting)', async () => {
+    const w = await world();
+    const past = new Date(env.clock.now.getTime() - 2 * 3600_000).toISOString();
+    expect((await openShift(w.a, { opened_at: past })).statusCode).toBe(201);
+  });
+
   it('opens the outlet shift with opening cash, naming the employee and device', async () => {
     const w = await world();
     const id = newShiftId();
@@ -404,6 +431,9 @@ describe('shift summary and close', () => {
         })
       ).statusCode,
     ).toBe(400);
+    for (const closed_at of ['1775-08-07T21:39:24.272511Z', '0001-01-01T00:00:00Z']) {
+      expect((await closeShift(w.a, shiftId, { closed_at })).statusCode, closed_at).toBe(400);
+    }
     expect((await closeShift(w.a, newShiftId())).statusCode).toBe(404);
     const other = await world();
     expect((await closeShift(other.a, shiftId)).statusCode).toBe(404);

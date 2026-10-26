@@ -41,3 +41,30 @@ describe('loadConfig', () => {
     ).toEqual(['https://a.example', 'https://b.example']);
   });
 });
+
+describe('object storage config', () => {
+  const base = { DATABASE_URL: 'postgres://localhost/db' };
+  const storage = {
+    STORAGE_ENDPOINT: 'https://acct.r2.cloudflarestorage.com/',
+    STORAGE_BUCKET: 'media',
+    STORAGE_ACCESS_KEY_ID: 'key',
+    STORAGE_SECRET_ACCESS_KEY: 'secret',
+    STORAGE_PUBLIC_BASE_URL: 'https://media.example/',
+  };
+
+  it('is off by default', () => {
+    expect(loadConfig(base).storage).toBeNull();
+  });
+
+  it('normalises trailing slashes and defaults the region', () => {
+    expect(loadConfig({ ...base, ...storage }).storage).toMatchObject({
+      endpoint: 'https://acct.r2.cloudflarestorage.com',
+      publicBaseUrl: 'https://media.example',
+      region: 'auto',
+    });
+  });
+
+  it('is all or nothing', () => {
+    expect(() => loadConfig({ ...base, STORAGE_BUCKET: 'media' })).toThrow(/must be set together/);
+  });
+});

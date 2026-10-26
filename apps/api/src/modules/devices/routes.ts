@@ -18,7 +18,7 @@ import {
   sha256Hex,
 } from '../../lib/crypto.js';
 import { isoOrNull } from '../../lib/time.js';
-import { parse, UUID_PATTERN } from '../../lib/validate.js';
+import { parse, uuid } from '../../lib/validate.js';
 import { requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 
@@ -28,7 +28,7 @@ const pairBody = z.object({
   app_version: z.string().max(40).optional(),
   platform: z.enum(['android', 'ios']).optional(),
 });
-const deviceIdParams = z.object({ device_id: z.string().regex(UUID_PATTERN, 'Invalid UUID') });
+const deviceIdParams = z.object({ device_id: uuid });
 
 type DeviceRow = typeof devices.$inferSelect;
 

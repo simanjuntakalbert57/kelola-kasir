@@ -77,6 +77,57 @@ describe('loadEmployees', () => {
     expect(second.fromCache).toBe(true);
     expect(second.employees[0]?.pin_hash).toBe('H');
   });
+
+  it('stores one SecureStore key per employee, each far below 2048 bytes', async () => {
+    const store = createMemoryStore();
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+      name: `Pegawai ${i}`,
+    }));
+    const hash = '$argon2id$v=19$m=19456,t=2,p=1$' + 'x'.repeat(90);
+    const api = fakeApi({
+      listDeviceEmployees: vi.fn().mockResolvedValue({ data: many }),
+      syncPull: vi.fn().mockResolvedValue({
+        changes: { employees: many.map((e) => ({ ...e, is_active: true, pin_hash: hash })) },
+      }),
+    });
+    const sizes: number[] = [];
+    const spy = {
+      ...store,
+      set: (k: string, v: string) => {
+        sizes.push(v.length);
+        return store.set(k, v);
+      },
+    };
+    await loadEmployees(api, spy);
+    expect(Math.max(...sizes)).toBeLessThan(2048);
+    const offline = fakeApi({ listDeviceEmployees: vi.fn().mockRejectedValue(new NetworkError()) });
+    const cached = await loadEmployees(offline, store);
+    expect(cached.employees).toHaveLength(60);
+    expect(cached.employees[3]?.pin_hash).toBe(hash);
+  });
+
+  it('treats device_revoked in /sync/pull like a DEVICE_REVOKED error', async () => {
+    const api = fakeApi({
+      listDeviceEmployees: vi.fn().mockResolvedValue({ data: [] }),
+      syncPull: vi.fn().mockResolvedValue({ changes: {}, device_revoked: true }),
+    });
+    await expect(loadEmployees(api, createMemoryStore())).rejects.toMatchObject({
+      code: 'DEVICE_REVOKED',
+    });
+  });
+
+  it('wipeDevice also removes the per-employee cache keys', async () => {
+    const store = createMemoryStore();
+    const api = fakeApi({
+      listDeviceEmployees: vi.fn().mockResolvedValue({ data: [{ id: 'e1', name: 'Sari' }] }),
+      syncPull: vi.fn().mockResolvedValue({ changes: {} }),
+    });
+    await loadEmployees(api, store);
+    expect(await store.get('employee.0')).not.toBeNull();
+    await wipeDevice(store);
+    expect(await store.get('employee.0')).toBeNull();
+  });
 });
 
 describe('loginWithPin', () => {

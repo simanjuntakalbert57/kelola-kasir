@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
 import { useSession } from '../src/auth/SessionProvider';
+import { canOpenShift } from '../src/shift/open';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
 import { colors, radius, space } from '../src/theme';
 import { Banner, Button, Keypad, TopBar } from '../src/ui/components';
@@ -84,7 +85,7 @@ export default function OpenShiftScreen() {
           label={busy ? 'Membuka…' : 'Buka shift & mulai jualan'}
           variant="primary"
           large
-          disabled={busy || offline || (!shiftChecked && !checkFailed)}
+          disabled={!canOpenShift({ offline, busy, shiftChecked, checkFailed })}
           onPress={submit}
           style={{ marginTop: space.s3 }}
         />
