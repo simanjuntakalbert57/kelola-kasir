@@ -105,7 +105,8 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Install Playwright browsers (bounded retries: a stalled CDN download once hung the job for 20 min)
+      # Bounded retries: a stalled CDN download once hung this job for 20 minutes.
+      - name: Install Playwright browsers
         run: |
           for attempt in 1 2 3; do
             timeout 240 pnpm --filter @kelola-kasir/e2e exec playwright install --with-deps chromium firefox webkit && exit 0
