@@ -241,6 +241,8 @@ export const products = pgTable(
     price: money('price').notNull(),
     isActive: boolean('is_active').notNull().default(true),
     isSoldOut: boolean('is_sold_out').notNull().default(false),
+    /** Shown first in the cashier's "Favorit" tab, ordered by `sort_order`. */
+    isFavorite: boolean('is_favorite').notNull().default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     deletedAt: ts('deleted_at'),
     createdAt: createdAt(),

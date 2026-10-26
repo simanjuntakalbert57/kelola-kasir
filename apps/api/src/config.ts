@@ -20,7 +20,24 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default(''),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(5),
   RATE_LIMIT_PAIR_MAX: z.coerce.number().int().min(1).default(10),
+  /** S3-compatible object storage (Cloudflare R2) for presigned image uploads. All or nothing. */
+  STORAGE_ENDPOINT: z.url().optional(),
+  STORAGE_BUCKET: z.string().min(1).optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  STORAGE_REGION: z.string().min(1).default('auto'),
+  /** Public base URL the uploaded objects are served from (R2 public bucket / custom domain). */
+  STORAGE_PUBLIC_BASE_URL: z.url().optional(),
 });
+
+export interface StorageConfig {
+  endpoint: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  publicBaseUrl: string;
+}
 
 export interface Config {
   env: 'development' | 'test' | 'production';
@@ -35,6 +52,8 @@ export interface Config {
   trustProxy: boolean;
   corsOrigins: string[];
   rateLimit: { loginMax: number; pairMax: number };
+  /** `null` when object storage is not configured: `POST /uploads` then answers 503. */
+  storage: StorageConfig | null;
   ownerAccessTtlSec: number;
   employeeAccessTtlSec: number;
   refreshTtlSec: number;
@@ -43,6 +62,8 @@ export interface Config {
   ownerLockoutSec: number;
   pinLockoutMax: number;
   pinLockoutSec: number;
+  /** A pending QRIS payment expires (transaction `cancelled`) after this many seconds. */
+  qrisExpirySec: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -74,6 +95,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pinFingerprintSecret = 'development-only-pin-fingerprint-secret-change-me';
   }
 
+  const storageValues = [
+    e.STORAGE_ENDPOINT,
+    e.STORAGE_BUCKET,
+    e.STORAGE_ACCESS_KEY_ID,
+    e.STORAGE_SECRET_ACCESS_KEY,
+    e.STORAGE_PUBLIC_BASE_URL,
+  ];
+  let storage: StorageConfig | null = null;
+  if (storageValues.some(Boolean)) {
+    if (
+      !e.STORAGE_ENDPOINT ||
+      !e.STORAGE_BUCKET ||
+      !e.STORAGE_ACCESS_KEY_ID ||
+      !e.STORAGE_SECRET_ACCESS_KEY ||
+      !e.STORAGE_PUBLIC_BASE_URL
+    ) {
+      throw new Error(
+        'Invalid environment: STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY and STORAGE_PUBLIC_BASE_URL must be set together',
+      );
+    }
+    storage = {
+      endpoint: e.STORAGE_ENDPOINT.replace(/\/+$/, ''),
+      bucket: e.STORAGE_BUCKET,
+      accessKeyId: e.STORAGE_ACCESS_KEY_ID,
+      secretAccessKey: e.STORAGE_SECRET_ACCESS_KEY,
+      region: e.STORAGE_REGION,
+      publicBaseUrl: e.STORAGE_PUBLIC_BASE_URL.replace(/\/+$/, ''),
+    };
+  }
+
   return {
     env: e.NODE_ENV,
     host: e.HOST,
@@ -88,6 +139,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((o) => o.trim())
       .filter(Boolean),
     rateLimit: { loginMax: e.RATE_LIMIT_LOGIN_MAX, pairMax: e.RATE_LIMIT_PAIR_MAX },
+    storage,
     ownerAccessTtlSec: 15 * 60,
     employeeAccessTtlSec: 12 * 60 * 60,
     refreshTtlSec: 30 * 24 * 60 * 60,
@@ -96,5 +148,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ownerLockoutSec: 10 * 60,
     pinLockoutMax: 5,
     pinLockoutSec: 5 * 60,
+    qrisExpirySec: 15 * 60,
   };
 }

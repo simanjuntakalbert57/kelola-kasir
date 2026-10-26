@@ -1,6 +1,7 @@
 import type { Config } from './config.js';
 import type { Database } from './db/client.js';
 import type { TokenService } from './lib/jwt.js';
+import type { PaymentService } from './modules/payments/service.js';
 
 /** Shared dependencies handed to every module. `now` is injectable so time-based rules are testable. */
 export interface AppContext {
@@ -39,6 +40,10 @@ export interface DeviceContext {
 }
 
 declare module 'fastify' {
+  interface FastifyInstance {
+    /** Payment operations, exposed so the server can run the QRIS expiry job. */
+    payments: PaymentService;
+  }
   interface FastifyRequest {
     principal?: Principal;
     device?: DeviceContext;

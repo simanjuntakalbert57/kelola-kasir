@@ -7,6 +7,7 @@ import { loadConfig, type Config } from '../src/config.js';
 import { createDb, type DbHandle } from '../src/db/client.js';
 import { outletSettings, outlets } from '../src/db/schema.js';
 import { TokenService } from '../src/lib/jwt.js';
+import { crc16 } from '../src/lib/qris.js';
 import { OwnerAuthService } from '../src/modules/auth/owner-service.js';
 
 export const OWNER_PASSWORD = 'correct-horse-battery';
@@ -245,4 +246,144 @@ export async function seedTransaction(env: TestEnv, seed: TxSeed): Promise<strin
     ...(method === 'qris' ? { confirmationMode: seed.qrisConfirmation ?? 'manual' } : {}),
   });
   return id;
+}
+
+const tlv = (tag: string, value: string): string =>
+  `${tag}${String(value.length).padStart(2, '0')}${value}`;
+
+/** A well-formed static QRIS payload (tag 01 = 11) with a valid CRC. */
+export function buildQris(merchant = 'JUS KELOLA', extra = ''): string {
+  const body =
+    tlv('00', '01') +
+    tlv('01', '11') +
+    tlv('26', tlv('00', 'ID.CO.QRIS.WWW') + tlv('01', 'ID1023456789012') + tlv('02', '93600000')) +
+    tlv('52', '5814') +
+    tlv('53', '360') +
+    tlv('58', 'ID') +
+    tlv('59', merchant) +
+    tlv('60', 'JAKARTA') +
+    extra +
+    '6304';
+  return body + crc16(body);
+}
+
+export interface Shop {
+  seeded: SeededOutlet;
+  ownerToken: string;
+  cashier: CashierSession;
+  device: { id: string; code: string; token: string };
+  shiftId: string;
+  category: { id: string };
+  product: { id: string; name: string; price: number };
+}
+
+export const post = (
+  env: TestEnv,
+  url: string,
+  headers: Record<string, string>,
+  payload: unknown,
+) => env.app.inject({ method: 'POST', url, headers, payload: payload as object });
+export const patch = (
+  env: TestEnv,
+  url: string,
+  headers: Record<string, string>,
+  payload: unknown,
+) => env.app.inject({ method: 'PATCH', url, headers, payload: payload as object });
+export const get = (env: TestEnv, url: string, headers: Record<string, string>) =>
+  env.app.inject({ method: 'GET', url, headers });
+
+/**
+ * Outlet with owner, one paired device, a cashier, an open shift, one category and one product
+ * (Rp15.000) and a static QRIS payload in the store settings.
+ */
+export async function createShop(env: TestEnv, opts: { qris?: boolean } = {}): Promise<Shop> {
+  const seeded = await seedOutlet(env);
+  const owner = await loginOwner(env, seeded);
+  const device = await createPairedDevice(env, owner.token);
+  const cashier = await cashierSession(env, seeded, owner, device);
+  const opened = await post(env, '/v1/shifts', cashier.headers, {
+    id: newShiftId(),
+    opening_cash: 100_000,
+    opened_at: env.clock.now.toISOString(),
+  });
+  if (opened.statusCode !== 201) throw new Error(`open shift failed: ${opened.body}`);
+  const shiftId = json<{ id: string }>(opened).id;
+
+  const cat = await post(env, '/v1/categories', bearer(owner.token), { name: 'Jus Buah' });
+  const category = json<{ id: string }>(cat);
+  const prod = await post(env, '/v1/products', bearer(owner.token), {
+    category_id: category.id,
+    name: 'Jus Alpukat',
+    price: 15_000,
+  });
+  const product = json<{ id: string; name: string; price: number }>(prod);
+  if (opts.qris !== false) {
+    const res = await patch(env, '/v1/settings', bearer(owner.token), {
+      qris_static_payload: buildQris(),
+    });
+    if (res.statusCode !== 200) throw new Error(`settings failed: ${res.body}`);
+  }
+  return {
+    seeded,
+    ownerToken: owner.token,
+    cashier,
+    device,
+    shiftId,
+    category,
+    product,
+  };
+}
+
+let numberSeq = 1;
+export const nextNumber = (shop: Shop): string =>
+  `${shop.seeded.code}-${shop.device.code}-261026-${String(numberSeq++ % 10_000).padStart(4, '0')}`;
+
+export interface TxBodyOptions {
+  qty?: number;
+  method?: 'cash' | 'qris';
+  tendered?: number;
+  unitPrice?: number;
+  createdAt?: Date;
+  shiftId?: string;
+  discount?: number;
+}
+
+/** Valid `POST /transactions` body for one line of the shop's product. */
+export function txBody(env: TestEnv, shop: Shop, o: TxBodyOptions = {}) {
+  const qty = o.qty ?? 2;
+  const unitPrice = o.unitPrice ?? shop.product.price;
+  const lineTotal = unitPrice * qty;
+  const discount = o.discount ?? 0;
+  const total = lineTotal - discount;
+  return {
+    id: uuidv7(),
+    shift_id: o.shiftId ?? shop.shiftId,
+    number: nextNumber(shop),
+    client_created_at: (o.createdAt ?? env.clock.now).toISOString(),
+    items: [
+      {
+        id: uuidv7(),
+        product_id: shop.product.id,
+        product_name: shop.product.name,
+        unit_price: unitPrice,
+        quantity: qty,
+        line_total: lineTotal,
+      },
+    ],
+    subtotal: lineTotal,
+    discount_amount: discount,
+    tax_amount: 0,
+    total,
+    payment:
+      (o.method ?? 'cash') === 'cash'
+        ? { id: uuidv7(), method: 'cash', cash_tendered: o.tendered ?? total }
+        : { id: uuidv7(), method: 'qris' },
+  };
+}
+
+/** First element of a list that is known to be non-empty (keeps tests free of `!`). */
+export function first<T>(list: readonly T[]): T {
+  const item = list[0];
+  if (item === undefined) throw new Error('expected a non-empty list');
+  return item;
 }

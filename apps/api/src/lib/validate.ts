@@ -14,3 +14,6 @@ export function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<
   }
   return result.data;
 }
+
+/** Escape `%`, `_` and `\` so user input can be used inside a LIKE pattern. */
+export const escapeLike = (input: string): string => input.replace(/[\\%_]/g, (c) => `\\${c}`);

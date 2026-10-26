@@ -232,7 +232,8 @@ export interface paths {
         };
         /**
          * Full catalog snapshot for the cashier app (P-03)
-         * @description Categories and active products (with sold-out flag). Used for first load; afterwards use `/sync/pull`.
+         * @description Categories and active products (with sold-out and favorite flags). Settings are not included (use `/settings`,
+         *     or `/sync/pull` without cursor for everything at once). `cursor` can be passed to `/sync/pull` for later changes.
          */
         get: operations["getCatalog"];
         put?: never;
@@ -271,11 +272,14 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Soft-delete category; fails if it still has products (O-05) */
+        /** Soft-delete category; fails with `CATEGORY_NOT_EMPTY` while it still has products (O-05) */
         delete: operations["deleteCategory"];
         options?: never;
         head?: never;
-        /** Update category (O-05) */
+        /**
+         * Update category (O-05)
+         * @description Partial update; only the fields sent change.
+         */
         patch: operations["updateCategory"];
         trace?: never;
     };
@@ -312,7 +316,10 @@ export interface paths {
         delete: operations["deleteProduct"];
         options?: never;
         head?: never;
-        /** Update product; price changes are written to the audit log (O-04) */
+        /**
+         * Update product; price changes are written to the audit log (O-04)
+         * @description Partial update; only the fields sent change (`required` fields of `ProductInput` are only mandatory on create).
+         */
         patch: operations["updateProduct"];
         trace?: never;
     };
@@ -349,6 +356,7 @@ export interface paths {
          *     (read it via `GET /shifts/current` or `/sync/pull`) instead of opening a new one.
          *     Opening a shift requires the device to be online so the single-open-shift rule can be enforced.
          *     Handover = close the current shift, then open a new one.
+         *     `opened_at` may be at most 10 minutes ahead of the server clock (same drift limit as `closed_at` when closing); a later value is rejected with `VALIDATION_ERROR`.
          */
         post: operations["openShift"];
         delete?: never;
@@ -442,6 +450,8 @@ export interface paths {
          *     The server recomputes all totals from the submitted snapshot and rejects inconsistent math
          *     (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
          *     `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
+         *     `number` must start with the outlet code and the device code (`{OUTLET}-{DEV}-`). A device clock more than
+         *     10 minutes ahead (or behind, online) is accepted and recorded as `transaction.clock_skew` in the audit log.
          */
         post: operations["createTransaction"];
         delete?: never;
@@ -533,7 +543,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Payment status; for `auto` mode also polls the provider (P-07) */
+        /**
+         * Payment status; for `auto` mode also polls the provider (P-07)
+         * @description A pending payment past its `expires_at` (15 minutes) is expired on read (payment `expired`, transaction `cancelled`).
+         */
         get: operations["getPayment"];
         put?: never;
         post?: never;
@@ -569,7 +582,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel a pending QRIS payment; transaction becomes `cancelled` (P-07) */
+        /**
+         * Cancel a pending QRIS payment; transaction becomes `cancelled` (P-07)
+         * @description Idempotent for payments that are already cancelled or expired.
+         */
         post: operations["cancelPayment"];
         delete?: never;
         options?: never;
@@ -672,7 +688,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Incremental catalog/config changes since cursor (P-03, P-11, P-13) */
+        /**
+         * Incremental catalog/config changes since cursor (P-03, P-11, P-13)
+         * @description Without `cursor` the response is a full snapshot (no tombstones). Rows are upserted by id; deletions arrive as
+         *     `changes.deleted` tombstones. Repeat while `has_more` is true, then keep `next_cursor`.
+         *     Employee `pin_hash` is only filled when the owner enabled offline login.
+         */
         get: operations["syncPull"];
         put?: never;
         post?: never;
@@ -691,7 +712,16 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Push queued offline mutations in order (P-13). Idempotent per mutation id. */
+        /**
+         * Push queued offline mutations in order (P-13). Idempotent per mutation id.
+         * @description Mutations are applied in order, each in its own database transaction; a rejected mutation does not stop the batch.
+         *     `applied` = done now, `duplicate` = already applied earlier (safe replay), `rejected` = business rule failed, see `code`
+         *     (e.g. `TOTAL_MISMATCH`, `PRODUCT_UNAVAILABLE`, `NUMBER_CONFLICT`, `SHIFT_CLOSED`, `PENDING_QRIS_EXISTS`, `QRIS_NOT_SYNCABLE`,
+         *     `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`).
+         *     Real sales are never dropped: stale prices and unavailable products are accepted and flagged, sales for an already closed
+         *     shift are accepted (flagged `after_shift_close` when created after `closed_at`, otherwise the closed shift's totals are
+         *     recomputed). `void_request.create` is rejected with `UNSUPPORTED_MUTATION` until void requests ship.
+         */
         post: operations["syncPush"];
         delete?: never;
         options?: never;
@@ -788,6 +818,27 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/settings/qris/decode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the static QRIS payload from an uploaded QR image (O-10)
+         * @description Decodes the QR code in a PNG or JPEG (max 2 MiB) and validates it as QRIS (EMVCo structure, CRC, IDR).
+         *     Nothing is saved; send the returned `qris_static_payload` to `PATCH /settings`.
+         */
+        post: operations["decodeQrisImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uploads": {
         parameters: {
             query?: never;
@@ -797,7 +848,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10) */
+        /**
+         * Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10)
+         * @description The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to 2 MiB.
+         */
         post: operations["createUpload"];
         delete?: never;
         options?: never;
@@ -819,13 +873,18 @@ export interface components {
          * @description Integer Rupiah that may be negative (e.g. cash difference).
          */
         SignedRupiah: number;
+        /**
+         * @description Stable machine-readable error code of a `Problem`. Clients branch on this value, never on `title`/`detail`.
+         *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
+         * @enum {string}
+         */
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "UPLOADS_NOT_CONFIGURED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "INVALID_OWNER_PIN";
         Problem: {
             /** Format: uri */
             type: string;
             title: string;
             status: number;
-            /** @example SHIFT_NOT_OPEN */
-            code: string;
+            code: components["schemas"]["ErrorCode"];
             detail?: string;
             errors?: {
                 path?: string;
@@ -918,6 +977,8 @@ export interface components {
             price: components["schemas"]["Rupiah"];
             is_active: boolean;
             is_sold_out: boolean;
+            /** @description Shown first in the cashier's favorites tab, ordered by `sort_order` */
+            is_favorite?: boolean;
             sort_order?: number;
             /** Format: date-time */
             updated_at?: string;
@@ -931,6 +992,8 @@ export interface components {
             price: components["schemas"]["Rupiah"];
             /** @default true */
             is_active: boolean;
+            /** @default false */
+            is_favorite: boolean;
             /** @default 0 */
             sort_order: number;
         };
@@ -1220,8 +1283,10 @@ export interface components {
             };
             /** @description The outlet's open shift, so every device joins the same one */
             current_shift?: components["schemas"]["Shift"] | null;
-            /** @description When true the app must wipe local credentials */
+            /** @description When true the app must wipe local credentials. A revoked device is normally answered with 401 `DEVICE_REVOKED` before this is reached. */
             device_revoked?: boolean;
+            /** @description Highest transaction number this device has sent; continue the daily sequence after it (ADR-0008) */
+            last_number?: string | null;
         };
         DashboardSummary: {
             revenue: components["schemas"]["Rupiah"];
@@ -1281,7 +1346,7 @@ export interface components {
             qris_embed_amount?: boolean;
             offline_login_enabled?: boolean;
             quick_cash_amounts?: components["schemas"]["Rupiah"][];
-            /** @description Set/replace owner PIN for void approval on device */
+            /** @description Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned. */
             owner_pin?: string;
         };
     };
@@ -2308,7 +2373,7 @@ export interface operations {
                     "application/json": components["schemas"]["Transaction"];
                 };
             };
-            /** @description `SHIFT_NOT_OPEN`, `SHIFT_CLOSED`, `NUMBER_CONFLICT` */
+            /** @description `SHIFT_NOT_OPEN` (unknown shift), `SHIFT_CLOSED`, `NUMBER_CONFLICT`, `ID_CONFLICT` (id belongs to another outlet) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2317,7 +2382,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` */
+            /** @description `TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN` */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2499,7 +2564,7 @@ export interface operations {
                     "application/json": components["schemas"]["Transaction"];
                 };
             };
-            /** @description `CONFIRMATION_NOT_ALLOWED` (auto mode) or `PAYMENT_NOT_PENDING` */
+            /** @description `CONFIRMATION_NOT_ALLOWED` (auto mode or cash payment) or `PAYMENT_NOT_PENDING` (cancelled, expired or past its deadline). Confirming an already paid payment is an idempotent 200. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2531,6 +2596,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description `PAYMENT_NOT_PENDING` (already paid, or not a QRIS payment) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     paymentWebhook: {
@@ -2915,7 +2989,57 @@ export interface operations {
                     "application/json": components["schemas"]["OutletSettings"];
                 };
             };
+            /** @description `PIN_NOT_UNIQUE` (owner PIN equals an employee PIN) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description `INVALID_QRIS_PAYLOAD` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    decodeQrisImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    image_base64: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Decoded payload */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        qris_static_payload: string;
+                        qris_merchant_name: string;
+                        /** @description False when the code already carries an amount (dynamic QRIS) */
+                        is_static: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `INVALID_QRIS_PAYLOAD` (no QR code found, or not a valid QRIS) */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2962,6 +3086,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description `UPLOADS_NOT_CONFIGURED` (no object storage in this environment) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
 }

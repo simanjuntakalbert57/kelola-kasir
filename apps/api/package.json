@@ -10,8 +10,7 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:migrate:prod": "node dist/db/migrate.js",
@@ -28,15 +27,21 @@
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.7",
     "jose": "^6.2.13",
+    "jpeg-js": "^0.4.4",
+    "jsqr": "^1.4.0",
     "pg": "^8.23.1",
+    "pngjs": "^7.0.0",
     "uuid": "^14.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.2.1",
     "@types/pg": "^8.23.1",
+    "@types/pngjs": "^6.0.5",
+    "@types/qrcode": "^1.5.6",
     "@vitest/coverage-v8": "^5.0.5",
     "drizzle-kit": "^0.31.11",
+    "qrcode": "^1.5.4",
     "testcontainers": "^12.2.1",
     "tsx": "^4.23.15"
   }
