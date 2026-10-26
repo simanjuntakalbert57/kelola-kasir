@@ -1,4 +1,4 @@
 # OpenAPI operations the API does not implement yet (operationId  # route).
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
-# Waiting for Backend 3 (DEAR-15): void, export, dashboard, reports, webhook.
+# Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
