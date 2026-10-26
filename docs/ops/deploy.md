@@ -96,7 +96,7 @@ nano .env
 | `ACME_EMAIL` | email owner (pemberitahuan sertifikat) |
 | `POSTGRES_PASSWORD`, `BACKUP_DB_PASSWORD` | dari langkah 3 (hex) |
 | `JWT_PRIVATE_KEY`, `PIN_FINGERPRINT_SECRET`, `PROXY_SHARED_SECRET` | dari langkah 3 |
-| `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | endpoint dan token **media** |
+| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | endpoint, bucket `kelola-kasir-media`, dan token **media**. Isi kelimanya (dengan `STORAGE_PUBLIC_BASE_URL`) atau kosongkan kelimanya. Kalau hanya sebagian yang terisi, API menolak start. |
 | `STORAGE_PUBLIC_BASE_URL` | URL publik r2.dev / B2 bucket media |
 | `SENTRY_DSN` | DSN Sentry; `SENTRY_ENVIRONMENT=staging` selama UAT |
 | `AGE_RECIPIENT` | public key `age1...`. **Selama UAT boleh kosong**: backup belum aktif (keputusan owner 26 Okt 2026) dan timer hanya mencatat "backup skipped". Wajib diisi sebelum go-live. |
