@@ -83,14 +83,19 @@ const page = <P extends string>(path: P, component: () => React.JSX.Element) =>
 const transactions = createRoute({
   getParentRoute: () => app,
   path: '/transaksi',
-  validateSearch: (search: Record<string, unknown>): { shift_id?: string; date?: string } => {
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { shift_id?: string; date_from?: string; date_to?: string } => {
     const shiftId = search['shift_id'];
-    const date = search['date'];
+    const dateOk = (v: unknown): v is string =>
+      typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const from = search['date_from'];
+    const to = search['date_to'];
     return {
       ...(typeof shiftId === 'string' && /^[0-9a-f-]{36}$/i.test(shiftId)
         ? { shift_id: shiftId }
         : {}),
-      ...(typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
+      ...(dateOk(from) && dateOk(to) ? { date_from: from, date_to: to } : {}),
     };
   },
   component: TransactionsPage,

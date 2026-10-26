@@ -105,7 +105,11 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
           ) : null}
           <Link
             to="/transaksi"
-            search={{ shift_id: shift.id, date: wibDate(new Date(shift.opened_at)) }}
+            search={{
+              shift_id: shift.id,
+              date_from: wibDate(new Date(shift.opened_at)),
+              date_to: wibDate(shift.closed_at ? new Date(shift.closed_at) : new Date()),
+            }}
             className="mt-3 inline-block text-brand-text underline"
             onClick={onClose}
           >

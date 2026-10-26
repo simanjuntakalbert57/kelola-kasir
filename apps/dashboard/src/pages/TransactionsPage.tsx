@@ -125,13 +125,20 @@ function ExportButtons({ query }: { query: string }) {
 }
 
 export function TransactionsPage() {
-  const { shift_id: initialShiftId, date } = useSearch({ strict: false }) as {
+  const {
+    shift_id: initialShiftId,
+    date_from,
+    date_to,
+  } = useSearch({ strict: false }) as {
     shift_id?: string;
-    date?: string;
+    date_from?: string;
+    date_to?: string;
   };
   const [shiftId, setShiftId] = useState(initialShiftId ?? '');
   const [state, setState] = useState<RangeState>(() =>
-    date ? { preset: 'custom', range: { from: date, to: date } } : initialRange(),
+    date_from && date_to
+      ? { preset: 'custom', range: { from: date_from, to: date_to } }
+      : initialRange(),
   );
   const [employeeId, setEmployeeId] = useState('');
   const [method, setMethod] = useState('');
@@ -171,7 +178,10 @@ export function TransactionsPage() {
 
   return (
     <>
-      <PageHeader title="Transaksi" action={<ExportButtons query={qs(filters)} />} />
+      <PageHeader
+        title="Transaksi"
+        action={shiftId ? null : <ExportButtons query={qs(filters)} />}
+      />
       <Card className="mb-4">
         {shiftId ? (
           <p className="mb-2 flex items-center gap-2 text-sm">
@@ -179,6 +189,7 @@ export function TransactionsPage() {
             <Button small onClick={() => setShiftId('')}>
               Hapus filter shift
             </Button>
+            <span className="text-muted">Ekspor dinonaktifkan selama filter shift aktif.</span>
           </p>
         ) : null}
         <DateRangePicker value={state} onChange={setState} />

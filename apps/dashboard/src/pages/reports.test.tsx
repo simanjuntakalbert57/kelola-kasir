@@ -146,16 +146,18 @@ describe('Transaksi', () => {
       'GET /employees': () => json({ data: [employee] }),
       'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
     });
-    renderApp(`/transaksi?shift_id=${shiftId}&date=2026-10-26`);
+    renderApp(`/transaksi?shift_id=${shiftId}&date_from=2026-10-25&date_to=2026-10-26`);
     expect(await screen.findByText('Menampilkan 1 transaksi')).toBeInTheDocument();
     expect(
       calls.some(
         (c) =>
           c.key.includes('GET /transactions?') &&
           c.key.includes(`shift_id=${shiftId}`) &&
-          c.key.includes('date_from=2026-10-26'),
+          c.key.includes('date_from=2026-10-25') &&
+          c.key.includes('date_to=2026-10-26'),
       ),
     ).toBe(true);
+    expect(screen.queryByRole('button', { name: '⬇ CSV' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Hapus filter shift' }));
     await vi.waitFor(() =>
       expect(
@@ -272,6 +274,50 @@ describe('Shift & kas', () => {
     expect(await within(dialog).findByText(/^Rp\s?640\.000$/)).toBeInTheDocument();
     expect(within(dialog).getByText(/ditutup saat offline/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Sari · 30 transaksi/)).toBeInTheDocument();
+  });
+
+  it('links a shift that crosses midnight to the full opened-to-closed date range', async () => {
+    const id = '22222222-2222-4222-8222-222222222222';
+    const night = shift(id, 0, {
+      opened_at: '2026-10-25T13:00:00Z', // 25 Oct 20:00 WIB
+      closed_at: '2026-10-25T19:00:00Z', // 26 Oct 02:00 WIB
+    });
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () => json({ data: [night], next_cursor: null }),
+      [`GET /shifts/${id}/summary`]: () =>
+        json({
+          shift: night,
+          total_cash_sales: 0,
+          total_qris_sales: 0,
+          total_sales: 0,
+          transaction_count: 0,
+          expected_cash: 840000,
+          actual_cash: 840000,
+          cash_difference: 0,
+          pending_void_count: 0,
+          pending_void_amount: 0,
+          voided_count: 0,
+          voided_amount: 0,
+          by_employee: [],
+        }),
+      'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
+    });
+    renderApp('/shift');
+    await userEvent.click(await screen.findByRole('button', { name: /Detail shift/ }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Lihat daftar transaksi' }));
+    await vi.waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.key.includes('GET /transactions?') &&
+            c.key.includes(`shift_id=${id}`) &&
+            c.key.includes('date_from=2026-10-25') &&
+            c.key.includes('date_to=2026-10-26'),
+        ),
+      ).toBe(true),
+    );
   });
 });
 
