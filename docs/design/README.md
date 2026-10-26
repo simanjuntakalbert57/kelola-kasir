@@ -15,7 +15,7 @@ flowchart TD
 Owner: login → Produk → Tambah (nama, kategori, harga, foto) → Simpan → sinkron ke kasir ≤1 menit; Shift & Kas → pilih shift → lihat selisih → buka transaksi shift; Void → Setujui/Tolak.
 
 ## Sitemap
-- Kasir: K-01 Login PIN · K-02 Buka shift · K-04 Katalog+keranjang · K-06 Cash · K-07 QRIS · K-08 Sukses/struk · K-12 Printer struk (Bluetooth) · K-09 Riwayat · K-10 Detail+void · K-11 Tutup shift · status: loading/kosong/error/offline.
+- Kasir: K-01 Login PIN · K-02 Buka shift · K-04 Katalog+keranjang · K-06 Cash · K-07 QRIS · K-08 Sukses/struk (+K-08b/c error cetak) · K-10b Detail+cetak ulang · K-12/12b/12c Printer struk (Bluetooth: pindai, terhubung, terputus) · K-09 Riwayat · K-10 Detail+void · K-11 Tutup shift · status: loading/kosong/error/offline.
 - Owner: Login · Dashboard · Transaksi (+detail) · Produk (list/form/kategori) · Pegawai · Shift & Kas · Void · Laporan (Should) · Pengaturan toko.
 
 ## Design system
@@ -32,3 +32,6 @@ Owner: login → Produk → Tambah (nama, kategori, harga, foto) → Simpan → 
 **Keputusan (Albert): tidak ada opsi/varian produk** (ukuran, gula, es, topping). Satu produk = satu harga. Dampak API: tidak perlu entitas varian/modifier.
 
 **Cetak struk (Albert):** toggle “Cetak struk” ada di layar Cash dan QRIS (default aktif, diingat per perangkat; tetap 3 tap). Pegawai menyambungkan printer thermal Bluetooth ESC/POS 58 mm di K-12 (Shift → Printer struk): pindai, hubungkan, cetak tes, auto-reconnect. Dampak Mobile: izin Bluetooth, penyimpanan printer terakhir lokal, format struk ESC/POS. Header/footer struk bisa diatur owner di Pengaturan toko (usulan).
+
+
+**Desain printer (DEAR-20):** tema gelap `kasir.html` bagian D memuat toggle “Cetak struk” (K-06/K-07, 4 state), layar Printer K-12 (pindai/terhubung/terputus + cetak tes), banner error cetak (tidak tersambung, kertas habis, gagal cetak; transaksi tetap tersimpan), “Cetak ulang” di sukses/detail/riwayat, dan pratinjau struk 58 mm (32 kolom) dengan header/footer dari Pengaturan toko. Asumsi: 1 percobaan cetak otomatis lalu banner; cetak ulang tersedia selain status Dibatalkan; satu banner error tampil sekaligus di aplikasi. Komponen baru di akhir `design.css`: `.ptoggle .switch .dot .dev .pbanner .paper .pill`.

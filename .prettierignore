@@ -4,3 +4,4 @@ packages/contracts/src/generated/
 **/dist/
 **/coverage/
 .turbo/
+apps/api/drizzle/
