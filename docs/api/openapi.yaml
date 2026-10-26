@@ -1325,8 +1325,8 @@ components:
     TransactionId: { name: transaction_id, in: path, required: true, schema: { type: string, format: uuid } }
     PaymentId: { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } }
     VoidRequestId: { name: void_request_id, in: path, required: true, schema: { type: string, format: uuid } }
-    DateFrom: { name: date_from, in: query, description: Inclusive business date (WIB), schema: { type: string, format: date } }
-    DateTo: { name: date_to, in: query, description: Inclusive business date (WIB), schema: { type: string, format: date } }
+    DateFrom: { name: date_from, in: query, description: Inclusive business date (WIB) (2000-01-01 to 2099-12-31), schema: { type: string, format: date } }
+    DateTo: { name: date_to, in: query, description: Inclusive business date (WIB) (2000-01-01 to 2099-12-31), schema: { type: string, format: date } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
 
