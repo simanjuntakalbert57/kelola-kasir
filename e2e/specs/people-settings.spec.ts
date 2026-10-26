@@ -115,7 +115,7 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
 
   test('QRIS: kode tidak valid ditolak dengan pesan jelas', async ({ page }) => {
     await openAsOwner(page, '/pengaturan');
-    await page.getByLabel('Kode QRIS (opsional)').fill('000201-bukan-qris');
+    await page.getByLabel('Kode QRIS', { exact: true }).fill('000201-bukan-qris');
     await page.getByRole('button', { name: 'Simpan perubahan' }).click();
     await expect(page.getByText('Kode QRIS tidak valid. Periksa kembali isinya.')).toBeVisible();
   });
