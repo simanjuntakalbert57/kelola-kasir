@@ -1,0 +1,50 @@
+@import 'tailwindcss';
+
+/* Tokens from docs/design/design.css (dark theme v3, DEAR-5). */
+@theme {
+  --color-bg: #0e1512;
+  --color-surface: #18221d;
+  --color-line: #2a3831;
+  --color-ink: #eaf2ed;
+  --color-muted: #9db0a5;
+  --color-brand: #0f4d36;
+  --color-brand-600: #17714f;
+  --color-brand-text: #6fd3a0;
+  --color-brand-tint: #1e3a2d;
+  --color-brand-50: #1f2d26;
+  --color-gold: #e9b44c;
+  --color-accent: #c75f12;
+  --color-accent-tint: #3a2616;
+  --color-danger: #ff8a80;
+  --color-danger-bg: #3b1e1c;
+  --color-warn: #f2c26b;
+  --color-warn-bg: #3a2e14;
+  --color-info: #8fb2ff;
+  --color-info-bg: #1b2a4a;
+  --color-side: #0a2e21;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --font-sans: 'Plus Jakarta Sans', Inter, 'Segoe UI', system-ui, sans-serif;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-bg font-sans text-base leading-snug text-ink antialiased;
+    letter-spacing: -0.005em;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-extrabold;
+    letter-spacing: -0.02em;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-info);
+    outline-offset: 2px;
+  }
+}
