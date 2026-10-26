@@ -11,6 +11,7 @@ import { AppError } from './errors.js';
 import { clientIp } from './lib/client-ip.js';
 import type { ErrorReporter } from './lib/error-reporter.js';
 import { TokenService } from './lib/jwt.js';
+import { ChangeTracker, DeviceTokenCache } from './lib/memory-cache.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { deviceRoutes } from './modules/devices/routes.js';
@@ -39,11 +40,14 @@ export interface BuildAppOptions {
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config } = options;
+  const now = options.now ?? (() => new Date());
   const ctx: AppContext = {
     config,
     db: options.db,
     tokens: new TokenService(config.jwtPrivateKeyPem),
-    now: options.now ?? (() => new Date()),
+    now,
+    changes: new ChangeTracker(() => now().getTime()),
+    deviceCache: new DeviceTokenCache(),
   };
 
   const { trustProxy } = config;
@@ -74,6 +78,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   registerProblemHandlers(app);
+  // Any write may change what `sync/pull` returns: drop the cached read models (after the commit).
+  app.addHook('onResponse', async (req) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+      ctx.changes.bump();
+    }
+  });
   const { reportError } = options;
   if (reportError) {
     app.addHook('onError', async (req, _reply, error: FastifyError) => {
@@ -103,6 +113,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const guards = createGuards(ctx);
   const payments = createPaymentService(ctx);
   app.decorate('payments', payments);
+  app.decorate('changes', ctx.changes);
   await app.register(healthRoutes(ctx));
   await app.register(
     async (v1) => {

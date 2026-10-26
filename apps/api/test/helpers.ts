@@ -9,6 +9,7 @@ import { outletSettings, outlets } from '../src/db/schema.js';
 import { TokenService } from '../src/lib/jwt.js';
 import { crc16 } from '../src/lib/qris.js';
 import { OwnerAuthService } from '../src/modules/auth/owner-service.js';
+import { ChangeTracker, DeviceTokenCache } from '../src/lib/memory-cache.js';
 
 export const OWNER_PASSWORD = 'correct-horse-battery';
 
@@ -74,6 +75,8 @@ export async function seedOutlet(env: TestEnv): Promise<SeededOutlet> {
     db: env.handle.db,
     tokens: new TokenService(env.config.jwtPrivateKeyPem),
     now: () => new Date(),
+    changes: new ChangeTracker(),
+    deviceCache: new DeviceTokenCache(),
   });
   await service.createOwner({
     email: ownerEmail,

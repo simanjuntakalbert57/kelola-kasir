@@ -8,6 +8,7 @@ import { outletSettings, outlets } from '../db/schema.js';
 import { TokenService } from '../lib/jwt.js';
 import { crc16 } from '../lib/qris.js';
 import { OwnerAuthService } from '../modules/auth/owner-service.js';
+import { ChangeTracker, DeviceTokenCache } from '../lib/memory-cache.js';
 
 const tlv = (tag: string, value: string): string =>
   `${tag}${String(value.length).padStart(2, '0')}${value}`;
@@ -71,6 +72,8 @@ async function main(): Promise<void> {
     db: handle.db,
     tokens: new TokenService(config.jwtPrivateKeyPem),
     now: () => new Date(),
+    changes: new ChangeTracker(),
+    deviceCache: new DeviceTokenCache(),
   }).createOwner({
     email: ownerEmail,
     password: ownerPassword,

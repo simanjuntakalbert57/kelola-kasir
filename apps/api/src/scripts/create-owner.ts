@@ -4,6 +4,7 @@ import { createDb } from '../db/client.js';
 import { outletSettings, outlets } from '../db/schema.js';
 import { TokenService } from '../lib/jwt.js';
 import { OwnerAuthService } from '../modules/auth/owner-service.js';
+import { ChangeTracker, DeviceTokenCache } from '../lib/memory-cache.js';
 
 /**
  * Bootstrap the first owner and outlet. Credentials come from the environment, never from the repo:
@@ -46,6 +47,8 @@ async function main(): Promise<void> {
       db: handle.db,
       tokens: new TokenService(config.jwtPrivateKeyPem),
       now: () => new Date(),
+      changes: new ChangeTracker(),
+      deviceCache: new DeviceTokenCache(),
     });
     const userId = await service.createOwner({ email, password, name, outletId: outlet.id });
     console.error(`Created owner ${email} (${userId}) for outlet ${outlet.code}`);

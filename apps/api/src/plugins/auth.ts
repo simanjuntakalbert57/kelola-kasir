@@ -33,19 +33,41 @@ export function createGuards(ctx: AppContext): Guards {
     const raw = req.headers['x-device-token'];
     const token = Array.isArray(raw) ? raw[0] : raw;
     if (!token) throw errors.unauthorized('Missing X-Device-Token header');
+    const tokenHash = sha256Hex(token);
+    const now = ctx.now();
+    const nowMs = now.getTime();
+    // Cached devices are not queried again (Neon may sleep); revoking evicts the entry. The seen
+    // timestamp is refreshed only while the database is awake for other reasons anyway.
+    const cached = ctx.deviceCache.get(tokenHash, nowMs);
+    if (cached) {
+      if (nowMs - cached.seenWrittenAt > 60_000 && ctx.changes.recentlyActive()) {
+        cached.seenWrittenAt = nowMs;
+        await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, cached.device.id));
+      }
+      req.device = { ...cached.device };
+      return;
+    }
     const [device] = await db
       .select()
       .from(devices)
-      .where(eq(devices.tokenHash, sha256Hex(token)))
+      .where(eq(devices.tokenHash, tokenHash))
       .limit(1);
     if (!device) throw errors.unauthorized('Unknown device token');
     if (device.revokedAt)
       throw errors.unauthorized('This device has been revoked', 'DEVICE_REVOKED');
-    const now = ctx.now();
-    if (!device.lastSeenAt || now.getTime() - device.lastSeenAt.getTime() > 60_000) {
+    let seenWrittenAt = device.lastSeenAt?.getTime() ?? 0;
+    if (nowMs - seenWrittenAt > 60_000) {
       await db.update(devices).set({ lastSeenAt: now }).where(eq(devices.id, device.id));
+      seenWrittenAt = nowMs;
     }
-    req.device = { id: device.id, outletId: device.outletId, code: device.code, name: device.name };
+    const principal = {
+      id: device.id,
+      outletId: device.outletId,
+      code: device.code,
+      name: device.name,
+    };
+    ctx.deviceCache.set(tokenHash, principal, nowMs, seenWrittenAt);
+    req.device = { ...principal };
   }
 
   async function loadOwner(

@@ -134,3 +134,12 @@ in the same DB transaction as the status change. A closed shift keeps its frozen
   transaction left `pending`, and `POST /transactions` + `shift.close` + QRIS confirmation never touch them afterwards.
 - **Closing a shift** marks transactions created after `closed_at` as `after_shift_close` and reports them as `late_*`;
   a closed shift keeps the totals recorded at close.
+
+### Idle API sends no database queries (ADR-0011, Neon compute hours)
+
+Single-instance, in-memory state (`src/lib/memory-cache.ts`); a restart empties it and the first request refills it.
+
+- **`sync/pull`**: an answer without changes is kept per device and served again while the cursor/limit match and no write happened. Every mutating request (and a QRIS expiry or a payment settled by a read) bumps a data epoch after it completes, which invalidates all cached answers. Safety net: entries live at most 15 minutes.
+- **`X-Device-Token`**: the validated device is cached for at most 15 minutes. `POST /devices/{id}/revoke` evicts it after the commit, so revoke stays immediate (401 `DEVICE_REVOKED`). `last_seen_at` is written when the entry loads and afterwards only while a write went through in the last 2 minutes; in an idle shop it can lag by up to 15 minutes.
+- **QRIS expiry**: no 30 second polling. One sweep at start, then a single timer aimed at the earliest pending deadline (re-armed when a QRIS payment is created and after each sweep). Lazy expiry on `GET /payments/{id}` and on shift close is unchanged.
+- Tests: `test/idle-db.test.ts` counts pool checkouts (zero during 10 minutes of 30 second polling), plus scheduler tests in `test/payments.test.ts`.

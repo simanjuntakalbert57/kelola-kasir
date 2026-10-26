@@ -307,6 +307,9 @@ export async function createTransaction(
         })),
       );
       await tx.insert(payments).values(paymentValues);
+      if (paymentValues.status === 'pending' && paymentValues.expiresAt) {
+        ctx.changes.pendingPayment(paymentValues.expiresAt);
+      }
 
       const auditBase = {
         outletId: actor.outletId,

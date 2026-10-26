@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { auditLogs, payments, transactions } from '../src/db/schema.js';
 import { parseQris } from '../src/lib/qris.js';
 import { StaticQrisProvider } from '../src/modules/payments/provider.js';
-import { startExpiryJob } from '../src/modules/payments/service.js';
+import { ChangeTracker } from '../src/lib/memory-cache.js';
+import { startExpiryScheduler } from '../src/modules/payments/service.js';
 import {
   bearer,
   buildQris,
@@ -473,37 +474,104 @@ describe('auto-confirmation providers (phase 2 path)', () => {
   });
 });
 
-describe('expiry job scheduling', () => {
-  it('runs the service on every tick, never overlapping, and logs failures', async () => {
+describe('expiry scheduling', () => {
+  const log = () => ({ info: vi.fn(), error: vi.fn() });
+
+  it('sweeps once at start, then only at the earliest pending deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      let now = Date.now();
+      let pending: Date | null = new Date(now + 10_000);
+      const expireDue = vi.fn(() => {
+        const expired = Date.now() >= (pending?.getTime() ?? Infinity) ? 1 : 0;
+        if (expired) pending = null;
+        return Promise.resolve(expired);
+      });
+      const nextExpiry = vi.fn(() => Promise.resolve(pending));
+      const changes = new ChangeTracker();
+      const l = log();
+      const stop = startExpiryScheduler(
+        { expireDue, nextExpiry } as unknown as Parameters<typeof startExpiryScheduler>[0],
+        changes,
+        l,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(expireDue).toHaveBeenCalledTimes(1); // start sweep: nothing due, timer armed at +10s
+      expect(nextExpiry).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(expireDue).toHaveBeenCalledTimes(1); // no polling in between
+      await vi.advanceTimersByTimeAsync(2_000); // deadline reached
+      expect(expireDue).toHaveBeenCalledTimes(2);
+      expect(l.info).toHaveBeenCalledWith({ expired: 1 }, expect.any(String));
+
+      await vi.advanceTimersByTimeAsync(10 * 60_000); // nothing pending: stays silent
+      expect(expireDue).toHaveBeenCalledTimes(2);
+      expect(nextExpiry).toHaveBeenCalledTimes(2);
+
+      now = Date.now();
+      changes.pendingPayment(new Date(now + 5_000)); // a new QRIS payment arms the timer
+      pending = new Date(now + 5_000);
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(expireDue).toHaveBeenCalledTimes(3);
+      stop();
+      changes.pendingPayment(new Date(Date.now() + 1_000));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(expireDue).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the earlier timer, never overlaps sweeps and retries after a failure', async () => {
     vi.useFakeTimers();
     try {
       let calls = 0;
       let release: (() => void) | undefined;
-      const service = {
-        expireDue: () => {
-          calls += 1;
-          if (calls === 1) return Promise.resolve(2);
-          if (calls === 2) return new Promise<number>((resolve) => (release = () => resolve(0)));
-          return Promise.reject(new Error('db down'));
-        },
-      } as unknown as Parameters<typeof startExpiryJob>[0];
-      const log = { info: vi.fn(), error: vi.fn() };
-      const stop = startExpiryJob(service, log, 1000);
-
-      await vi.advanceTimersByTimeAsync(1000); // call 1 -> expired 2
-      expect(log.info).toHaveBeenCalledWith({ expired: 2 }, expect.any(String));
-      await vi.advanceTimersByTimeAsync(1000); // call 2 starts and hangs
-      await vi.advanceTimersByTimeAsync(3000); // ticks while running are skipped
-      expect(calls).toBe(2);
+      const expireDue = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) return new Promise<number>((resolve) => (release = () => resolve(0)));
+        if (calls === 2) return Promise.reject(new Error('db down'));
+        return Promise.resolve(0);
+      });
+      const nextExpiry = vi.fn(() => Promise.resolve(null));
+      const changes = new ChangeTracker();
+      const l = log();
+      const stop = startExpiryScheduler(
+        { expireDue, nextExpiry } as unknown as Parameters<typeof startExpiryScheduler>[0],
+        changes,
+        l,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      changes.pendingPayment(new Date(Date.now() + 1_000));
+      changes.pendingPayment(new Date(Date.now() + 60_000)); // later deadline does not replace it
+      await vi.advanceTimersByTimeAsync(2_000); // timer fires while the first sweep still runs
+      expect(expireDue).toHaveBeenCalledTimes(1);
       release?.();
-      await vi.advanceTimersByTimeAsync(1000); // call 3 fails
-      expect(calls).toBe(3);
-      expect(log.error).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(0); // queued re-run starts and fails
+      expect(expireDue).toHaveBeenCalledTimes(2);
+      expect(l.error).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(6_000); // retry after a failure
+      expect(expireDue).toHaveBeenCalledTimes(3);
       stop();
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(calls).toBe(3);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('nextExpiry reports the earliest pending QRIS deadline', async () => {
+    const shop = await createShop(env);
+    const sale = await qrisSale(shop);
+    const next = await env.app.payments.nextExpiry();
+    expect(next).not.toBeNull();
+    expect(next?.getTime()).toBeLessThanOrEqual(new Date(sale.payment.expires_at ?? '').getTime());
+  });
+
+  it('creating a QRIS transaction announces its deadline', async () => {
+    const shop = await createShop(env);
+    const seen: Date[] = [];
+    env.app.changes.onPendingPayment((at) => seen.push(at));
+    const sale = await qrisSale(shop);
+    expect(seen.map((d) => d.toISOString())).toContain(sale.payment.expires_at);
   });
 });

@@ -219,7 +219,7 @@ export function deviceRoutes(ctx: AppContext, guards: Guards) {
       const principal = requireUser(req);
       const { device_id: deviceId } = parse(deviceIdParams, req.params);
       const now = ctx.now();
-      return db.transaction(async (tx) => {
+      const revoked = await db.transaction(async (tx) => {
         const [existing] = await tx
           .select()
           .from(devices)
@@ -249,6 +249,9 @@ export function deviceRoutes(ctx: AppContext, guards: Guards) {
         });
         return toDevice(device);
       });
+      // After the commit, so a concurrent request cannot re-cache the not yet revoked device.
+      ctx.deviceCache.invalidateDevice(deviceId);
+      return revoked;
     });
   };
 }

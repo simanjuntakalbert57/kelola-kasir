@@ -3,6 +3,7 @@ import type { AppContext } from '../../context.js';
 import type { DbOrTx } from '../../db/client.js';
 import { payments, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
+import type { ChangeTracker } from '../../lib/memory-cache.js';
 import { writeAudit } from '../audit/audit.js';
 import { loadTransactionDto } from '../transactions/serialize.js';
 import { StaticQrisProvider, type PaymentProvider, type PaymentRow } from './provider.js';
@@ -130,6 +131,8 @@ export interface PaymentService {
   cancel(outletId: string, paymentId: string, employeeId: string): Promise<string>;
   /** Expire every pending QRIS payment past its deadline; returns how many were expired. */
   expireDue(): Promise<number>;
+  /** Earliest deadline among pending QRIS payments, or null when none is pending. */
+  nextExpiry(): Promise<Date | null>;
 }
 
 export function createPaymentService(ctx: AppContext): PaymentService {
@@ -153,6 +156,7 @@ export function createPaymentService(ctx: AppContext): PaymentService {
         } else {
           return payment;
         }
+        ctx.changes.bump(); // reads here can settle the payment (cancelled transaction, shift totals)
         const [fresh] = await tx.select().from(payments).where(eq(payments.id, paymentId));
         return fresh ?? payment;
       });
@@ -254,34 +258,93 @@ export function createPaymentService(ctx: AppContext): PaymentService {
           return due.length;
         });
         total += batch;
+        if (batch > 0) ctx.changes.bump();
         if (batch < EXPIRY_BATCH) return total;
       }
+    },
+
+    async nextExpiry() {
+      const [row] = await db
+        .select({ at: sql<Date | null>`min(${payments.expiresAt})` })
+        .from(payments)
+        .where(and(eq(payments.status, 'pending'), eq(payments.method, 'qris')));
+      return row?.at ? new Date(row.at) : null;
     },
   };
 }
 
-/** Periodic expiry of pending QRIS payments (15 min, TDD §5.3). Returns a stop function. */
-export function startExpiryJob(
+type JobLog = {
+  error: (obj: unknown, msg: string) => void;
+  info: (obj: unknown, msg: string) => void;
+};
+
+/** Longest `setTimeout` delay Node accepts. */
+const MAX_TIMER_MS = 2_147_483_647;
+/** Pause before re-checking after a sweep that left an overdue payment (e.g. another instance holds the lock). */
+const RETRY_MS = 5_000;
+
+/**
+ * On-demand expiry of pending QRIS payments (15 min, TDD §5.3). Instead of polling the database it
+ * keeps one timer aimed at the earliest pending deadline: one sweep at start, a re-arm whenever a
+ * QRIS payment is created, and a re-arm after each sweep. With no pending payment nothing is
+ * scheduled, so an idle API sends no queries (ADR-0011). Returns a stop function.
+ */
+export function startExpiryScheduler(
   service: PaymentService,
-  log: { error: (obj: unknown, msg: string) => void; info: (obj: unknown, msg: string) => void },
-  intervalMs = 30_000,
+  changes: Pick<ChangeTracker, 'onPendingPayment'>,
+  log: JobLog,
+  clock: () => number = Date.now,
 ): () => void {
+  let timer: NodeJS.Timeout | undefined;
+  let armedFor = Number.POSITIVE_INFINITY;
   let running = false;
-  const timer = setInterval(() => {
-    if (running) return;
+  let rerun = false;
+  let stopped = false;
+
+  const arm = (atMs: number, minDelayMs = 0): void => {
+    if (stopped || atMs >= armedFor) return;
+    if (timer) clearTimeout(timer);
+    armedFor = atMs;
+    const delay = Math.min(Math.max(atMs - clock() + 50, minDelayMs), MAX_TIMER_MS);
+    timer = setTimeout(() => {
+      timer = undefined;
+      armedFor = Number.POSITIVE_INFINITY;
+      sweep();
+    }, delay);
+    timer.unref();
+  };
+
+  const sweep = (): void => {
+    if (running) {
+      rerun = true;
+      return;
+    }
     running = true;
-    service
-      .expireDue()
-      .then((n) => {
+    void (async () => {
+      try {
+        const n = await service.expireDue();
         if (n > 0) log.info({ expired: n }, 'expired pending QRIS payments');
-      })
-      .catch((err: unknown) => log.error({ err }, 'QRIS expiry job failed'))
-      .finally(() => {
+        const next = await service.nextExpiry();
+        if (next) arm(next.getTime(), next.getTime() <= clock() ? RETRY_MS : 0);
+      } catch (err: unknown) {
+        log.error({ err }, 'QRIS expiry sweep failed');
+        arm(clock() + RETRY_MS, RETRY_MS);
+      } finally {
         running = false;
-      });
-  }, intervalMs);
-  timer.unref();
-  return () => clearInterval(timer);
+        if (rerun) {
+          rerun = false;
+          sweep();
+        }
+      }
+    })();
+  };
+
+  changes.onPendingPayment((expiresAt) => arm(expiresAt.getTime()));
+  sweep();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
 }
 
 export async function loadTransactionOf(db: DbOrTx, transactionId: string) {
