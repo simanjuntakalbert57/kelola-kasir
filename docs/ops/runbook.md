@@ -57,7 +57,7 @@ Ringkas (detail: [backup-restore.md](backup-restore.md)):
 4. `./compose.sh up -d --wait`. Migrasi idempoten berjalan saat start. Cek `/healthz`. Hapus `kelola_kasir_old` setelah owner memastikan data benar.
 5. HP kasir menyinkronkan ulang outbox otomatis. Beri tahu owner rentang data yang mungkin hilang.
 
-**VPS hilang atau rusak total:** order/reinstall VPS (Ubuntu 24.04), jalankan deploy.md langkah 4–6 dengan **`.env` dan nilai secret yang sama** dari password manager. Deploy membuat database kosong. Lalu jalankan langkah restore di atas (lewati langkah 1). Bila IP berubah: perbarui DNS A record, variable `VPS_HOST` dan `VPS_KNOWN_HOSTS`. Target pemulihan: ≤ 2 jam.
+**VPS hilang atau rusak total:** order/reinstall VPS (AlmaLinux 8.9 atau OS lain yang didukung `setup.sh`), jalankan deploy.md langkah 4–6 dengan **`.env` dan nilai secret yang sama** dari password manager. Deploy membuat database kosong. Lalu jalankan langkah restore di atas (lewati langkah 1). Bila IP berubah: perbarui DNS A record, variable `VPS_HOST` dan `VPS_KNOWN_HOSTS`. Target pemulihan: ≤ 2 jam.
 
 Uji restore bulanan: checklist di backup-restore.md.
 
@@ -81,7 +81,7 @@ Setelah UAT lolos dan owner setuju:
 
 ## Perawatan server
 
-- **Update keamanan** dipasang otomatis setiap hari (`unattended-upgrades`). Bila login SSH menampilkan `*** System restart required ***`, reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
+- **Update keamanan** dipasang otomatis setiap hari (`dnf-automatic` di AlmaLinux, `unattended-upgrades` di Ubuntu). Bila kernel ikut diperbarui (cek `dnf needs-restarting -r` di AlmaLinux; di Ubuntu login SSH menampilkan `*** System restart required ***`), reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
 - **Update image dasar** (Postgres 16 minor, Caddy): `./compose.sh pull db caddy && ./compose.sh up -d --wait`, di luar jam buka. Jangan ganti versi mayor Postgres tanpa rencana dump/restore.
 - **Disk**: `df -h` (target < 70%) dan `docker system df`. Image lama dibersihkan otomatis saat deploy. Log Docker dibatasi 100 MB per container.
 - **Snapshot/backup VPS dari Rumahweb** (opsional, bila paketnya menyediakan) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.

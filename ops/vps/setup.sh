@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# One-time preparation of a fresh Ubuntu 24.04 VPS for Kelola Kasir (ADR-0012, docs/ops/deploy.md step 4).
+# One-time preparation of a fresh VPS for Kelola Kasir (ADR-0012, docs/ops/deploy.md step 4).
+# Supported OS: Ubuntu 24.04, or AlmaLinux/Rocky Linux 8 or 9 (the Rumahweb VPS runs AlmaLinux 8.9).
 # Run as root:  bash setup.sh '<deploy public key: ssh-ed25519 AAAA... github-deploy>'
 # Idempotent: running it again only re-applies the same settings.
 #
-#  - Docker Engine + Compose (Ubuntu packages), log rotation, 2 GB swap
-#  - firewall: only SSH, HTTP and HTTPS; fail2ban for SSH; automatic security updates
+#  - Docker Engine + Compose (Ubuntu packages, or Docker CE on AlmaLinux/Rocky), log rotation, 2 GB swap
+#  - firewall (ufw or firewalld): only SSH, HTTP and HTTPS; fail2ban for SSH; automatic security updates
 #  - user "deploy" (docker group, key-only) used by the GitHub deploy workflow
 #  - /opt/kelola-kasir + systemd timer for the nightly backup (01:00 WIB)
 #  - SSH password login switched off once root has an authorized key
@@ -15,21 +16,39 @@ APP_DIR=/opt/kelola-kasir
 
 [[ "$(id -u)" == 0 ]] || { echo "run as root" >&2; exit 1; }
 case "$DEPLOY_KEY" in ssh-ed25519\ *|ssh-rsa\ *|ecdsa-*) ;; *) echo "not an SSH public key" >&2; exit 1 ;; esac
-grep -q 'VERSION_ID="24.04"' /etc/os-release || echo "warning: tested on Ubuntu 24.04 only" >&2
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID:-}:${VERSION_ID%%.*}" in
+  ubuntu:*) os=ubuntu; [[ "$VERSION_ID" == 24.04 ]] || echo "warning: tested on Ubuntu 24.04 only" >&2 ;;
+  almalinux:8 | almalinux:9 | rocky:8 | rocky:9) os=el ;;
+  *) echo "unsupported OS: ${PRETTY_NAME:-unknown}. Use Ubuntu 24.04 or AlmaLinux 8/9." >&2; exit 1 ;;
+esac
 # Docker needs a full kernel: OpenVZ/LXC containers are not supported.
 virt="$(systemd-detect-virt 2>/dev/null || true)"
 case "$virt" in openvz|lxc|lxc-libvirt) echo "this VPS is $virt; Docker needs a KVM VPS" >&2; exit 1 ;; esac
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get upgrade -yq
-apt-get install -yq docker.io docker-compose-v2 ufw fail2ban unattended-upgrades curl
-
-# Automatic security updates (reboots stay manual: see runbook § Perawatan server).
-cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+# Packages and automatic security updates (reboots stay manual: see runbook § Perawatan server).
+if [[ "$os" == ubuntu ]]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -q
+  apt-get upgrade -yq
+  apt-get install -yq docker.io docker-compose-v2 ufw fail2ban unattended-upgrades python3-systemd curl tar
+  cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
+else
+  dnf -y upgrade
+  # podman/runc from AppStream conflict with Docker CE's containerd.io.
+  dnf -y remove podman buildah runc || true
+  dnf -y install dnf-plugins-core epel-release
+  dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+  dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+    firewalld fail2ban python3-systemd dnf-automatic curl tar
+  sed -i -e 's/^upgrade_type *=.*/upgrade_type = security/' -e 's/^apply_updates *=.*/apply_updates = yes/' \
+    /etc/dnf/automatic.conf
+  systemctl enable --now dnf-automatic.timer
+fi
 
 # Container logs must not fill the 50 GB disk.
 mkdir -p /etc/docker
@@ -40,7 +59,8 @@ systemctl enable --now docker
 systemctl restart docker
 
 if ! swapon --show | grep -q /swapfile; then
-  fallocate -l 2G /swapfile
+  # dd, not fallocate: XFS (AlmaLinux default) rejects preallocated swap files.
+  dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
   chmod 600 /swapfile
   mkswap /swapfile
   swapon /swapfile
@@ -48,14 +68,27 @@ if ! swapon --show | grep -q /swapfile; then
 fi
 
 # Firewall. PostgreSQL is never published by compose.yaml, so only these ports are reachable.
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
-ufw --force enable
+if [[ "$os" == ubuntu ]]; then
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow OpenSSH
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw allow 443/udp
+  ufw --force enable
+else
+  systemctl enable --now firewalld
+  firewall-cmd --permanent --add-service=ssh --add-service=http --add-service=https --add-port=443/udp
+  firewall-cmd --reload
+fi
+# The sshd jail is on by default only in Debian/Ubuntu packaging.
+cat >/etc/fail2ban/jail.d/kelola-kasir.local <<'EOF'
+[sshd]
+enabled = true
+backend = systemd
+EOF
 systemctl enable --now fail2ban
+systemctl restart fail2ban
 
 # Deploy user for GitHub Actions (key only, no password, no sudo).
 id deploy >/dev/null 2>&1 || useradd --create-home --shell /bin/bash deploy
@@ -96,13 +129,26 @@ systemctl daemon-reload
 systemctl enable --now kelola-kasir-backup.timer
 
 # Key-only SSH, but never lock the owner out: only when root already logs in with a key.
+# ChallengeResponseAuthentication (not KbdInteractiveAuthentication) because OpenSSH 8.0 on EL8 lacks the latter.
 if [[ -s /root/.ssh/authorized_keys ]]; then
+  ssh_unit=ssh
+  [[ "$os" == el ]] && ssh_unit=sshd
+  mkdir -p /etc/ssh/sshd_config.d
+  # EL8's sshd_config has no Include; the first value wins, so it must be the first line.
+  grep -q '^Include /etc/ssh/sshd_config.d/' /etc/ssh/sshd_config ||
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
   cat >/etc/ssh/sshd_config.d/10-kelola-kasir.conf <<'EOF'
 PasswordAuthentication no
-KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
 PermitRootLogin prohibit-password
 EOF
-  systemctl reload ssh
+  # A config sshd rejects would stop it from starting after the next reboot: undo it instead.
+  if ! sshd -t; then
+    rm -f /etc/ssh/sshd_config.d/10-kelola-kasir.conf
+    echo "sshd rejected the key-only config; SSH settings left unchanged" >&2
+    exit 1
+  fi
+  systemctl reload "$ssh_unit"
   echo "SSH: password login disabled (root logs in with its key)."
 else
   echo "warning: /root/.ssh/authorized_keys is empty, SSH password login stays ON." >&2

@@ -11,7 +11,7 @@ flowchart LR
   HP[Aplikasi kasir APK] -- "HTTPS /v1 (bearer)" --> Caddy
   Browser[Dashboard owner] -- "kelola-kasir.pages.dev" --> Pages[Cloudflare Pages]
   Pages -- "Pages Function /v1/* + X-Proxy-Secret" --> Caddy
-  subgraph VPS[VPS Rumahweb · Ubuntu 24.04 · Docker Compose]
+  subgraph VPS[VPS Rumahweb · AlmaLinux 8.9 · Docker Compose]
     Caddy[Caddy :443<br/>HTTPS otomatis] --> API[API Fastify]
     API --> DB[(PostgreSQL 16<br/>tidak dibuka ke internet)]
     Timer[timer 01:00 WIB] --> Backup[pg_dump + age]
@@ -44,7 +44,7 @@ Satu lingkungan: VPS ini dipakai sebagai **staging selama UAT** (DEAR-18). Sebel
 Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** menempelkan nilai secret.
 
 ### 1. VPS dan domain
-- [ ] VPS **Rumahweb** dengan syarat: virtualisasi **KVM** (bukan OpenVZ/LXC, karena Docker butuh KVM), minimal **2 GB RAM** (disarankan 4 GB), 1 vCPU, 20 GB SSD. OS: **Ubuntu 24.04** tanpa control panel (cPanel/Plesk tidak dipakai).
+- [ ] VPS **Rumahweb** dengan syarat: virtualisasi **KVM** (bukan OpenVZ/LXC, karena Docker butuh KVM), minimal **2 GB RAM** (disarankan 4 GB), 1 vCPU, 20 GB SSD. OS: **AlmaLinux 8.9** (pilihan owner) atau Ubuntu 24.04; AlmaLinux/Rocky 9 juga didukung. Tanpa control panel (cPanel/Plesk tidak dipakai). OS lain ditolak oleh `setup.sh`.
 - [ ] Catat **IP publik VPS** dan password root dari email aktivasi atau client area Rumahweb. Password root hanya untuk login pertama, jangan ditempel di issue.
 - [ ] Pasang **SSH key milik Bapak** untuk root. Kalau panel Rumahweb tidak menyediakan menu SSH key, jalankan dari laptop: `ssh-copy-id root@<ip-vps>` (sekali minta password root). Pastikan `ssh root@<ip-vps>` bisa masuk tanpa password, karena `setup.sh` mematikan login password setelah key terpasang.
 - [ ] Domain API (wajib, untuk HTTPS): beli domain di Rumahweb atau registrar lain, lalu di pengaturan DNS buat **A record** `api` → IP VPS. Hasilnya `API_DOMAIN=api.<domain>`. Cek dengan `nslookup api.<domain>`, hasilnya harus IP VPS.
@@ -78,7 +78,7 @@ curl -fsSLO https://raw.githubusercontent.com/simanjuntakalbert57/kelola-kasir/m
 less setup.sh                      # baca dulu isinya
 bash setup.sh '<isi file kelola-kasir-deploy.pub: satu baris ssh-ed25519 AAAA... github-deploy>'
 ```
-Script ini memasang Docker, firewall (22/80/443), fail2ban, update keamanan otomatis, swap, user `deploy`, folder `/opt/kelola-kasir`, dan timer backup 01:00 WIB. Di akhir, script mencetak satu baris **host key** (`<ip> ssh-ed25519 AAAA...`). Salin baris itu untuk langkah 6.
+Script ini memasang Docker (di AlmaLinux: Docker CE dari repo resmi Docker), firewall (22/80/443; `firewalld` di AlmaLinux, `ufw` di Ubuntu), fail2ban, update keamanan otomatis, swap, user `deploy`, folder `/opt/kelola-kasir`, dan timer backup 01:00 WIB. Di akhir, script mencetak satu baris **host key** (`<ip> ssh-ed25519 AAAA...`). Salin baris itu untuk langkah 6.
 - [ ] Bila muncul peringatan "SSH password login stays ON", pasang SSH key dulu (`ssh-copy-id root@<ip-vps>`), lalu jalankan script lagi.
 
 ### 5. Isi `/opt/kelola-kasir/.env` di VPS
