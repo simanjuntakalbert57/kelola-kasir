@@ -1,7 +1,7 @@
 # Test Plan — Kelola Kasir (POS Jus) · MVP v1
 
 Status: Draft v1 · Penyusun: QA Engineer · Tanggal: 2026-10-26
-Sumber: PRD v1, TDD v1 (DEAR-4: `tdd.md`, `openapi.yaml`, ADR-0001–0008), desain final (DEAR-5), dan 8 keputusan owner yang mengubah TDD v1.
+Sumber: PRD v1, TDD **v1.1** (`docs/tdd.md` §2.4–§2.5, R-8), ADR-0001–0009 (termasuk ADR-0009 satu shift aktif per gerai), `docs/api/openapi.yaml`, desain final (DEAR-5), dan 8 keputusan owner.
 
 ## 1. Tujuan & Prinsip
 - Memastikan semua fitur **Must** (P-xx kasir, O-xx owner) memenuhi PRD, kontrak OpenAPI, dan aturan bisnis PRD §5.
@@ -72,17 +72,22 @@ Format: **ID · Prioritas (P0 kritis uang/keamanan, P1 Must lain, P2 Should/Coul
 |---|---|---|---|---|
 | TC-SHF-01 | P0 | API/DEV | Buat transaksi tanpa shift terbuka → `SHIFT_NOT_OPEN` | P-02 |
 | TC-SHF-02 | P0 | API | Buka shift modal kas integer ≥0; modal negatif/desimal/string → 422 | P-02 |
-| TC-SHF-03 | P0 | API | **Satu shift aktif per gerai**: buka shift kedua (perangkat/pegawai lain) → ditolak (409), tidak membuat duplikat saat race 2 request paralel | Q-4 |
+| TC-SHF-03 | P0 | API/DEV | **Satu shift aktif per gerai**: `POST /shifts` saat sudah ada shift terbuka (perangkat/pegawai lain) → `409 SHIFT_ALREADY_OPEN`, tidak membuat duplikat saat race 2 request paralel (unique index). Aplikasi lalu **bergabung** ke shift yang sudah terbuka (tanpa error tersisa, transaksi masuk shift itu) | Q-4, ADR-0009 |
 | TC-SHF-04 | P0 | DEV/API | Pegawai B login di shift milik A → transaksi tercatat `employee_id`=B, `shift_id`=shift A; laporan per pegawai benar | Q-4 |
-| TC-SHF-05 | P0 | API | `expected_cash = opening_cash + Σ cash(paid\|void_requested)`; `voided`, `cancelled`, QRIS tidak dihitung; `cash_difference = actual − expected` | P-12 |
+| TC-SHF-05 | P0 | API | `expected_cash = opening_cash + Σ total cash (paid\|void_requested, client_created_at ≤ closed_at)`; `voided`, `cancelled`, QRIS tidak dihitung; `cash_difference = actual − expected` | P-12 |
 | TC-SHF-06 | P0 | API | Selisih negatif (kurang), nol, positif (lebih) benar; tipe signed integer | P-12 |
 | TC-SHF-07 | P0 | API | Ringkasan tutup shift memisahkan cash, QRIS, transaksi `void_requested`, selisih | P-12 |
 | TC-SHF-08 | P0 | API | Tutup shift dua kali → idempoten/`SHIFT_CLOSED`; transaksi baru ke shift tertutup ditolak | P-12 |
 | TC-SHF-09 | P0 | DEV | **Tutup shift offline**: peringatan keras tampil; setelah online tersinkron, owner melihat selisih sama persis | Q-3 |
 | TC-SHF-10 | P1 | DEV | Serah terima = tutup shift lalu buka shift baru; modal awal shift baru independen | Q-4 |
-| TC-SHF-11 | P0 | API | Shift tertutup di server lalu perangkat offline push transaksi → `SHIFT_CLOSED` dan ditampilkan ke pegawai (tidak hilang diam-diam) | TDD §2.4 |
+| TC-SHF-11 | P0 | API | Shift sudah ditutup di server, lalu perangkat offline mengirim transaksi lewat `/sync/push` → **diterima** (`applied`), bukan `SHIFT_CLOSED`; bila `client_created_at > closed_at` ditandai `after_shift_close`; transaksi tidak hilang | TDD §2.4/§2.5 |
 | TC-SHF-12 | P0 | E2E | Owner lihat riwayat shift: modal, cash, QRIS, kas aktual, selisih (merah bila negatif) < 1 menit setelah tutup | O-07 |
 | TC-SHF-13 | P1 | API | Void yang disetujui setelah shift tutup: perlakuan selisih terdokumentasi & konsisten (lapor bila ambigu) | P-10 |
+| TC-SHF-14 | P0 | API | Transaksi telat: cash dengan `client_created_at ≤ closed_at` tiba setelah tutup shift → **dihitung** di `expected_cash` (ringkasan dihitung ulang server); cash dengan `client_created_at > closed_at` **tidak** dihitung di `expected_cash` | §3.2 |
+| TC-SHF-15 | P0 | API/E2E | Transaksi `after_shift_close` masuk `late_transaction_count` & `late_cash_amount` di ringkasan shift; owner melihatnya terpisah dan angka cocok dengan daftar transaksi bertanda `after_shift_close` | §2.5 |
+| TC-SHF-16 | P0 | API | Transaksi online via `POST /transactions` ke shift yang sudah ditutup → `SHIFT_CLOSED` (pegawai diminta buka shift baru); beda dengan jalur `/sync/push` (TC-SHF-11) | §2.4 |
+| TC-SHF-17 | P1 | API/DEV | Shift aktif ikut di `current_shift` pada `/sync/pull` dan `GET /shifts/current`; perangkat lain yang baru online mengetahui shift aktif tanpa membuka shift baru; setelah tutup shift `current_shift` kosong | §2.4/§2.5 |
+| TC-SHF-18 | P1 | API | Selisih tutup shift offline vs setelah sinkron: ringkasan awal di perangkat dan ringkasan server dihitung ulang; perbedaan (akibat transaksi telat) terlihat jelas, bukan error | R-3 |
 
 ### 5.3 Transaksi, keranjang & uang (P-03, P-05, P-06, P-09)
 | ID | P | Kat | Skenario & ekspektasi | Peta |
@@ -139,18 +144,19 @@ Status: `pending / paid / void_requested / voided / cancelled`.
 ### 5.6 Offline → online (P-13)
 | ID | P | Kat | Skenario & ekspektasi | Peta |
 |---|---|---|---|---|
-| TC-OFF-01 | P0 | DEV | Mode pesawat: login PIN lokal, buka shift, transaksi cash 5×; badge "5 belum tersinkron"; QRIS disabled | P-13 |
+| TC-OFF-01 | P0 | DEV | Shift **dibuka saat online**, lalu mode pesawat: login PIN lokal, transaksi cash 5×; badge "5 belum tersinkron"; QRIS disabled | P-13, R-8 |
 | TC-OFF-02 | P0 | DEV/API | Online kembali: auto-sync ≤30 dtk; semua `applied`; jumlah, nomor, total, `client_created_at` sama dengan di perangkat | P-13 |
 | TC-OFF-03 | P0 | DEV/API | Putus koneksi **di tengah** push batch → retry tidak menggandakan (idempoten UUIDv7); tidak ada transaksi hilang | §2.4 |
 | TC-OFF-04 | P0 | API | Harga produk berubah saat kasir offline → server **menerima** snapshot klien, `price_mismatch=true`, audit `sync.price_mismatch` | §2.4 |
 | TC-OFF-05 | P0 | API | Produk dinonaktifkan saat offline → diterima + ditandai, tidak ditolak | §2.4 |
-| TC-OFF-06 | P0 | API/DEV | Item `rejected` (mis. `SHIFT_CLOSED`) ditampilkan ke pegawai dan bisa ditindaklanjuti | §2.4 |
+| TC-OFF-06 | P0 | API/DEV | Mutasi `rejected` (mis. kode validasi/payload tidak valid pada `/sync/push`, **bukan** `SHIFT_CLOSED`) tetap di outbox, di-flag dan ditampilkan ke pegawai agar bisa ditindaklanjuti; mutasi `applied`/`duplicate` dihapus dari outbox | ADR-0008 |
 | TC-OFF-07 | P0 | DEV | Aplikasi di-kill/restart/baterai habis saat offline → outbox SQLite utuh, tidak ada data hilang | R-3 |
 | TC-OFF-08 | P0 | DEV/API | Dua perangkat offline membuat transaksi masing-masing → nomor tidak bentrok, total shift gabungan benar | A-1 |
 | TC-OFF-09 | P1 | DEV | Perangkat dicabut (revoke) saat offline → setelah online sesi gugur dan cache PIN dihapus; transaksi offline sebelumnya diperlakukan sesuai kebijakan (catat hasil) | R-5 |
 | TC-OFF-10 | P1 | DEV | Pull katalog: owner tambah/ubah/nonaktifkan produk → muncul di kasir < 1 menit (online); tombstone menghapus produk lama | PRD §6 |
 | TC-OFF-11 | P1 | DEV | Jam perangkat salah >10 menit → peringatan jam di aplikasi; audit `clock_skew` | R-4 |
 | TC-OFF-12 | P1 | DEV | Reconnect flapping (on/off berulang) tidak menimbulkan duplikat atau crash | NF |
+| TC-OFF-13 | P0 | DEV/API | **Negatif**: buka shift saat offline ditolak dengan pesan jelas (mis. "Buka shift butuh internet; sambungkan lalu coba lagi"); tidak ada shift/outbox terbentuk; transaksi tetap tidak bisa dibuat; setelah online buka shift berhasil | R-8, ADR-0009 |
 
 ### 5.7 Printer thermal & struk (P-08, K-12, O-10)
 | ID | P | Kat | Skenario & ekspektasi | Peta |
@@ -210,7 +216,7 @@ Status: `pending / paid / void_requested / voided / cancelled`.
 | Fitur | Test case |
 |---|---|
 | P-01 | TC-AUTH-04…10, TC-DEV-01, TC-OFF-09 |
-| P-02 | TC-SHF-01…04, TC-SHF-10 |
+| P-02 | TC-SHF-01…04, TC-SHF-10, TC-SHF-17, TC-OFF-13 |
 | P-03 | TC-TRX-07, TC-TRX-09, TC-OFF-10 |
 | P-04 (dihapus) | TC-TRX-04, TC-PRD-06 (uji negatif) |
 | P-05 | TC-TRX-10 |
@@ -220,8 +226,8 @@ Status: `pending / paid / void_requested / voided / cancelled`.
 | P-09 | TC-RBAC-02, TC-TRX-13 |
 | P-10 | TC-STM-04…09, TC-SHF-13 |
 | P-11 | TC-SHD-01 |
-| P-12 | TC-SHF-05…09, 11 |
-| P-13 | TC-OFF-01…12, TC-SHF-09 |
+| P-12 | TC-SHF-05…09, 11, 14…16, 18 |
+| P-13 | TC-OFF-01…13, TC-SHF-09 |
 | O-01 | TC-AUTH-01…03 |
 | O-02 | TC-DSH-01…04 |
 | O-03 | TC-LST-01…03 |
@@ -283,7 +289,8 @@ Bug dilaporkan sebagai issue: judul ringkas, langkah reproduksi, expected vs act
 - Printer/QRIS bergantung perangkat fisik & e-wallet nyata → butuh jadwal & printer dari owner (Q-D).
 - Pengujian offline dengan HP fisik sulit diotomasi → manual terstruktur + skrip adb.
 - Mode QRIS `auto` hanya diuji dengan mock sampai owner memilih gateway.
-- Perlakuan void yang disetujui setelah shift ditutup (TC-SHF-13) dan transaksi offline dari perangkat yang dicabut (TC-OFF-09) belum jelas di TDD → minta klarifikasi Tech Lead.
+- Perlakuan void yang disetujui setelah shift ditutup (TC-SHF-13) dan transaksi offline dari perangkat yang dicabut (TC-OFF-09) belum jelas di TDD v1.1 → minta klarifikasi Tech Lead.
+- Buka shift wajib online (R-8): bila internet mati sebelum buka toko, kasir tidak bisa berjualan; diuji di TC-OFF-13 dan dicatat sebagai risiko operasional UAT.
 
 ## 12. Jadwal Mengikuti TDD §8.5
 Q-A (dokumen ini) → Q-B (setelah B-8, T-2) → Q-C (setelah F-3, F-4, F-7) → Q-D (setelah M-13) → Q-E (setelah semua Must).
