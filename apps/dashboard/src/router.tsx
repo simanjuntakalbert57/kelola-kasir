@@ -39,7 +39,10 @@ function Guard() {
 
 /** Only same-origin paths are accepted, so `?redirect=` cannot bounce the owner to another site. */
 function safeRedirect(value: unknown): string | undefined {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && value !== '/login'
+  return typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//') &&
+    value !== '/login'
     ? value
     : undefined;
 }

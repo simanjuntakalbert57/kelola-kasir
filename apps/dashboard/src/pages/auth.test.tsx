@@ -73,11 +73,14 @@ describe('logout with an expired access token', () => {
     let logoutCalls = 0;
     const calls = mockApi({
       'POST /auth/refresh': () => json(session),
-      'POST /auth/logout': () => (++logoutCalls === 1 ? problem(401, 'UNAUTHORIZED') : new Response(null, { status: 204 })),
+      'POST /auth/logout': () =>
+        ++logoutCalls === 1 ? problem(401, 'UNAUTHORIZED') : new Response(null, { status: 204 }),
     });
     renderApp('/');
     await userEvent.click(await screen.findByRole('button', { name: 'Keluar' }));
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument(),
+    );
     expect(logoutCalls).toBe(2);
     expect(calls.filter((c) => c.key === 'POST /auth/refresh')).toHaveLength(2);
   });
