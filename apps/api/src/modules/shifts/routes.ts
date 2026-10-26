@@ -6,7 +6,7 @@ import { isUniqueViolation } from '../../db/client.js';
 import { shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { parse } from '../../lib/validate.js';
+import { parse, UUID_PATTERN } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { buildShiftSummary, computeShiftTotals, toShiftDtos, type ShiftRow } from './summary.js';
@@ -15,9 +15,18 @@ const ONE_OPEN_INDEX = 'shifts_one_open_per_outlet';
 const MAX_CLOCK_SKEW_MS = 10 * 60 * 1000;
 
 const rupiah = z.number().int().min(0).max(1_000_000_000_000);
-const isoDate = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
-const idParams = z.object({ shift_id: z.uuid() });
-const openBody = z.object({ id: z.uuid(), opening_cash: rupiah, opened_at: isoDate });
+const uuid = z.string().regex(UUID_PATTERN, 'Invalid UUID');
+const MIN_TIMESTAMP_MS = Date.UTC(2020, 0, 1);
+const MAX_TIMESTAMP_MS = Date.UTC(2100, 0, 1);
+const isoDate = z.iso
+  .datetime({ offset: true })
+  .transform((v) => new Date(v))
+  .refine(
+    (d) => d.getTime() >= MIN_TIMESTAMP_MS && d.getTime() < MAX_TIMESTAMP_MS,
+    'Timestamp is out of the supported range (2020-2099)',
+  );
+const idParams = z.object({ shift_id: uuid });
+const openBody = z.object({ id: uuid, opening_cash: rupiah, opened_at: isoDate });
 const closeBody = z.object({
   actual_cash: rupiah,
   closed_at: isoDate,
@@ -28,7 +37,7 @@ const closeBody = z.object({
 const listQuery = z.object({
   date_from: z.iso.date().optional(),
   date_to: z.iso.date().optional(),
-  employee_id: z.uuid().optional(),
+  employee_id: uuid.optional(),
   status: z.enum(['open', 'closed']).optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -43,7 +52,7 @@ function encodeCursor(row: ShiftRow): string {
 function decodeCursor(cursor: string): { t: Date; id: string } {
   try {
     const parsed = z
-      .object({ t: z.iso.datetime(), id: z.uuid() })
+      .object({ t: z.iso.datetime(), id: uuid })
       .parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     return { t: new Date(parsed.t), id: parsed.id };
   } catch {
@@ -200,6 +209,9 @@ export function shiftRoutes(ctx: AppContext, guards: Guards) {
     app.post('/shifts', { preHandler: guards.employee }, async (req, reply) => {
       const principal = requireEmployee(req);
       const body = parse(openBody, req.body);
+      if (body.opened_at.getTime() > ctx.now().getTime() + MAX_CLOCK_SKEW_MS) {
+        throw errors.validation([{ path: 'opened_at', message: 'opened_at is in the future' }]);
+      }
 
       const replay = async () => {
         const [existing] = await db.select().from(shifts).where(eq(shifts.id, body.id)).limit(1);

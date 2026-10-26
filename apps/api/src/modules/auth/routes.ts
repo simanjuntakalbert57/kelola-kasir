@@ -2,16 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
 import { errors } from '../../errors.js';
-import { parse } from '../../lib/validate.js';
+import { parse, UUID_PATTERN } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { OwnerAuthService } from './owner-service.js';
 import { PinAuthService } from './pin-service.js';
 
 const REFRESH_COOKIE = 'kk_refresh';
 
-const loginBody = z.object({ email: z.email(), password: z.string().min(8).max(200) });
+const loginBody = z.object({ email: z.string().min(3).max(254).regex(/^[^@\s]+@[^@\s]+$/, 'Invalid email'), password: z.string().min(8).max(200) });
 const pinLoginBody = z.object({
-  employee_id: z.uuid(),
+  employee_id: z.string().regex(UUID_PATTERN, 'Invalid UUID'),
   pin: z.string().regex(/^[0-9]{6}$/, 'PIN must be 6 digits'),
 });
 
