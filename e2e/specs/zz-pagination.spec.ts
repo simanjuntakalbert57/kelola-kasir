@@ -35,10 +35,6 @@ test.beforeAll(async () => {
 test('"Hanya yang selisih" tetap menemukan shift ber-selisih yang ada di halaman ke-2', async ({
   page,
 }) => {
-  test.fail(
-    true,
-    'DEAR-27: filter hanya menyaring halaman termuat; hapus baris ini saat bug diperbaiki',
-  );
   await openAsOwner(page, '/shift');
   await page.getByLabel('Hanya yang selisih').check();
   // Shift ber-selisih (Siti, -5.000) adalah yang tertua → di luar 50 shift pertama.
@@ -55,10 +51,6 @@ test('"Hanya yang selisih" tetap menemukan shift ber-selisih yang ada di halaman
 test('daftar void menampilkan semua 51+ permintaan menunggu (bukan hanya 50 pertama)', async ({
   page,
 }) => {
-  test.fail(
-    true,
-    'DEAR-28: daftar void terpotong di 50 (dari 51); hapus baris ini saat bug diperbaiki',
-  );
   const { shop } = seed();
   const api = await call<{ data: unknown[]; next_cursor: string | null }>(
     'GET',
@@ -67,7 +59,8 @@ test('daftar void menampilkan semua 51+ permintaan menunggu (bukan hanya 50 pert
   );
   expect(api.data.data.length).toBeGreaterThanOrEqual(51);
   await openAsOwner(page, '/void');
-  await expect(page.getByRole('button', { name: /^Setujui void/ })).toHaveCount(
-    api.data.data.length,
-  );
+  const approve = page.getByRole('button', { name: /^Setujui void/ });
+  await expect(approve).toHaveCount(50); // halaman pertama
+  await page.getByRole('button', { name: 'Muat lebih banyak' }).click();
+  await expect(approve).toHaveCount(api.data.data.length);
 });

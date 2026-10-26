@@ -44,3 +44,5 @@ Backend ships an endpoint, delete its line in the same PR: from then on CI check
   the spec lacks `minLength: 1` on names and `pairing_code`, `format: uuid` and `format: email` are laxer than the
   API's zod validation. Remove the variable from the workflow once fixed.
 - Deterministic generation by default (stable PR gate); `CONTRACT_RANDOM=1` fuzzes with fresh seeds and finds more (see bug issues).
+
+- `filter_too_much` (Hypothesis health check) is suppressed for all operations: which operation trips it on CI varies between runs (updateCategory, approveVoidWithOwnerPin, ...), and it reflects the data generator, not the API.

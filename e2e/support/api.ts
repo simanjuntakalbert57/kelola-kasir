@@ -4,6 +4,7 @@ export const API = 'http://127.0.0.1:3100/v1';
 export const OWNER_EMAIL = 'owner@e2e.test';
 export const OWNER_PASSWORD = process.env['E2E_OWNER_PASSWORD'] ?? 'e2e-owner-password-123';
 export const LOCKOUT_EMAIL = 'lockout@e2e.test';
+export const QRIS_OWNER_EMAIL = 'qris@e2e.test';
 
 export class ApiFailure extends Error {
   constructor(
@@ -86,6 +87,7 @@ export interface Shop {
   deviceToken: string;
   deviceId: string;
   deviceCode: string;
+  outletCode?: string;
   categoryId: string;
   products: { alpukat: Product; jeruk: Product };
 }
@@ -151,7 +153,7 @@ export async function sell(
   const total = product.price * qty;
   const id = uuidv7();
   const paymentId = uuidv7();
-  const number = `JUS1-${shop.deviceCode}-261026-${String(seq++).padStart(4, '0')}`;
+  const number = `${shop.outletCode ?? 'JUS1'}-${shop.deviceCode}-261026-${String(seq++).padStart(4, '0')}`;
   await call('POST', '/transactions', {
     headers: c.headers,
     body: {

@@ -12,14 +12,15 @@ Build: `main` @ `241a42e` (PR #4–#18). Penguji: QA Engineer. Tanggal: 2026-10-
 | Uji perangkat nyata (Q-D) | **Belum dijalankan** (butuh HP + printer RPP02N + staging DEAR-19): skrip siap |
 | UAT owner (Q-E) | **Belum dijalankan**: skrip siap |
 
-Bug blocker (S1/S2 pada alur uang): **1 terbuka, S2** — DEAR-27 (filter selisih kas menyembunyikan shift ber-selisih). Harus diperbaiki sebelum UAT sesuai kriteria "blocker = 0". Lainnya S3.
+Bug blocker (S1/S2): **0 terbuka**. DEAR-27 (S2) dan DEAR-28 sudah diperbaiki di `main` (PR #19, #21); `test.fail`-nya dihapus dan test kini lulus. Terbuka: DEAR-26 (S3, PR #20 dalam perbaikan) dan DEAR-30 (S3, QRIS hanya-gambar).
 
 ## Bug ditemukan
 | Issue | Sev | Ringkas | Test (gagal-diharapkan) |
 |---|---|---|---|
 | DEAR-26 | S3 | Tautan shift → transaksi tidak memfilter shift | `shifts.spec.ts` |
-| DEAR-27 | S2 | "Hanya yang selisih" hanya menyaring halaman termuat (50 shift terbaru); selisih lama tersembunyi | `zz-pagination.spec.ts` |
-| DEAR-28 | S3 | Daftar void terpotong di 50 permintaan, tanpa paginasi | `zz-pagination.spec.ts` |
+| DEAR-27 | S2 (diperbaiki, PR #19) | "Hanya yang selisih" hanya menyaring halaman termuat (50 shift terbaru); selisih lama tersembunyi | `zz-pagination.spec.ts` |
+| DEAR-28 | S3 (diperbaiki, PR #21) | Daftar void terpotong di 50 permintaan, tanpa paginasi | `zz-pagination.spec.ts` |
+| DEAR-30 | S3 | QRIS hanya-gambar disimpan tanpa peringatan, tapi semua penjualan QRIS ditolak 503 ("Tanamkan nominal" ikut menyesatkan) | `qris-settings.spec.ts` (`test.fail`) |
 
 Test ditandai `test.fail(true, 'DEAR-xx')`: suite hijau, dan otomatis merah saat bug diperbaiki (hapus baris itu).
 
@@ -53,11 +54,16 @@ Test ditandai `test.fail(true, 'DEAR-xx')`: suite hijau, dan otomatis merah saat
 
 Cakupan oleh suite dev (lulus, 299 test): TC-SHF-01…, TC-TRX-*, TC-QRS-*, TC-OFF (sisi server), TC-STM-*, TC-RBAC-01…03 dan db-invariants. Verifikasi keberadaan skenario P0 per PR tetap lewat review PR.
 
-## Belum tercakup di sini
-- Q-D: seluruh `TC-PRN`, `TC-OFF` perangkat, `TC-QRS-02/07/08/12`, `TC-NF-01/02/03/08`, `TC-SHF-09`. Skrip: `docs/qa/device-test-script.md`.
-- Q-E: `docs/qa/uat-script.md` (U-1…U-10, sign-off).
-- Item CoS 8 (cold start Render Free, 90 dtk): masuk skrip perangkat S-05, butuh staging.
-- Safari iOS nyata untuk ekspor, TC-DSH-04 (performa 500 trx × 30 hari), TC-NF-07 (k6): belum.
+## Belum tercakup — status
+| Item | Status |
+|---|---|
+| "Tanamkan nominal" saat hanya gambar QRIS diisi | **Sudah dalam E2E** (`qris-settings.spec.ts`); menemukan DEAR-30 |
+| Struk 32 kolom, baris panjang | **Menunggu staging + HP/printer** (skrip perangkat P-07) |
+| Cold start Render Free (90 dtk) | **Menunggu staging** (skrip perangkat S-05) |
+| Q-D: seluruh `TC-PRN`, `TC-OFF` perangkat, `TC-QRS-02/07/08/12`, `TC-NF-01/02/03/08`, `TC-SHF-09` | **Menunggu staging DEAR-19, APK, HP, printer RPP02N, jadwal Albert**. Skrip: `docs/qa/device-test-script.md` |
+| Q-E UAT | **Menunggu jadwal Albert**; skrip `docs/qa/uat-script.md` |
+| Safari iOS nyata untuk ekspor; TC-DSH-04 (performa); TC-NF-07 (k6) | Belum (butuh perangkat/staging) |
+| Backup nyata ke R2/Neon | **Menunggu staging/secret DEAR-19** |
 
 ## Uji restore backup (TC-NF-06) — Lulus
 Sumber: database hasil E2E (2 outlet, 3 pegawai, 54 shift, 59 transaksi, Rp708.000 paid, 192 audit log).

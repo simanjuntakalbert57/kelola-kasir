@@ -19,7 +19,7 @@ for project in ${E2E_PROJECTS:-chromium firefox webkit mobile-chrome}; do
   DB_URL="$(node -e 'const u=new URL(process.argv[1]);u.pathname="/"+process.argv[2];console.log(u.toString())' "$ADMIN_URL" "$DB_NAME")"
   export DATABASE_URL="$DB_URL"
   pnpm --filter @kelola-kasir/api db:migrate >/dev/null
-  for pair in "JUS1:owner@e2e.test" "JUS2:lockout@e2e.test"; do
+  for pair in "JUS1:owner@e2e.test" "JUS2:lockout@e2e.test" "JUS3:qris@e2e.test"; do
     OWNER_EMAIL="${pair#*:}" OWNER_PASSWORD="$E2E_OWNER_PASSWORD" OUTLET_CODE="${pair%%:*}" OUTLET_NAME="Toko ${pair%%:*}" \
       pnpm --filter @kelola-kasir/api owner:create >/dev/null
   done

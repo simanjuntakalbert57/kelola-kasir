@@ -8,11 +8,9 @@ export async function loginUi(page: Page, email = OWNER_EMAIL, password = OWNER_
   await page.getByRole('button', { name: 'Masuk' }).click();
 }
 
-export async function openAsOwner(page: Page, path: string) {
-  await loginUi(page);
+export async function openAsOwner(page: Page, path: string, email = OWNER_EMAIL) {
+  await loginUi(page, email);
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-  const nav = page.getByRole('navigation', { name: 'Menu utama' }).first();
-  void nav;
   if (path !== '/') await page.goto(path);
 }
 
