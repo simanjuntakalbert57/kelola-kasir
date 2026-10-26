@@ -79,9 +79,9 @@ async function main(): Promise<void> {
   });
 
   const call = async (
-    method: 'POST' | 'PATCH' | 'GET',
+    method: 'POST' | 'PATCH',
     url: string,
-    payload: object | undefined,
+    payload: object,
     headers: Record<string, string> = {},
   ) => {
     const res = await app.inject({ method, url, payload, headers });
