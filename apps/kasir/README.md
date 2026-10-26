@@ -4,6 +4,8 @@ Cashier app for Android phones in portrait (React Native / Expo dev build, offli
 
 Implemented so far (M-1, M-3, M-4, M-5): Expo Router skeleton with Jual/Riwayat/Shift tabs, dark theme from `docs/design/design.css` (DEAR-5), typed API client on `packages/contracts`, device pairing + token in Android Keystore (`expo-secure-store`), PIN login (employee picker, keypad, cached employees, offline argon2id check, 5-wrong → 5-minute lockout), open shift (prefilled opening cash, joins an already-open shift on `409 SHIFT_ALREADY_OPEN`).
 
+Added in DEAR-12 (M-2, M-6, M-8, M-9, M-10): local SQLite (`expo-sqlite`, schema in `src/db/migrations.ts`, repositories take a thin `Db` so tests run on `node:sqlite`), catalog pull every 60 s (`src/catalog/sync.ts`), grid per category + Favorit (best sellers on this device) + search with sold-out hidden, cart (tap = +1) and pay bar, cash payment (Uang Pas, quick amounts, keypad, change) saved to SQLite + outbox in one local transaction, outbox push every 30 s with the "N transaksi belum tersinkron" banner, QRIS static with manual confirmation (online only, 15-minute countdown, cancel). The "Cetak struk" toggle is stored per device; the actual ESC/POS printing is M-11.
+
 ## Run
 
 ```sh
