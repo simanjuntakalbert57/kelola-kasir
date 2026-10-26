@@ -17,6 +17,7 @@ import {
   Skeleton,
 } from '../components/ui';
 import { api, qs } from '../lib/api';
+import { wibDate } from '../lib/dates';
 import { errorMessage, formatDateTime } from '../lib/format';
 
 type Page = { data: Shift[]; next_cursor: string | null };
@@ -104,6 +105,7 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
           ) : null}
           <Link
             to="/transaksi"
+            search={{ shift_id: shift.id, date: wibDate(new Date(shift.opened_at)) }}
             className="mt-3 inline-block text-brand-text underline"
             onClick={onClose}
           >

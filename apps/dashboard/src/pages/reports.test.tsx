@@ -139,6 +139,31 @@ describe('Transaksi', () => {
     expect(screen.getByRole('button', { name: 'Reset filter' })).toBeInTheDocument();
   });
 
+  it('filters by shift when opened from a shift link', async () => {
+    const shiftId = '11111111-1111-4111-8111-111111111111';
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
+    });
+    renderApp(`/transaksi?shift_id=${shiftId}&date=2026-10-26`);
+    expect(await screen.findByText('Menampilkan 1 transaksi')).toBeInTheDocument();
+    expect(
+      calls.some(
+        (c) =>
+          c.key.includes('GET /transactions?') &&
+          c.key.includes(`shift_id=${shiftId}`) &&
+          c.key.includes('date_from=2026-10-26'),
+      ),
+    ).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Hapus filter shift' }));
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.key.includes('GET /transactions?') && !c.key.includes('shift_id')),
+      ).toBe(true),
+    );
+  });
+
   it('downloads an export through the authenticated client', async () => {
     const create = vi.fn(() => 'blob:x');
     vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: vi.fn() });

@@ -1,8 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import type { Employee, Transaction, TransactionSummary } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
+import { useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
-import { DateRangePicker, initialRange } from '../components/DateRangePicker';
+import { DateRangePicker, initialRange, type RangeState } from '../components/DateRangePicker';
 import {
   Alert,
   Badge,
@@ -124,7 +125,14 @@ function ExportButtons({ query }: { query: string }) {
 }
 
 export function TransactionsPage() {
-  const [state, setState] = useState(initialRange);
+  const { shift_id: initialShiftId, date } = useSearch({ strict: false }) as {
+    shift_id?: string;
+    date?: string;
+  };
+  const [shiftId, setShiftId] = useState(initialShiftId ?? '');
+  const [state, setState] = useState<RangeState>(() =>
+    date ? { preset: 'custom', range: { from: date, to: date } } : initialRange(),
+  );
   const [employeeId, setEmployeeId] = useState('');
   const [method, setMethod] = useState('');
   const [status, setStatus] = useState('');
@@ -140,6 +148,7 @@ export function TransactionsPage() {
     date_from: state.range.from,
     date_to: state.range.to,
     employee_id: employeeId,
+    shift_id: shiftId,
     payment_method: method,
     status,
   };
@@ -151,8 +160,9 @@ export function TransactionsPage() {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   const rows = list.data?.pages.flatMap((p) => p.data) ?? [];
-  const filtered = Boolean(employeeId || method || status || q);
+  const filtered = Boolean(shiftId || employeeId || method || status || q);
   const reset = () => {
+    setShiftId('');
     setEmployeeId('');
     setMethod('');
     setStatus('');
@@ -163,6 +173,14 @@ export function TransactionsPage() {
     <>
       <PageHeader title="Transaksi" action={<ExportButtons query={qs(filters)} />} />
       <Card className="mb-4">
+        {shiftId ? (
+          <p className="mb-2 flex items-center gap-2 text-sm">
+            <Badge tone="ok">Filter: satu shift</Badge>
+            <Button small onClick={() => setShiftId('')}>
+              Hapus filter shift
+            </Button>
+          </p>
+        ) : null}
         <DateRangePicker value={state} onChange={setState} />
         <div className="mt-3 grid gap-x-3 sm:grid-cols-2 lg:grid-cols-4">
           <SelectField
