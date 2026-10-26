@@ -162,11 +162,20 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # OS packages are installed apart from the browser download and never under `timeout`: killing
+      # playwright once left its apt-get child holding the dpkg lock, so every retry failed at once.
+      # apt retries slow mirrors and waits for the lock itself; the step timeout is the backstop.
+      - name: Install Playwright system dependencies
+        timeout-minutes: 15
+        run: |
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "60";\nDPkg::Lock::Timeout "300";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
+          pnpm --filter @kelola-kasir/e2e exec playwright install-deps chromium firefox webkit
       # Bounded retries: a stalled CDN download once hung this job for 20 minutes.
       - name: Install Playwright browsers
         run: |
           for attempt in 1 2 3; do
-            timeout 240 pnpm --filter @kelola-kasir/e2e exec playwright install --with-deps chromium firefox webkit && exit 0
+            timeout 240 pnpm --filter @kelola-kasir/e2e exec playwright install chromium firefox webkit && exit 0
             echo "browser install attempt ${attempt} failed or timed out"
           done
           exit 1
