@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Principal } from '../../context.js';
-import type { Database } from '../../db/client.js';
+import type { Database, DbOrTx } from '../../db/client.js';
 import { shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import type { TransactionRow } from './serialize.js';
@@ -25,8 +25,17 @@ export async function findVisibleTransaction(
     .where(and(eq(transactions.id, id), eq(transactions.outletId, principal.outletId)))
     .limit(1);
   if (!row) throw errors.notFound('Transaction not found');
-  if (principal.type !== 'employee') return row;
-  if (wibDate(row.clientCreatedAt) === wibDate(now)) return row;
+  if (principal.type === 'employee') await assertEmployeeMayView(db, now, row);
+  return row;
+}
+
+/** Employees only act on the running shift or today's sales (PRD §5); `now` is the moment of the action. */
+export async function assertEmployeeMayView(
+  db: DbOrTx,
+  now: Date,
+  row: Pick<TransactionRow, 'clientCreatedAt' | 'shiftId'>,
+): Promise<void> {
+  if (wibDate(row.clientCreatedAt) === wibDate(now)) return;
   const [shift] = await db
     .select({ status: shifts.status })
     .from(shifts)
@@ -35,5 +44,4 @@ export async function findVisibleTransaction(
   if (shift?.status !== 'open') {
     throw errors.forbidden('You can only view transactions of the open shift or of today');
   }
-  return row;
 }

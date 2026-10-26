@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { isoTimestamp, uuid } from '../../lib/validate.js';
 import type { AppContext } from '../../context.js';
 import { isUniqueViolation } from '../../db/client.js';
 import {
@@ -21,19 +22,18 @@ export const MAX_CLOCK_SKEW_MS = 10 * 60 * 1000;
 const NUMBER_PATTERN = /^[A-Z0-9]{2,6}-[A-Z0-9]{3}-[0-9]{6}-[0-9]{4}$/;
 
 const rupiah = z.number().int().min(0).max(1_000_000_000_000);
-const isoDate = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 
 export const transactionCreateSchema = z.object({
-  id: z.uuid(),
-  shift_id: z.uuid(),
+  id: uuid,
+  shift_id: uuid,
   number: z.string().regex(NUMBER_PATTERN, 'Invalid transaction number'),
-  client_created_at: isoDate,
+  client_created_at: isoTimestamp,
   customer_label: z.string().trim().max(40).optional(),
   items: z
     .array(
       z.object({
-        id: z.uuid(),
-        product_id: z.uuid(),
+        id: uuid,
+        product_id: uuid,
         product_name: z.string().trim().min(1).max(100),
         unit_price: rupiah,
         quantity: z.number().int().min(1).max(999),
@@ -48,8 +48,8 @@ export const transactionCreateSchema = z.object({
   tax_amount: rupiah.default(0),
   total: rupiah,
   payment: z.discriminatedUnion('method', [
-    z.object({ id: z.uuid(), method: z.literal('cash'), cash_tendered: rupiah }),
-    z.object({ id: z.uuid(), method: z.literal('qris') }),
+    z.object({ id: uuid, method: z.literal('cash'), cash_tendered: rupiah }),
+    z.object({ id: uuid, method: z.literal('qris') }),
   ]),
 });
 

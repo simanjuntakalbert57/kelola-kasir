@@ -3,10 +3,11 @@ import { and, desc, eq, gte, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
+import type { DbOrTx } from '../../db/client.js';
 import { auditLogs, outletMembers, transactions, users, voidRequests } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { verifySecret } from '../../lib/passwords.js';
-import { parse } from '../../lib/validate.js';
+import { parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { findVisibleTransaction } from '../transactions/access.js';
@@ -19,8 +20,8 @@ import {
   voidDirectly,
 } from './service.js';
 
-const transactionParams = z.object({ transaction_id: z.uuid() });
-const voidParams = z.object({ void_request_id: z.uuid() });
+const transactionParams = z.object({ transaction_id: uuid });
+const voidParams = z.object({ void_request_id: uuid });
 const listQuery = z.object({
   status: z.enum(['pending', 'approved', 'rejected']).optional(),
   cursor: z.string().max(200).optional(),
@@ -36,7 +37,7 @@ const FAILED_PIN_ACTION = 'void.owner_pin_failed';
 function decodeCursor(cursor: string): { t: Date; id: string } {
   try {
     const parsed = z
-      .object({ t: z.iso.datetime(), id: z.uuid() })
+      .object({ t: z.iso.datetime(), id: uuid })
       .parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     return { t: new Date(parsed.t), id: parsed.id };
   } catch {
@@ -48,8 +49,12 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
   const { db } = ctx;
 
   /** The owner whose PIN matches, among the outlet's owners/managers that have one set. */
-  async function findOwnerByPin(outletId: string, pin: string): Promise<string | undefined> {
-    const candidates = await db
+  async function findOwnerByPin(
+    conn: DbOrTx,
+    outletId: string,
+    pin: string,
+  ): Promise<string | undefined> {
+    const candidates = await conn
       .select({ id: users.id, hash: users.ownerPinHash })
       .from(users)
       .innerJoin(outletMembers, eq(outletMembers.userId, users.id))
@@ -166,27 +171,27 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
         const body = parse(pinBody, req.body);
 
         // A 6-digit PIN is guessable, so failures are counted per outlet (not per request origin).
-        const since = new Date(ctx.now().getTime() - OWNER_PIN_WINDOW_MS);
-        const [failed] = await db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(auditLogs)
-          .where(
-            and(
-              eq(auditLogs.outletId, employee.outletId),
-              eq(auditLogs.action, FAILED_PIN_ACTION),
-              gte(auditLogs.createdAt, since),
-            ),
+        // The advisory lock serialises attempts of one outlet: the count, the check and the failure
+        // record are one step, so parallel guesses cannot slip past the limit.
+        const attempt = await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${`owner-pin:${employee.outletId}`}, 0))`,
           );
-        if ((failed?.n ?? 0) >= OWNER_PIN_MAX_FAILURES) {
-          throw errors.locked(
-            'OWNER_PIN_LOCKED',
-            'Too many wrong owner PINs; try again in 15 minutes',
-            OWNER_PIN_WINDOW_MS / 1000,
-          );
-        }
-        const ownerId = await findOwnerByPin(employee.outletId, body.owner_pin);
-        if (!ownerId) {
-          await writeAudit(db, {
+          const since = new Date(ctx.now().getTime() - OWNER_PIN_WINDOW_MS);
+          const [failed] = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(auditLogs)
+            .where(
+              and(
+                eq(auditLogs.outletId, employee.outletId),
+                eq(auditLogs.action, FAILED_PIN_ACTION),
+                gte(auditLogs.createdAt, since),
+              ),
+            );
+          if ((failed?.n ?? 0) >= OWNER_PIN_MAX_FAILURES) return { locked: true as const };
+          const found = await findOwnerByPin(tx, employee.outletId, body.owner_pin);
+          if (found) return { locked: false as const, ownerId: found };
+          await writeAudit(tx, {
             outletId: employee.outletId,
             actor: { type: 'employee', id: employee.id },
             action: FAILED_PIN_ACTION,
@@ -194,8 +199,17 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
             entityId: id,
             meta: { device_id: employee.deviceId, ip: req.ip },
           });
-          throw errors.unauthorized('Owner PIN is incorrect', 'INVALID_OWNER_PIN');
+          return { locked: false as const, ownerId: undefined };
+        });
+        if (attempt.locked) {
+          throw errors.locked(
+            'OWNER_PIN_LOCKED',
+            'Too many wrong owner PINs; try again in 15 minutes',
+            OWNER_PIN_WINDOW_MS / 1000,
+          );
         }
+        const ownerId = attempt.ownerId;
+        if (!ownerId) throw errors.unauthorized('Owner PIN is incorrect', 'INVALID_OWNER_PIN');
         return decideVoid(
           ctx,
           {

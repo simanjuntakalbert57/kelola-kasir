@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AppContext, EmployeePrincipal } from '../../context.js';
 import { shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
+import { isoTimestamp } from '../../lib/validate.js';
 import { writeAudit } from '../audit/audit.js';
 import { expireOverdueInShift } from '../payments/service.js';
 import { computeShiftTotals, type ShiftRow } from './summary.js';
@@ -12,7 +13,7 @@ export const MAX_CLOCK_SKEW_MS = 10 * 60 * 1000;
 
 export const closeBodySchema = z.object({
   actual_cash: z.number().int().min(0).max(1_000_000_000_000),
-  closed_at: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
+  closed_at: isoTimestamp,
   closing_note: z.string().max(500).optional(),
   closed_offline: z.boolean().default(false),
   unsynced_count: z.number().int().min(0).optional(),

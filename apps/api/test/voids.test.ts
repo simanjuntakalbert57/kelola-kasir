@@ -370,6 +370,19 @@ describe('approve with the owner PIN on the device', () => {
     expect((await withPin(other, otherRequest.id, otherPin)).statusCode).toBe(200);
   });
 
+  it('counts parallel wrong PINs atomically: never more than the limit gets through', async () => {
+    const shop = await createShop(env);
+    await setOwnerPin(shop, '593017');
+    const requested = json<VoidDto>(await requestVoid(shop, await sale(shop)));
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () => withPin(shop, requested.id, '111111')),
+    );
+    const codes = results.map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 401)).toHaveLength(OWNER_PIN_MAX_FAILURES);
+    expect(codes.filter((c) => c === 423)).toHaveLength(12 - OWNER_PIN_MAX_FAILURES);
+    expect(await audits(shop, 'void.owner_pin_failed')).toHaveLength(OWNER_PIN_MAX_FAILURES);
+  });
+
   it('needs an employee session', async () => {
     const shop = await createShop(env);
     const pin = await setOwnerPin(shop);
@@ -448,6 +461,98 @@ describe('offline sync of void requests', () => {
     await post(env, `/v1/transactions/${id}/void-requests`, owner(shop), { reason: 'Void owner' });
     const [r] = await push(shop, [mutation(shop, uuidv7(), id)]);
     expect(r).toMatchObject({ status: 'rejected', code: 'TRANSACTION_NOT_VOIDABLE' });
+  });
+});
+
+describe('sync void requests follow the visibility rule', () => {
+  const pushVoid = async (shop: Shop, transactionId: string, at: Date) => {
+    const id = uuidv7();
+    const res = await post(
+      env,
+      '/v1/sync/push',
+      { 'x-device-token': shop.device.token },
+      {
+        mutations: [
+          {
+            id,
+            type: 'void_request.create',
+            client_created_at: at.toISOString(),
+            employee_id: shop.cashier.employeeId,
+            payload: { transaction_id: transactionId, reason: 'Salah input offline' },
+          },
+        ],
+      },
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    return first(json<{ results: { status: string; code?: string }[] }>(res).results);
+  };
+
+  it('rejects a sale of a closed shift on another day, accepts it on its own day', async () => {
+    const shop = await createShop(env);
+    const id = await sale(shop);
+    const closed = await post(env, `/v1/shifts/${shop.shiftId}/close`, shop.cashier.headers, {
+      actual_cash: 130_000,
+      closed_at: env.clock.now.toISOString(),
+    });
+    expect(closed.statusCode, closed.body).toBe(200);
+    const saleDay = new Date(env.clock.now);
+
+    env.clock.advance(2 * 24 * 60 * 60_000);
+    const late = await pushVoid(shop, id, new Date(env.clock.now));
+    expect(late).toMatchObject({ status: 'rejected', code: 'FORBIDDEN' });
+    expect((await statusOf(shop, id)).status).toBe('paid');
+
+    // The employee asked on the day of the sale, while offline: that request still counts.
+    expect(await pushVoid(shop, id, saleDay)).toMatchObject({ status: 'applied' });
+    expect((await statusOf(shop, id)).status).toBe('void_requested');
+  });
+
+  it('accepts any sale of a shift that is still open', async () => {
+    const shop = await createShop(env);
+    const id = await sale(shop);
+    env.clock.advance(2 * 24 * 60 * 60_000);
+    expect(await pushVoid(shop, id, new Date(env.clock.now))).toMatchObject({ status: 'applied' });
+  });
+});
+
+describe('void and the cash of the open shift', () => {
+  const expectedCash = async (shop: Shop) =>
+    json<{ expected_cash: number; voided_count: number; pending_void_count: number }>(
+      await get(env, `/v1/shifts/${shop.shiftId}/summary`, shop.cashier.headers),
+    );
+
+  it('lowers expected cash only once the void is approved', async () => {
+    const shop = await createShop(env); // opening cash 100.000
+    const id = await sale(shop, 2); // + 30.000 cash
+    await sale(shop, 1); // + 15.000 cash
+    expect(await expectedCash(shop)).toMatchObject({ expected_cash: 145_000 });
+
+    const requested = json<VoidDto>(await requestVoid(shop, id));
+    // Still counted while the owner has not decided (reported as pending).
+    expect(await expectedCash(shop)).toMatchObject({
+      expected_cash: 145_000,
+      pending_void_count: 1,
+    });
+
+    await post(env, `/v1/void-requests/${requested.id}/approve`, owner(shop), {});
+    expect(await expectedCash(shop)).toMatchObject({
+      expected_cash: 115_000,
+      voided_count: 1,
+      pending_void_count: 0,
+    });
+  });
+
+  it('is back to the full amount when the void is rejected, and drops on a direct owner void', async () => {
+    const shop = await createShop(env);
+    const a = await sale(shop, 2);
+    const b = await sale(shop, 1);
+    const requested = json<VoidDto>(await requestVoid(shop, a));
+    await post(env, `/v1/void-requests/${requested.id}/reject`, owner(shop), {});
+    expect(await expectedCash(shop)).toMatchObject({ expected_cash: 145_000 });
+    await post(env, `/v1/transactions/${b}/void-requests`, owner(shop), {
+      reason: 'Uang dikembalikan',
+    });
+    expect(await expectedCash(shop)).toMatchObject({ expected_cash: 130_000, voided_count: 1 });
   });
 });
 

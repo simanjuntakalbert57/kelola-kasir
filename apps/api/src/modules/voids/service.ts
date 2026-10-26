@@ -5,10 +5,12 @@ import { isUniqueViolation } from '../../db/client.js';
 import { employees, transactions, voidRequests } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { writeAudit } from '../audit/audit.js';
+import { uuid } from '../../lib/validate.js';
+import { assertEmployeeMayView } from '../transactions/access.js';
 import { toVoidRequest } from '../transactions/serialize.js';
 
 export const voidReasonSchema = z.string().trim().min(3).max(300);
-export const voidCreateSchema = z.object({ id: z.uuid().optional(), reason: voidReasonSchema });
+export const voidCreateSchema = z.object({ id: uuid.optional(), reason: voidReasonSchema });
 export const voidDecisionSchema = z.object({ note: z.string().trim().max(300).optional() });
 
 type VoidRequestDto = Awaited<ReturnType<typeof toVoidRequest>>;
@@ -71,6 +73,9 @@ export async function requestVoid(
         return { voidRequest: await toVoidRequest(tx, existing, row), created: false };
       }
       if (row.status !== 'paid') throw notVoidable(row.status);
+      // The online route checks this before calling; an offline request is judged at the time the
+      // employee made it, so a request queued yesterday is not lost on a closed shift of today.
+      if (by.source === 'sync') await assertEmployeeMayView(tx, requestedAt, row);
 
       const [created] = await tx
         .insert(voidRequests)

@@ -94,3 +94,28 @@ export const post = <T>(path: string, body?: unknown) =>
 
 export const patch = <T>(path: string, body: unknown) =>
   api<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Authenticated file download (the access token is memory-only, so a plain link cannot be used). */
+export async function download(path: string): Promise<{ blob: Blob; filename: string }> {
+  let res = await send(path, {}, accessToken);
+  if (res.status === 401) {
+    const session = await refreshSession();
+    if (!session) {
+      onUnauthorized?.();
+      throw new ApiError(401, 'UNAUTHORIZED', 'Sesi berakhir, silakan masuk lagi.');
+    }
+    res = await send(path, {}, session.access_token);
+  }
+  if (!res.ok) throw await toError(res);
+  const match = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') ?? '');
+  return { blob: await res.blob(), filename: match?.[1] ?? 'export' };
+}
+
+/** Builds `?a=1&b=2`, skipping empty values. */
+export function qs(params: Record<string, string | number | boolean | null | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params))
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}

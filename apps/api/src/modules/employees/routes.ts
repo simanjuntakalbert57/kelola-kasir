@@ -7,14 +7,14 @@ import { employeePinAttempts, employeeSessions, employees } from '../../db/schem
 import { errors } from '../../errors.js';
 import { pinFingerprint } from '../../lib/crypto.js';
 import { hashSecret } from '../../lib/passwords.js';
-import { parse } from '../../lib/validate.js';
+import { parse, uuid } from '../../lib/validate.js';
 import { requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { toEmployee } from './serialize.js';
 
 const PIN_UNIQUE = 'employees_pin_unique_per_outlet';
 const pin = z.string().regex(/^[0-9]{6}$/, 'PIN must be 6 digits');
-const idParams = z.object({ employee_id: z.uuid() });
+const idParams = z.object({ employee_id: uuid });
 const listQuery = z.object({ is_active: z.enum(['true', 'false']).optional() });
 const createBody = z.object({ name: z.string().trim().min(1).max(60), pin });
 const updateBody = z

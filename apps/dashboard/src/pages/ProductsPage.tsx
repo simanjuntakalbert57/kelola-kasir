@@ -21,6 +21,7 @@ import {
 } from '../components/ui';
 import { ApiError, api, patch, post } from '../lib/api';
 import { errorMessage, toRupiah } from '../lib/format';
+import { useDebounced } from '../lib/useDebounced';
 
 const CATEGORIES = ['categories'] as const;
 const PRODUCTS = ['products'] as const;
@@ -188,6 +189,7 @@ function ProductDialog({
         price: toRupiah(v.price) ?? 0,
         image_url: v.image_url,
         is_active: v.is_active,
+        ...(product ? { sort_order: product.sort_order } : {}),
       };
       return product
         ? patch<Product>(`/products/${product.id}`, body)
@@ -342,16 +344,17 @@ export function ProductsPage() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [categoryId, setCategoryId] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
   const cats = useQuery({
     queryKey: CATEGORIES,
     queryFn: () => api<{ data: Category[] }>('/categories'),
   });
   const products = useQuery({
-    queryKey: [...PRODUCTS, categoryId, search],
+    queryKey: [...PRODUCTS, categoryId, debouncedSearch],
     queryFn: () => {
       const q = new URLSearchParams();
       if (categoryId) q.set('category_id', categoryId);
-      if (search.trim()) q.set('q', search.trim());
+      if (debouncedSearch.trim()) q.set('q', debouncedSearch.trim());
       const qs = q.toString();
       return api<{ data: Product[] }>(`/products${qs ? `?${qs}` : ''}`);
     },

@@ -157,6 +157,14 @@ describe('GET /dashboard/summary', () => {
       owner(shop),
     );
     expect(wide.statusCode).toBe(400);
+    // Dates outside 2020-2099 are validation errors, not database overflows.
+    for (const url of [
+      '/v1/dashboard/summary?date_to=0001-01-01',
+      '/v1/reports/sales?group_by=day&date_from=9999-12-31',
+      '/v1/transactions/export?format=csv&date_from=0001-01-01',
+    ]) {
+      expect((await get(env, url, owner(shop))).statusCode, url).toBe(400);
+    }
     expect((await get(env, '/v1/dashboard/summary', shop.cashier.headers)).statusCode).toBe(403);
     expect((await get(env, '/v1/dashboard/summary', {})).statusCode).toBe(401);
   });

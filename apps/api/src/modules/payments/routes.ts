@@ -2,13 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
 import { errors } from '../../errors.js';
-import { parse } from '../../lib/validate.js';
+import { parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, type Guards } from '../../plugins/auth.js';
 import { loadSettings } from '../settings/serialize.js';
 import { toPayment } from './serialize.js';
 import { loadTransactionOf, type PaymentService } from './service.js';
 
-const idParams = z.object({ payment_id: z.uuid() });
+const idParams = z.object({ payment_id: uuid });
 
 export function paymentRoutes(ctx: AppContext, guards: Guards, service: PaymentService) {
   const { db } = ctx;

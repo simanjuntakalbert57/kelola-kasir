@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoTimestamp, uuid } from '../../lib/validate.js';
 import type { AppContext } from '../../context.js';
 import { AppError } from '../../errors.js';
 import { setSoldOut } from '../catalog/availability.js';
@@ -12,11 +13,11 @@ export const pushBodySchema = z.object({
   mutations: z
     .array(
       z.object({
-        id: z.uuid(),
+        id: uuid,
         // Unknown types are rejected per mutation, not by failing the whole batch.
         type: z.string().max(60),
-        client_created_at: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
-        employee_id: z.uuid().optional(),
+        client_created_at: isoTimestamp,
+        employee_id: uuid.optional(),
         payload: z.record(z.string(), z.unknown()),
       }),
     )
@@ -39,9 +40,9 @@ export interface PushDevice {
   outletId: string;
 }
 
-const shiftCloseSchema = closeBodySchema.extend({ shift_id: z.uuid() });
-const voidRequestSchema = z.object({ transaction_id: z.uuid(), reason: voidReasonSchema });
-const soldOutSchema = z.object({ product_id: z.uuid(), is_sold_out: z.boolean() });
+const shiftCloseSchema = closeBodySchema.extend({ shift_id: uuid });
+const voidRequestSchema = z.object({ transaction_id: uuid, reason: voidReasonSchema });
+const soldOutSchema = z.object({ product_id: uuid, is_sold_out: z.boolean() });
 
 const reject = (id: string, code: string, detail: string): MutationResult => ({
   id,
