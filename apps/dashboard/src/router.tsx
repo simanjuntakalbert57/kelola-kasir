@@ -14,6 +14,8 @@ import { AppShell } from './layout/AppShell';
 import { DevicesPage } from './pages/DevicesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
+import { ProductsPage } from './pages/ProductsPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { ComingSoon, MorePage } from './pages/StubPages';
 
 function Guard() {
@@ -79,12 +81,12 @@ const routeTree = root.addChildren([
   app.addChildren([
     page('/', () => <ComingSoon title="Dashboard" />),
     page('/transaksi', () => <ComingSoon title="Transaksi" />),
-    page('/produk', () => <ComingSoon title="Produk" />),
+    page('/produk', ProductsPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),
     page('/shift', () => <ComingSoon title="Shift & Kas" />),
     page('/void', () => <ComingSoon title="Void" />),
-    page('/pengaturan', () => <ComingSoon title="Pengaturan" />),
+    page('/pengaturan', SettingsPage),
     page('/lainnya', MorePage),
   ]),
 ]);
