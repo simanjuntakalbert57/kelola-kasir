@@ -20,6 +20,13 @@ device with throwaway credentials, writes their tokens to a temp file), then run
 `schemathesis run` flags after the command, `CONTRACT_MAX_EXAMPLES=100` for a deeper run. A JUnit report
 lands in `tests/contract/reports/`.
 
+## Fixtures
+
+`contract-server.ts` also seeds a category, two products, an open shift, a cash sale and a pending QRIS sale, and
+points the (dummy) object storage at a fake endpoint so `POST /uploads` can answer 201. `hooks.py` swaps the random
+path parameters for these real ids on every other call (a fresh resource for DELETE and for confirm/cancel
+payment), so path-parameter operations reach their logic instead of only returning 404.
+
 ## Adding endpoints
 
 `pending-operations.txt` lists the operations the API does not implement yet (they are skipped). When the
