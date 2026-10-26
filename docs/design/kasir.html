@@ -34,9 +34,9 @@
   <div class="card" style="background:var(--green-50);display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px"><small class="status">Kembalian</small><b class="num" style="font-size:30px;color:var(--orange-700)">Rp 58.000</b></div>
   <span class="btn primary lg block">✓ Uang Pas · Rp 42.000</span>
   <div class="row" style="gap:8px"><span class="chip" style="justify-content:center">20.000</span><span class="chip" style="justify-content:center">50.000</span><span class="chip on" style="justify-content:center">100.000</span></div>
-  <div class="keypad" style="gap:8px"><span class="key k">1</span><span class="key k">2</span><span class="key k">3</span><span class="key k">4</span><span class="key k">5</span><span class="key k">6</span><span class="key k">7</span><span class="key k">8</span><span class="key k">9</span><span class="key k">000</span><span class="key k">0</span><span class="key k">⌫</span></div></div>
- <div style="padding:0 14px 12px"><span class="btn primary lg block">Selesai</span></div></div>
- <figcaption><b>K-06 Cash.</b> “Uang Pas” = 1 tap selesai. Kembalian besar. Keypad 52px ke bawah (zona jempol). “Selesai” nonaktif bila uang &lt; total.</figcaption></figure>
+  <div class="keypad" style="gap:6px"><span class="key k" style="min-height:44px">1</span><span class="key k">2</span><span class="key k">3</span><span class="key k">4</span><span class="key k">5</span><span class="key k">6</span><span class="key k">7</span><span class="key k">8</span><span class="key k">9</span><span class="key k">000</span><span class="key k">0</span><span class="key k">⌫</span></div></div>
+ <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small>Terhubung · RPP02N</small></div><span class="switch on"></span></div><span class="btn primary lg block">Selesai</span></div></div>
+ <figcaption><b>K-06 Cash.</b> “Uang Pas” = 1 tap selesai. Kembalian besar. Keypad 52px ke bawah (zona jempol). “Selesai” nonaktif bila uang &lt; total. <b>Toggle “Cetak struk”</b> (default aktif, diingat per perangkat) tepat di atas tombol; struk keluar otomatis setelah “Uang Pas”/“Selesai” → tetap 3 tap. Tap area status printer = buka K-12.</figcaption></figure>
 
 <figure class="fig"><div class="frame phone">
  <div class="bar"><span class="btn ghost sm">←</span><b>Bayar QRIS</b><div class="grow"></div><span class="status">#0042</span></div>
@@ -44,16 +44,43 @@
   <b class="num" style="font-size:30px">Rp 42.000</b>
   <div class="card" style="text-align:center;padding:14px"><div style="width:220px;height:220px;background:repeating-conic-gradient(#10201A 0 25%,#fff 0 50%) 0 0/22px 22px;border-radius:8px"></div><b style="display:block;margin-top:8px">QRIS · Jus Albert</b><small class="status">NMID ID1234567890123</small></div>
   <div class="banner" style="background:var(--warn-bg);color:var(--warn);border-radius:12px">⏳ Menunggu pembayaran — cek notifikasi bank</div></div>
- <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">✓ Pembayaran sudah diterima</span><span class="btn block">Ganti ke Cash</span></div></div>
- <figcaption><b>K-07 QRIS (statis, D-1).</b> Layar HP dihadapkan ke pembeli: QR besar &amp; nominal di atas. Konfirmasi manual minta dialog “Yakin sudah masuk Rp 42.000?”. Offline → tombol QRIS nonaktif.</figcaption></figure>
+ <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small>Terhubung · RPP02N</small></div><span class="switch on"></span></div><span class="btn primary lg block">✓ Pembayaran sudah diterima</span><span class="btn block">Ganti ke Cash</span></div></div>
+ <figcaption><b>K-07 QRIS (statis, D-1).</b> Layar HP dihadapkan ke pembeli: QR besar &amp; nominal di atas. Konfirmasi manual minta dialog “Yakin sudah masuk Rp 42.000?”. Offline → tombol QRIS nonaktif. Toggle “Cetak struk” sama dengan K-06; struk dicetak setelah konfirmasi.</figcaption></figure>
 
 <figure class="fig"><div class="frame phone">
- <div style="flex:1;padding:28px 20px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
-  <div style="font-size:64px">✅</div><h2>Lunas</h2><small class="status">Kembalian</small><b style="font-size:40px;color:var(--orange-700)">Rp 58.000</b>
-  <div class="card" style="width:100%;margin-top:12px;font-family:ui-monospace,monospace;font-size:12px;text-align:left"><div style="text-align:center"><b>JUS ALBERT</b><br>26 Okt 2026 14:32 WIB</div><hr style="margin:6px 0;border:0;border-top:1px dashed #aaa">#0042 · Kasir: Sari<br>1× Jus Alpukat ……… 18.000<br>2× Jus Jeruk ……… 24.000<hr style="margin:6px 0;border:0;border-top:1px dashed #aaa">Total 42.000 · Cash 100.000<br>Kembali 48.000</div>
-  <small class="status" style="margin-top:6px">Kembali ke katalog dalam 5 dtk</small></div>
- <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">＋ Pesanan baru</span><div class="row"><span class="btn">🖨 Cetak</span><span class="btn">WhatsApp</span></div></div></div>
- <figcaption><b>K-08 Sukses + struk.</b> Auto kembali ke katalog agar antrean lancar. Cetak/WhatsApp = opsi Should (D-3).</figcaption></figure>
+ <div style="flex:1;padding:18px 16px 0;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;overflow:hidden">
+  <div style="font-size:44px">✅</div><h2>Lunas</h2><small class="status">Kembalian</small><b style="font-size:36px;color:var(--orange-700)">Rp 58.000</b>
+  <span class="pill" style="margin:6px 0 10px">🖨 Struk dicetak · RPP02N</span>
+  <div class="paper"><span class="c"><b>JUS ALBERT</b></span><span class="c">Jl. Mawar No. 5, Medan</span><span class="c">Telp 0812-3456-7890</span><span class="c">Buka tiap hari 08.00-21.00</span><hr>#0042          26 Okt 2026 14:32
+Kasir: Sari<hr>1x Jus Alpukat
+   @18.000                18.000
+2x Jus Jeruk
+   @12.000                24.000<hr>TOTAL                     42.000
+Cash                     100.000
+Kembali                   58.000<hr><span class="c">Terima kasih, selamat menikmati!</span><span class="c">IG @jusalbert</span></div>
+  <small class="status" style="margin-top:12px">Kembali ke katalog dalam 5 dtk</small></div>
+ <div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">＋ Pesanan baru</span><div class="row"><span class="btn">🖨 Cetak ulang</span><span class="btn">WhatsApp</span></div></div></div>
+ <figcaption><b>K-08 Sukses + struk (printer OK).</b> Pratinjau kertas 58 mm persis isi cetak. Pil “Struk dicetak” menggantikan banner. “Cetak ulang” (Must) mencetak salinan bertanda <i>CETAK ULANG</i>; WhatsApp = struk digital (Should). Toggle mati → pil diganti “Struk tidak dicetak”.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div style="flex:1;padding:22px 16px 0;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+  <div style="font-size:52px">✅</div><h2>Lunas · tersimpan</h2><small class="status">Kembalian</small><b style="font-size:36px;color:var(--orange-700)">Rp 58.000</b>
+  <div class="pbanner err" style="width:100%;margin-top:14px"><span style="font-size:22px">🖨</span><div class="tx"><b>Printer tidak tersambung</b><small>Transaksi #0042 sudah tersimpan. Hidupkan printer lalu coba lagi.</small></div></div>
+  <div class="row" style="width:100%;margin-top:6px"><span class="btn primary">Coba lagi</span><span class="btn">Lewati</span></div>
+  <span class="btn ghost sm" style="margin-top:2px">Buka pengaturan printer ›</span>
+  <small class="status" style="margin-top:14px">Tidak auto-kembali selama banner tampil</small></div>
+ <div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">＋ Pesanan baru</span><div class="row"><span class="btn">🖨 Cetak ulang</span><span class="btn">WhatsApp</span></div></div></div>
+ <figcaption><b>K-08b Sukses — printer tidak tersambung.</b> Transaksi tetap tersimpan &amp; “Pesanan baru” tetap aktif (antrean tidak terblokir). “Coba lagi” = sambung ulang ke printer terakhir lalu cetak; “Lewati” menutup banner. Cetak ulang bisa kapan saja dari sini atau Riwayat.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div style="flex:1;padding:22px 16px 0;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+  <div style="font-size:52px">✅</div><h2>Lunas · tersimpan</h2><b style="font-size:36px;color:var(--orange-700)">Rp 58.000</b>
+  <div class="pbanner warn" style="width:100%;margin-top:14px"><span style="font-size:22px">📄</span><div class="tx"><b>Kertas printer habis</b><small>Ganti gulungan kertas 58 mm, tutup penutup printer, lalu tekan Coba lagi.</small></div></div>
+  <div class="row" style="width:100%;margin-top:6px"><span class="btn primary">Coba lagi</span><span class="btn">Lewati</span></div>
+  <div class="pbanner err" style="width:100%;margin-top:18px"><span style="font-size:22px">⚠</span><div class="tx"><b>Gagal mencetak</b><small>Koneksi terputus saat mencetak. Struk mungkin tercetak sebagian.</small></div></div>
+  <div class="row" style="width:100%;margin-top:6px"><span class="btn primary">Cetak ulang</span><span class="btn">Lewati</span></div></div>
+ <div style="padding:8px 14px 12px"><span class="btn primary lg block">＋ Pesanan baru</span></div></div>
+ <figcaption><b>K-08c Varian error cetak.</b> Atas: kertas habis (kuning, ikon + teks). Bawah: gagal cetak di tengah proses (merah) → tombol “Cetak ulang” memberi salinan utuh bertanda CETAK ULANG. Dua banner ditampilkan bersama hanya untuk dokumentasi; di aplikasi hanya satu yang tampil.</figcaption></figure>
 </div>
 
 <h2 class="sec">B. Sesi, riwayat &amp; shift — HP portrait</h2>
@@ -87,14 +114,14 @@
   <div class="line"><div class="t"><b>#0040 · 14:05</b><small>2 item · Cash</small></div><div style="text-align:right"><b class="num">27.000</b><br><span class="badge b-void_requested">Menunggu void</span></div></div>
   <div class="line"><div class="t"><b>#0039 · 13:48</b><small>1 item · Cash</small></div><div style="text-align:right"><b class="num">12.000</b><br><span class="badge b-voided">Dibatalkan</span></div></div></div>
  <div class="tabs"><a>Jual</a><a class="on">Riwayat</a><a>Shift</a></div></div>
- <figcaption><b>K-09 Riwayat (P-09).</b> Hanya shift/hari ini milik pegawai. Filter metode bayar. Tap baris → detail + “Ajukan void” (P-10).</figcaption></figure>
+ <figcaption><b>K-09 Riwayat (P-09).</b> Hanya shift/hari ini milik pegawai. Filter metode bayar. Tap baris → detail + “Cetak ulang” + “Ajukan void” (P-10); geser baris ke kanan = “Cetak ulang” langsung (1 gestur).</figcaption></figure>
 
 <figure class="fig"><div class="frame phone">
  <div class="bar"><span class="btn ghost sm">←</span><b>#0040</b><span class="badge b-paid">Lunas</span></div>
  <div style="flex:1;padding:16px"><div class="card"><div class="line" style="padding-left:0"><div class="t"><b>Jus Mangga</b><small>1 × Rp 15.000</small></div><b>15.000</b></div><div class="line" style="padding-left:0"><div class="t"><b>Jus Jeruk</b><small>1 × Rp 12.000</small></div><b>12.000</b></div><div class="total" style="padding:12px 0 0"><span>Total</span><span>Rp 27.000</span></div></div>
  <div class="field" style="margin-top:16px"><label>Alasan void (wajib)</label><div class="input">Salah pesan menu</div><div class="hint">Perlu persetujuan owner: PIN owner di sini atau approve di dashboard.</div></div></div>
- <div style="padding:16px;display:flex;flex-direction:column;gap:10px"><span class="btn danger lg block">Ajukan pembatalan</span><span class="btn block">Masukkan PIN owner</span></div></div>
- <figcaption><b>K-10 Detail &amp; void (P-10).</b> Status berubah ke “Menunggu void” sampai owner approve.</figcaption></figure>
+ <div style="padding:16px;display:flex;flex-direction:column;gap:10px"><span class="btn lg block">🖨 Cetak ulang struk</span><span class="btn danger lg block">Ajukan pembatalan</span><span class="btn block">Masukkan PIN owner</span></div></div>
+ <figcaption><b>K-10 Detail &amp; void (P-10).</b> Status berubah ke “Menunggu void” sampai owner approve. <b>Cetak ulang</b> tersedia di semua status kecuali “Dibatalkan” (struk diberi tanda CETAK ULANG; status void ikut tercetak). Tombol sama juga ada sebagai ikon 🖨 di tiap baris Riwayat (K-09) lewat geser kanan.</figcaption></figure>
 
 <figure class="fig"><div class="frame phone">
  <div class="bar"><span class="btn ghost sm">←</span><b>Tutup shift</b></div>
@@ -128,5 +155,31 @@
  <div class="pgrid" style="grid-template-columns:repeat(2,1fr);flex:1"><div class="pcard"><div class="img">🍊</div><div class="nm">Jus Jeruk</div><div class="pr">Rp 12.000</div></div><div class="pcard"><div class="img">🥭</div><div class="nm">Jus Mangga</div><div class="pr">Rp 15.000</div></div></div>
  <div style="padding:12px"><div class="row"><span class="btn accent lg">💵 Cash</span><span class="btn lg off">▦ QRIS</span></div><div class="hint" style="text-align:center">QRIS butuh internet</div></div></div>
  <figcaption><b>Offline (P-13).</b> Banner kuning persisten dengan antrean sinkron; QRIS nonaktif; struk ditandai “menunggu sinkron”. Saat pulih: banner hijau “Tersinkron ✓” 3 dtk.</figcaption></figure>
+</div>
+
+<h2 class="sec">D. Cetak struk &amp; printer thermal (Must · TDD v1.1 §2.6)</h2>
+<p class="lead" style="max-width:760px">Printer ESC/POS 58 mm via Bluetooth (contoh RPP02N), 32 karakter per baris. Struk dicetak otomatis setelah transaksi <i>paid</i> bila toggle aktif — tanpa tap tambahan (jalur Cash tetap 3 tap). Cetak berjalan di latar belakang dan tidak memblokir penyimpanan transaksi. Header/footer berasal dari Pengaturan toko; kolom “Header struk”/“Footer struk” ada di <code>owner.html</code>.</p>
+<div class="grid">
+<figure class="fig"><div class="frame phone"><div class="bar"><span class="btn ghost sm">←</span><b>Printer struk</b><div class="grow"></div><span class="pill err"><i class="dot err"></i>Belum ada</span></div><div style="padding:12px 14px 4px;display:flex;justify-content:space-between;align-items:center"><small class="status">Perangkat Bluetooth</small><span class="pill warn">🔍 Mencari…</span></div><div class="dev"><div class="ic">🖨</div><div class="t"><b>RPP02N</b><small>Sudah dipasangkan · sinyal kuat</small></div><span class="btn sm primary">Hubungkan</span></div><div class="dev"><div class="ic">🖨</div><div class="t"><b>MTP-II</b><small>Terdekat · sinyal sedang</small></div><span class="btn sm">Hubungkan</span></div><div class="dev"><div class="ic">🎧</div><div class="t"><b>JBL Tune 510</b><small>Bukan printer</small></div><small class="status">—</small></div><div class="skel" style="margin:12px 14px;min-height:56px;border-radius:14px"></div><div style="flex:1"></div><p class="hint" style="padding:0 14px;text-align:center">Hidupkan printer &amp; dekatkan ≤ 2 m. Printer belum muncul? Pasangkan dulu di Pengaturan Bluetooth HP.</p><div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn block">Pindai ulang</span></div></div>
+ <figcaption><b>K-12 Printer — pindai.</b> Dari Shift → Printer struk (atau tap status printer di toggle). Daftar perangkat terpasang + terdekat; 1 tap “Hubungkan”. Izin Android 12+ (BLUETOOTH_SCAN/CONNECT) diminta di sini saat pertama kali.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone"><div class="bar"><span class="btn ghost sm">←</span><b>Printer struk</b><div class="grow"></div></div><div class="card" style="margin:12px 14px 0;padding:14px;display:flex;gap:12px;align-items:center"><span style="font-size:30px">🖨</span><div style="flex:1;line-height:1.25"><b>RPP02N</b><br><small class="status">MAC ···:41 · 58 mm</small></div><span class="pill"><i class="dot ok"></i>Terhubung</span></div><div style="padding:14px 14px 0"><div class="ptoggle"><span style="font-size:20px">⚡</span><div class="tx"><b>Sambung otomatis</b><small>Saat app dibuka &amp; sebelum mencetak</small></div><span class="switch on"></span></div></div><div style="padding:12px 14px 0"><small class="status">Pratinjau tes cetak</small><div style="margin-top:6px"><div class="paper" style="max-width:254px"><span class="c"><b>TES PRINTER</b></span><span class="c">Kelola Kasir · 58 mm</span><hr>Kolom 32                12345678
+0123456789012345678901234567890 <hr><span class="c">Printer siap dipakai ✓</span></div></div></div><div style="flex:1"></div><div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">🖨 Cetak tes</span><div class="row"><span class="btn">Ganti printer</span><span class="btn danger">Putuskan</span></div></div></div>
+ <figcaption><b>K-12b Printer — terhubung.</b> Status koneksi (titik hijau + teks “Terhubung”), alamat MAC printer terakhir tersimpan lokal per perangkat. “Cetak tes” 1 tap; “Putuskan” meminta konfirmasi. Auto-reconnect aktif secara default.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone"><div class="bar"><span class="btn ghost sm">←</span><b>Printer struk</b><div class="grow"></div></div><div class="card" style="margin:12px 14px 0;padding:14px;display:flex;gap:12px;align-items:center"><span style="font-size:30px">🖨</span><div style="flex:1;line-height:1.25"><b>RPP02N</b><br><small class="status">Terakhir terhubung 14:32</small></div><span class="pill err"><i class="dot err"></i>Terputus</span></div><div class="pbanner err" style="margin:12px 14px 0"><span style="font-size:22px">⚠</span><div class="tx"><b>Tidak bisa menyambung</b><small>Pastikan printer menyala, Bluetooth HP aktif, dan jarak ≤ 2 m.</small></div></div><div style="padding:14px"><small class="status">Coba ini:</small><div style="margin-top:6px;font-size:14px;line-height:1.7">① Hidupkan ulang printer<br>② Matikan-nyalakan Bluetooth HP<br>③ Pindai &amp; pilih ulang printer</div></div><div style="flex:1"></div><div class="pbanner warn" style="margin:0 14px 10px"><span style="font-size:20px">ℹ</span><div class="tx"><small>Transaksi tetap bisa disimpan tanpa printer. Struk bisa dicetak ulang nanti dari Riwayat.</small></div></div><div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">Sambung ulang</span><span class="btn block">Pindai printer lain</span></div></div>
+ <figcaption><b>K-12c Printer — terputus / gagal sambung.</b> Pesan tindakan jelas, tanpa jargon. Toggle “Cetak struk” di Cash/QRIS menampilkan “Printer tidak tersambung” (kuning) tetapi <b>tidak memblokir</b> pembayaran.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone"><div class="bar"><span class="btn ghost sm">←</span><b>Bayar Cash</b><div class="grow"></div><span class="status">#0042</span></div><div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:14px"><small class="status">Status toggle “Cetak struk” (komponen)</small><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small>Terhubung · RPP02N</small></div><span class="switch on"></span></div><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small class="bad">Printer tidak tersambung · ketuk untuk atur</small></div><span class="switch on"></span></div><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small>Mati · struk tidak dicetak</small></div><span class="switch"></span></div><div class="ptoggle"><span style="font-size:22px">🖨</span><div class="tx"><b>Cetak struk</b><small>Belum ada printer · ketuk untuk pasang</small></div><span class="btn sm primary">Pasang</span></div><p class="hint">Aturan: pilihan toggle diingat per perangkat. Bila printer tidak tersambung, toggle tetap aktif — transaksi disimpan dulu, cetak mengikuti di latar belakang (maks. 1 percobaan otomatis), lalu banner K-08b.</p></div></div>
+ <figcaption><b>Komponen toggle “Cetak struk”.</b> Empat state: aktif+terhubung, aktif+terputus, mati, belum ada printer. Status dibaca dari teks, bukan hanya warna.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone"><div class="bar"><span class="btn ghost sm">←</span><b>#0042</b><div class="grow"></div><span class="badge b-paid">Lunas</span></div><div style="padding:14px;flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;overflow:hidden"><span class="pill">🖨 Cetak ulang berhasil · 14:40</span><div class="paper"><span class="wm">*** CETAK ULANG ***</span><span class="c"><b>JUS ALBERT</b></span><span class="c">Jl. Mawar No. 5, Medan</span><span class="c">Telp 0812-3456-7890</span><span class="c">Buka tiap hari 08.00-21.00</span><hr>#0042          26 Okt 2026 14:32
+Kasir: Sari<hr>1x Jus Alpukat
+   @18.000                18.000
+2x Jus Jeruk
+   @12.000                24.000<hr>TOTAL                     42.000
+Cash                     100.000
+Kembali                   58.000<hr><span class="c">Terima kasih, selamat menikmati!</span><span class="c">IG @jusalbert</span></div></div><div style="padding:8px 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">🖨 Cetak ulang</span><span class="btn block">Kirim WhatsApp</span></div></div>
+ <figcaption><b>K-10b Detail transaksi — pratinjau &amp; cetak ulang.</b> Pratinjau memakai <b>header/footer dari Pengaturan toko</b> (owner) + data transaksi; salinan cetak ulang menampilkan penanda “*** CETAK ULANG ***”. Dapat dicetak saat offline dari data lokal.</figcaption></figure>
 </div>
 </div></body></html>
