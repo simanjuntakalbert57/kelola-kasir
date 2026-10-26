@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
-import { isValidPairingCode, normalizePairingCode } from '../src/auth/flows';
+import { isValidPairingCode, normalizePairingCode, PAIRING_COPY } from '../src/auth/flows';
 import { useSession } from '../src/auth/SessionProvider';
 import { colors, radius, space } from '../src/theme';
 import { Banner, Button } from '../src/ui/components';
@@ -40,10 +40,16 @@ export default function PairingScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.body}>
         <Text style={styles.emoji}>🍹</Text>
-        <Text style={styles.title}>Pasangkan perangkat</Text>
-        <Text style={styles.sub}>
-          Owner membuat kode 8 karakter di dashboard (Perangkat → Tambah). Masukkan di sini.
-        </Text>
+        <Text style={styles.title}>{PAIRING_COPY.title}</Text>
+        <Text style={styles.notPin}>{PAIRING_COPY.notPin}</Text>
+        <Text style={styles.sub}>{PAIRING_COPY.subtitle}</Text>
+        <View style={styles.steps}>
+          {PAIRING_COPY.steps.map((step, i) => (
+            <Text key={step} style={styles.step}>
+              {i + 1}. {step}
+            </Text>
+          ))}
+        </View>
         <TextInput
           testID="pairing-code"
           style={[styles.input, error ? styles.inputErr : null]}
@@ -78,6 +84,9 @@ const styles = StyleSheet.create({
   body: { flex: 1, padding: space.s5, justifyContent: 'center' },
   emoji: { fontSize: 56, textAlign: 'center' },
   title: { color: colors.ink, fontSize: 24, fontWeight: '800', textAlign: 'center', marginTop: 8 },
+  notPin: { color: colors.danger, fontWeight: '700', textAlign: 'center', marginTop: space.s2 },
+  steps: { marginBottom: space.s4, gap: 4 },
+  step: { color: colors.ink, lineHeight: 21 },
   sub: { color: colors.muted, textAlign: 'center', marginVertical: space.s4, lineHeight: 21 },
   input: {
     minHeight: 64,

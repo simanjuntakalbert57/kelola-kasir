@@ -51,9 +51,11 @@ cd android && KASIR_KEYSTORE_FILE=/path/kelola-kasir-upload.keystore KASIR_KEYST
 
 ## 4. Pairing ke toko
 
+Urutan pertama kali: **pair perangkat (kode 8 karakter) → pilih pegawai → PIN 6 digit**. Layar pertama yang muncul di HP baru adalah layar pairing, bukan layar PIN.
+
 1. Di laptop, login dashboard → **Perangkat** → **Tambah perangkat** → beri nama (mis. "HP Kasir 1") → **Buat kode pairing**. Kode 8 karakter berlaku 10 menit dan hanya tampil sekali.
 2. Di HP: layar **Pasangkan perangkat** → ketik kode → **Pasangkan**. Request pertama bisa makan ±1 menit bila server sedang tidur ("Menghubungkan ke server…"); tunggu, jangan tutup aplikasi.
-3. Pilih pegawai, masukkan PIN 6 digit, **Buka shift**.
+3. Setelah terpasang, pilih pegawai, masukkan **PIN 6 digit** (PIN yang dibuat owner di dashboard; bukan kode pairing 8 karakter), **Buka shift**.
 4. Printer: tab **Shift → Printer struk** → nyalakan printer, scan, pilih printer → **Cetak tes**.
 5. Cek cepat: jual 1 produk tunai → struk tercetak → di dashboard, transaksi muncul di **Transaksi** (setelah sinkron ±30 detik).
 
