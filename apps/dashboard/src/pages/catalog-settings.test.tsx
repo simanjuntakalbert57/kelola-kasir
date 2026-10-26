@@ -136,6 +136,18 @@ describe('Pengaturan toko', () => {
     expect(await screen.findByText('Pengaturan tersimpan.')).toBeInTheDocument();
   });
 
+  it('blocks saving a QRIS embed without a QRIS code', async () => {
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json({ ...settings, qris_static_image_url: 'https://x.test/q.png' }),
+      'PATCH /settings': () => json(settings),
+    });
+    renderApp('/pengaturan');
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan perubahan' }));
+    expect(await screen.findByText(/Kode QRIS wajib diisi/)).toBeInTheDocument();
+    expect(calls.find((c) => c.key === 'PATCH /settings')).toBeUndefined();
+  });
+
   it('shows a friendly message for an invalid QRIS payload', async () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
