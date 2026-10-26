@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { VoidRequest } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
 import { useState } from 'react';
@@ -13,10 +13,11 @@ import {
   Skeleton,
   TextareaField,
 } from '../components/ui';
-import { ApiError, api, post } from '../lib/api';
+import { ApiError, api, post, qs } from '../lib/api';
 import { errorMessage, formatDateTime } from '../lib/format';
 
 type Decision = { request: VoidRequest; action: 'approve' | 'reject' };
+type Page = { data: VoidRequest[]; next_cursor: string | null };
 type Tab = 'pending' | 'approved' | 'rejected';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -82,10 +83,15 @@ function DecisionDialog({ request, action, onClose }: Decision & { onClose: () =
 export function VoidPage() {
   const [tab, setTab] = useState<Tab>('pending');
   const [decision, setDecision] = useState<Decision | null>(null);
-  const { data, isPending, error, refetch } = useQuery({
-    queryKey: ['void-requests', tab],
-    queryFn: () => api<{ data: VoidRequest[] }>(`/void-requests?status=${tab}`),
-  });
+  const { data, isPending, error, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteQuery({
+      queryKey: ['void-requests', tab],
+      initialPageParam: '',
+      queryFn: ({ pageParam }) =>
+        api<Page>(`/void-requests${qs({ status: tab, cursor: pageParam })}`),
+      getNextPageParam: (last) => last.next_cursor ?? undefined,
+    });
+  const rows = data?.pages.flatMap((p) => p.data) ?? [];
 
   return (
     <>
@@ -113,14 +119,14 @@ export function VoidPage() {
           </button>
         </Alert>
       ) : null}
-      {data && data.data.length === 0 ? (
+      {data && rows.length === 0 ? (
         <Card>
           <EmptyState icon="✅" title="Tidak ada permintaan void" />
         </Card>
       ) : null}
-      {data && data.data.length > 0 ? (
+      {data && rows.length > 0 ? (
         <ul className="space-y-3">
-          {data.data.map((r) => (
+          {rows.map((r) => (
             <li key={r.id}>
               <Card>
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -167,6 +173,16 @@ export function VoidPage() {
             </li>
           ))}
         </ul>
+      ) : null}
+      {data && rows.length > 0 ? (
+        <div className="mt-3 flex items-center justify-between text-sm text-muted">
+          <span>Menampilkan {rows.length} permintaan</span>
+          {hasNextPage ? (
+            <Button small disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+              Muat lebih banyak
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {decision ? <DecisionDialog {...decision} onClose={() => setDecision(null)} /> : null}
     </>

@@ -285,4 +285,20 @@ describe('Void', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Tolak void' }));
     expect(await within(dialog).findByText(/sudah diproses/)).toBeInTheDocument();
   });
+
+  it('loads further pages of pending void requests', async () => {
+    const mk = (id: string, n: string) => ({ ...voidReq, id, transaction_number: n });
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /void-requests?status=pending&cursor=c2': () =>
+        json({ data: [mk('vr52', 'TRX-52')], next_cursor: null }),
+      'GET /void-requests?status=pending': () =>
+        json({ data: [mk('vr1', 'TRX-01')], next_cursor: 'c2' }),
+    });
+    renderApp('/void');
+    expect(await screen.findByText(/Menampilkan 1 permintaan/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Muat lebih banyak' }));
+    expect(await screen.findByRole('button', { name: /Setujui void TRX-52/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Muat lebih banyak' })).not.toBeInTheDocument();
+  });
 });
