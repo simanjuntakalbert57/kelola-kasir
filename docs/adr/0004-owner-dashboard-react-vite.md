@@ -8,7 +8,7 @@ Dashboard owner dipakai di browser desktop dan HP, di belakang login, tanpa kebu
 ## Keputusan
 - **React + Vite SPA**, TypeScript, **TanStack Router + TanStack Query**, **Tailwind CSS** + komponen headless (Radix/shadcn) mengikuti design system DEAR-5.
 - Grafik: Recharts. Tabel: TanStack Table. Form: React Hook Form + Zod (skema dari `packages/contracts`).
-- Auth: access token di memori, refresh token di cookie `HttpOnly` (domain API); dashboard dan API di bawah domain yang sama (`app.` dan `api.`) agar cookie `SameSite=Strict` bekerja.
+- Auth: access token di memori, refresh token di cookie `HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`. Dashboard memanggil API secara **same-origin**: request `/v1/*` diteruskan ke API oleh Cloudflare Pages Function, sehingga cookie tetap first-party walau API di-host di domain lain (diperbarui oleh ADR-0011; sebelumnya `app.`/`api.` di satu domain).
 - Data "real-time" = polling 30 detik; SSE bisa ditambah tanpa ubah kontrak.
 - Deploy statis ke Cloudflare Pages.
 

@@ -7,11 +7,18 @@ import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import type { Database } from './db/client.js';
 import { TokenService } from './lib/jwt.js';
+import { catalogRoutes } from './modules/catalog/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { deviceRoutes } from './modules/devices/routes.js';
 import { employeeRoutes } from './modules/employees/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
+import { paymentRoutes } from './modules/payments/routes.js';
+import { createPaymentService } from './modules/payments/service.js';
+import { settingsRoutes } from './modules/settings/routes.js';
 import { shiftRoutes } from './modules/shifts/routes.js';
+import { syncRoutes } from './modules/sync/routes.js';
+import { transactionRoutes } from './modules/transactions/routes.js';
+import { uploadRoutes } from './modules/uploads/routes.js';
 import { createGuards } from './plugins/auth.js';
 import { registerProblemHandlers } from './plugins/problem.js';
 
@@ -61,6 +68,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(rateLimit, { global: false });
 
   const guards = createGuards(ctx);
+  const payments = createPaymentService(ctx);
+  app.decorate('payments', payments);
   await app.register(healthRoutes(ctx));
   await app.register(
     async (v1) => {
@@ -68,6 +77,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(deviceRoutes(ctx, guards));
       await v1.register(employeeRoutes(ctx, guards));
       await v1.register(shiftRoutes(ctx, guards));
+      await v1.register(catalogRoutes(ctx, guards));
+      await v1.register(settingsRoutes(ctx, guards));
+      await v1.register(uploadRoutes(ctx, guards));
+      await v1.register(transactionRoutes(ctx, guards));
+      await v1.register(paymentRoutes(ctx, guards, payments));
+      await v1.register(syncRoutes(ctx, guards));
     },
     { prefix: '/v1' },
   );
