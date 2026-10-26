@@ -59,12 +59,19 @@ export interface SeededOutlet {
 
 /** Every test seeds its own outlet and owner: tests stay isolated without truncating tables. */
 export async function seedOutlet(env: TestEnv): Promise<SeededOutlet> {
-  const code = `T${randomUUID().slice(0, 5).toUpperCase()}`;
-  const [outlet] = await env.handle.db
-    .insert(outlets)
-    .values({ code, name: `Outlet ${code}` })
-    .returning();
+  // Codes are capped at 6 chars (transaction number pattern), so random codes can collide
+  // across the hundreds of outlets seeded per run: retry on conflict instead of failing.
+  let outlet: typeof outlets.$inferSelect | undefined;
+  for (let attempt = 0; !outlet && attempt < 5; attempt++) {
+    const code = `T${randomUUID().slice(0, 5).toUpperCase()}`;
+    [outlet] = await env.handle.db
+      .insert(outlets)
+      .values({ code, name: `Outlet ${code}` })
+      .onConflictDoNothing({ target: outlets.code })
+      .returning();
+  }
   if (!outlet) throw new Error('outlet seed failed');
+  const { code } = outlet;
   await env.handle.db
     .insert(outletSettings)
     .values({ outletId: outlet.id, displayName: outlet.name });
