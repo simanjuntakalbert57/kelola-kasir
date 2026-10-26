@@ -5,7 +5,7 @@ import type { AppContext, Principal } from '../../context.js';
 import { employees, shifts, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { escapeLike, isoDate, parse, uuid } from '../../lib/validate.js';
+import { businessDate, escapeLike, parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { loadSettings } from '../settings/serialize.js';
@@ -23,8 +23,8 @@ import {
 const idParams = z.object({ transaction_id: uuid });
 const listQuery = z.object({
   scope: z.enum(['shift', 'today']).default('shift'),
-  date_from: isoDate.optional(),
-  date_to: isoDate.optional(),
+  date_from: businessDate.optional(),
+  date_to: businessDate.optional(),
   employee_id: uuid.optional(),
   shift_id: uuid.optional(),
   payment_method: z.enum(['cash', 'qris']).optional(),
@@ -36,8 +36,8 @@ const listQuery = z.object({
 
 const exportQuery = z.object({
   format: z.enum(['csv', 'xlsx']),
-  date_from: isoDate.optional(),
-  date_to: isoDate.optional(),
+  date_from: businessDate.optional(),
+  date_to: businessDate.optional(),
   employee_id: uuid.optional(),
   payment_method: z.enum(['cash', 'qris']).optional(),
   status: z.enum(['pending', 'paid', 'void_requested', 'voided', 'cancelled']).optional(),

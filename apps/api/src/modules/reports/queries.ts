@@ -4,7 +4,7 @@ import type { DbOrTx } from '../../db/client.js';
 import { employees, transactionItems, transactions } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { isoDate } from '../../lib/validate.js';
+import { businessDate } from '../../lib/validate.js';
 import { wibDate } from '../transactions/access.js';
 
 /** Statuses that count as revenue: `void_requested` stays in until the owner decides (TDD §3.3). */
@@ -15,8 +15,8 @@ export const MAX_REPORT_DAYS = 366;
 export const MAX_HOURLY_DAYS = 31;
 
 export const rangeQuery = z.object({
-  date_from: isoDate.optional(),
-  date_to: isoDate.optional(),
+  date_from: businessDate.optional(),
+  date_to: businessDate.optional(),
 });
 
 export interface Period {

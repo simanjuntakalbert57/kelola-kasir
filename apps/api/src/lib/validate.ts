@@ -36,10 +36,10 @@ export const isoTimestamp = z.iso
     'Timestamp is out of the supported range (2020-2099)',
   );
 
-/** Business date `yyyy-mm-dd`, limited to 1970-2099 so range queries never hit a database date overflow. */
-export const isoDate = z.iso
+/** Business date `yyyy-mm-dd` limited to 2000-2099 so the WIB day boundaries always serialise. */
+export const businessDate = z.iso
   .date()
   .refine(
-    (v) => Date.parse(v) >= 0 && Date.parse(v) < MAX_TIMESTAMP_MS,
-    'Date is out of the supported range (1970-2099)',
+    (v) => v >= '2000-01-01' && v < '2100-01-01',
+    'Date is out of the supported range (2000-2099)',
   );

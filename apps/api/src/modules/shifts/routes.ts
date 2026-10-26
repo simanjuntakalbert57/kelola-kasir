@@ -6,7 +6,7 @@ import { isUniqueViolation } from '../../db/client.js';
 import { shifts } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { endOfBusinessDay, startOfBusinessDay } from '../../lib/time.js';
-import { isoTimestamp, parse, uuid } from '../../lib/validate.js';
+import { businessDate, isoTimestamp, parse, uuid } from '../../lib/validate.js';
 import { requireEmployee, requireUser, type Guards } from '../../plugins/auth.js';
 import { writeAudit } from '../audit/audit.js';
 import { closeBodySchema, closeShift, closerOf, MAX_CLOCK_SKEW_MS } from './close.js';
@@ -18,8 +18,8 @@ const rupiah = z.number().int().min(0).max(1_000_000_000_000);
 const idParams = z.object({ shift_id: uuid });
 const openBody = z.object({ id: uuid, opening_cash: rupiah, opened_at: isoTimestamp });
 const listQuery = z.object({
-  date_from: z.iso.date().optional(),
-  date_to: z.iso.date().optional(),
+  date_from: businessDate.optional(),
+  date_to: businessDate.optional(),
   employee_id: uuid.optional(),
   status: z.enum(['open', 'closed']).optional(),
   cursor: z.string().max(200).optional(),

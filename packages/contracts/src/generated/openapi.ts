@@ -1446,9 +1446,9 @@ export interface components {
         TransactionId: string;
         PaymentId: string;
         VoidRequestId: string;
-        /** @description Inclusive business date (WIB) */
+        /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
         DateFrom: string;
-        /** @description Inclusive business date (WIB) */
+        /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
         DateTo: string;
         Cursor: string;
         Limit: number;
@@ -2165,9 +2165,9 @@ export interface operations {
     listShifts: {
         parameters: {
             query?: {
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 employee_id?: string;
                 status?: components["schemas"]["ShiftStatus"];
@@ -2348,9 +2348,9 @@ export interface operations {
         parameters: {
             query?: {
                 scope?: "shift" | "today";
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 employee_id?: string;
                 shift_id?: string;
@@ -2446,9 +2446,9 @@ export interface operations {
         parameters: {
             query: {
                 format: "csv" | "xlsx";
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 employee_id?: string;
                 payment_method?: components["schemas"]["PaymentMethod"];
@@ -2904,9 +2904,9 @@ export interface operations {
     getDashboardSummary: {
         parameters: {
             query?: {
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
             };
             header?: never;
@@ -2930,9 +2930,9 @@ export interface operations {
     getSalesSeries: {
         parameters: {
             query: {
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 granularity: "hour" | "day";
             };
@@ -2964,9 +2964,9 @@ export interface operations {
     getTopProducts: {
         parameters: {
             query?: {
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 limit?: number;
             };
@@ -2999,9 +2999,9 @@ export interface operations {
     getSalesReport: {
         parameters: {
             query: {
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
-                /** @description Inclusive business date (WIB) */
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_to?: components["parameters"]["DateTo"];
                 group_by: "product" | "employee" | "payment_method" | "day";
             };
