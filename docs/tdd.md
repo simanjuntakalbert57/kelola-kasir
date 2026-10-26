@@ -21,7 +21,7 @@ Kelola Kasir terdiri dari tiga komponen dalam satu monorepo TypeScript:
 
 | Komponen | Teknologi | Pengguna |
 |---|---|---|
-| `apps/api` | Node.js 22 + Fastify + Drizzle ORM + PostgreSQL 16 | Semua klien |
+| `apps/api` | Node.js 24 LTS + Fastify + Drizzle ORM + PostgreSQL 16 | Semua klien |
 | `apps/kasir` | React Native (Expo, dev build) + SQLite lokal, offline-first | Pegawai (HP Android portrait) |
 | `apps/dashboard` | React + Vite SPA + TanStack Query + Tailwind | Owner (web responsif) |
 | `packages/contracts` | Skema Zod + tipe yang di-generate dari OpenAPI | Dipakai bersama |
@@ -78,7 +78,7 @@ flowchart LR
   end
 
   subgraph Cloud["Cloud"]
-    API["API Server<br/>Fastify (Node 22)"]
+    API["API Server<br/>Fastify (Node 24)"]
     PG[("PostgreSQL 16")]
     R2[("Cloudflare R2<br/>foto produk, backup")]
     JOB["Worker terjadwal<br/>backup harian, expire QRIS"]

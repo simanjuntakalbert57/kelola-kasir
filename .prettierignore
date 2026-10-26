@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+docs/
+packages/contracts/src/generated/
+**/dist/
+**/coverage/
+.turbo/

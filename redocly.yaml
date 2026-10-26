@@ -1,0 +1,5 @@
+extends:
+  - recommended
+rules:
+  # Production domain is not decided yet (cost approval pending, ADR-0005).
+  no-server-example.com: off

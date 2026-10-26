@@ -6,7 +6,7 @@ Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 Butuh API REST untuk kasir & dashboard, transaksi ACID (transaksi + item + pembayaran + audit dalam satu commit), agregasi laporan, dan siap multi-outlet. Volume MVP kecil (≤ 500 transaksi/hari).
 
 ## Keputusan
-- Runtime Node.js 22 LTS, framework **Fastify** (schema-based, cepat, plugin `@fastify/swagger` untuk validasi silang dengan OpenAPI).
+- Runtime Node.js 24 LTS, framework **Fastify** (schema-based, cepat, plugin `@fastify/swagger` untuk validasi silang dengan OpenAPI).
 - Validasi request/response dengan **Zod** (`fastify-type-provider-zod`).
 - **PostgreSQL 16** sebagai satu-satunya datastore; **Drizzle ORM** + migrasi SQL ber-versi (`drizzle-kit`).
 - Arsitektur **modular monolith**: modul `auth`, `devices`, `employees`, `catalog`, `shifts`, `transactions`, `payments`, `voids`, `reports`, `settings`, `audit`, `sync`. Satu proses HTTP + job terjadwal (node-cron/pg-boss) di proses yang sama untuk MVP.

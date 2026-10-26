@@ -1,0 +1,23 @@
+{
+  "name": "@kelola-kasir/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript types generated from docs/api/openapi.yaml",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check": "node scripts/generate.mjs --check",
+    "lint": "eslint src scripts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}

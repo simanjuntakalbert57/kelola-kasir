@@ -1,0 +1,16 @@
+{
+  "name": "@kelola-kasir/kasir",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cashier app for Android phones in portrait (React Native / Expo, offline-first)",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@kelola-kasir/contracts": "workspace:*",
+    "@kelola-kasir/money": "workspace:*"
+  }
+}
