@@ -80,7 +80,10 @@ export function describeOpenShiftError(error: unknown): OpenShiftFailure {
       };
     }
     if (error.status >= 500) {
-      return { message: 'Server sedang bermasalah. Tunggu sebentar lalu coba lagi.', action: 'none' };
+      return {
+        message: 'Server sedang bermasalah. Tunggu sebentar lalu coba lagi.',
+        action: 'none',
+      };
     }
   }
   return { message: 'Gagal membuka shift. Coba lagi.', action: 'none' };

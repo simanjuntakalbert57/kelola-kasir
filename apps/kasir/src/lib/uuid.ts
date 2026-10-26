@@ -1,21 +1,28 @@
 /**
- * Hermes (release builds) has no global `crypto`, so fall back to expo-crypto's
- * native CSPRNG. It is required lazily so Node (tests) never loads it.
+ * Hermes has no global `crypto.getRandomValues`, so use it only when present and otherwise fall
+ * back to expo-crypto (native CSPRNG). Never Math.random: ids must be unguessable and collision-free.
  */
-function secureRandom(bytes: Uint8Array): void {
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    globalThis.crypto.getRandomValues(bytes);
-    return;
-  }
+export function fillRandom(
+  bytes: Uint8Array,
+  native: (b: Uint8Array) => unknown = loadNativeRandom,
+): void {
+  const g = (globalThis as { crypto?: { getRandomValues?: (b: Uint8Array) => unknown } }).crypto;
+  if (g && typeof g.getRandomValues === 'function') g.getRandomValues(bytes);
+  else native(bytes);
+}
+
+function loadNativeRandom(bytes: Uint8Array): void {
+  // Lazy: expo-crypto pulls in the native runtime, which plain Node (tests) does not have.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const crypto: { getRandomValues: (b: Uint8Array) => unknown } = require('expo-crypto');
-  crypto.getRandomValues(bytes);
+  (require('expo-crypto') as { getRandomValues: (b: Uint8Array) => unknown }).getRandomValues(
+    bytes,
+  );
 }
 
 /** UUIDv7 (RFC 9562) for client-generated ids (ADR-0008). */
 export function uuidv7(
   now: number = Date.now(),
-  random: (bytes: Uint8Array) => void = secureRandom,
+  random: (bytes: Uint8Array) => void = fillRandom,
 ): string {
   const bytes = new Uint8Array(16);
   random(bytes);

@@ -6,12 +6,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../src/auth/SessionProvider';
 import { canOpenShift, describeOpenShiftError } from '../src/shift/open';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
+import { IS_STAGING } from '../src/config';
 import { colors, radius, space } from '../src/theme';
 import { Banner, Button, Keypad, TopBar } from '../src/ui/components';
 
 export default function OpenShiftScreen() {
-  const { session, shiftChecked, checkShift, openShift, suggestedOpeningCash, logout, resetDevice } =
-    useSession();
+  const {
+    session,
+    shiftChecked,
+    checkShift,
+    openShift,
+    suggestedOpeningCash,
+    logout,
+    resetDevice,
+  } = useSession();
   const router = useRouter();
   const [digits, setDigits] = useState('');
   const [suggested, setSuggested] = useState<number | null>(null);
@@ -43,7 +51,8 @@ export default function OpenShiftScreen() {
       router.replace('/jual');
     } catch (e) {
       const failure = describeOpenShiftError(e);
-      setError(failure.message);
+      const detail = IS_STAGING && e instanceof Error ? `\n${e.name}: ${e.message}` : '';
+      setError(failure.message + detail);
       if (failure.action === 'login') await logout();
       else if (failure.action === 'reset') await resetDevice();
     } finally {
