@@ -60,15 +60,18 @@ test.describe('QRIS: hanya gambar diisi + "Tanamkan nominal" (TC-QRS-11, TC-SET-
     expect(sale.id).toBeTruthy();
   });
 
-  test('UI: simpan gambar-saja + "Tanamkan nominal" tidak menghasilkan error mentah', async ({
+  test('UI: gambar-saja tanpa kode ditolak dengan pesan jelas, bukan error mentah (DEAR-30)', async ({
     page,
   }) => {
     await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
     await expect(page.getByLabel('Nama toko')).toBeVisible();
     await page.getByLabel('Alamat').fill('Jl. Uji QRIS 1');
     await page.getByRole('button', { name: 'Simpan perubahan' }).click();
-    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
+    await expect(
+      page.getByText('Kode QRIS wajib diisi agar kasir bisa menerima pembayaran QRIS.'),
+    ).toBeVisible();
+    await expect(page.getByText('Pengaturan tersimpan.')).toHaveCount(0);
     await expect(page.getByText(/500|Internal|undefined/)).toHaveCount(0);
-    await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeEnabled(); // gambar-saja dianggap QRIS terpasang
+    await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeDisabled(); // tanpa kode, nominal tidak bisa ditanam
   });
 });
