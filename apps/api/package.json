@@ -1,0 +1,16 @@
+{
+  "name": "@kelola-kasir/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Backend API (Fastify + Drizzle + PostgreSQL)",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@kelola-kasir/contracts": "workspace:*",
+    "@kelola-kasir/money": "workspace:*"
+  }
+}

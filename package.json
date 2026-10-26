@@ -1,0 +1,35 @@
+{
+  "name": "kelola-kasir",
+  "private": true,
+  "description": "Kelola Kasir: POS backend API, cashier app and owner dashboard",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24.18.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "api:lint": "redocly lint docs/api/openapi.yaml",
+    "contracts:generate": "pnpm --filter @kelola-kasir/contracts generate",
+    "contracts:check": "pnpm --filter @kelola-kasir/contracts check",
+    "mock": "prism mock docs/api/openapi.yaml --port 4010 --host 0.0.0.0",
+    "mock:dynamic": "prism mock docs/api/openapi.yaml --port 4010 --host 0.0.0.0 --dynamic"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@redocly/cli": "^2.71.0",
+    "@stoplight/prism-cli": "^5.16.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,1724 @@
+openapi: 3.1.0
+info:
+  title: Kelola Kasir API
+  version: 0.2.0-draft
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  summary: Backend API for the Kelola Kasir cashier app and owner dashboard.
+  description: |
+    Draft contract (TDD v1.1). Conventions:
+    - All money values are integer Rupiah (no decimals).
+    - All timestamps are ISO-8601 in UTC; business day is computed in Asia/Jakarta.
+    - Errors use `application/problem+json` with a stable `code`.
+    - IDs created by the cashier app (shifts, transactions, items, payments, void requests) are client-generated UUIDv7, making creation idempotent.
+    - Cursor pagination: `cursor` + `limit` (default 50, max 200).
+    - Products have no variants/options: one product = one price. A transaction item is product + quantity + price snapshot.
+    - One open shift per outlet, shared by every paired device; each transaction records the employee who created it.
+    Feature tags (P-xx / O-xx) refer to the PRD.
+servers:
+  - url: https://api.kelolakasir.example/v1
+    description: Production (placeholder)
+  - url: http://localhost:3000/v1
+    description: Local development
+tags:
+  - name: auth
+    description: Owner login and employee PIN login
+  - name: devices
+    description: Cashier device pairing and revocation
+  - name: employees
+    description: Employees and their PINs (owner)
+  - name: catalog
+    description: Categories and products; one product has one price
+  - name: shifts
+    description: One open shift per outlet, cash reconciliation
+  - name: transactions
+    description: Sales, history, receipts and export
+  - name: payments
+    description: Cash and QRIS payments through PaymentProvider
+  - name: voids
+    description: Void requests and owner decisions
+  - name: sync
+    description: Offline catalog pull and mutation push for the cashier app
+  - name: dashboard
+    description: Owner dashboard aggregates
+  - name: reports
+    description: Owner reports
+  - name: settings
+    description: Store settings (receipt header/footer, QRIS)
+  - name: uploads
+    description: Presigned uploads for images
+
+security: []
+
+paths:
+  # ---------------------------------------------------------------- auth
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Owner login with email and password (O-01)
+      operationId: ownerLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: Logged in. Refresh token is set as HttpOnly cookie `kk_refresh`.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate refresh token (cookie) and issue a new access token (O-01)
+      operationId: ownerRefresh
+      responses:
+        '200':
+          description: New session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current owner refresh token (O-01)
+      operationId: ownerLogout
+      security: [{ ownerAuth: [] }]
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/pin-login:
+    post:
+      tags: [auth]
+      summary: Employee PIN login on a paired device (P-01)
+      operationId: employeePinLogin
+      security: [{ deviceAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, pin]
+              properties:
+                employee_id: { type: string, format: uuid }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Employee session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeSession' }
+        '401':
+          description: Invalid PIN (`INVALID_PIN`) or revoked device (`DEVICE_REVOKED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '423':
+          description: Employee locked after too many attempts (`PIN_LOCKED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/pin-logout:
+    post:
+      tags: [auth]
+      summary: End the employee session on this device (P-01)
+      operationId: employeePinLogout
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me:
+    get:
+      tags: [auth]
+      summary: Current principal (owner or employee)
+      operationId: getMe
+      security: [{ ownerAuth: [] }, { employeeAuth: [], deviceAuth: [] }]
+      responses:
+        '200':
+          description: Current principal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Principal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- devices
+  /devices:
+    get:
+      tags: [devices]
+      summary: List devices of the outlet (P-01 support)
+      operationId: listDevices
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Devices
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Device' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [devices]
+      summary: Register a device and get a one-time pairing code (P-01)
+      operationId: createDevice
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 60, examples: ['Tablet Kasir Depan'] }
+      responses:
+        '201':
+          description: Device created with pairing code (valid 10 minutes)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device, pairing_code, pairing_expires_at]
+                properties:
+                  device: { $ref: '#/components/schemas/Device' }
+                  pairing_code: { type: string, pattern: '^[A-HJ-NP-Z2-9]{8}$' }
+                  pairing_expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /devices/pair:
+    post:
+      tags: [devices]
+      summary: Exchange a pairing code for a device token (P-01)
+      operationId: pairDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pairing_code]
+              properties:
+                pairing_code: { type: string }
+                app_version: { type: string }
+                platform: { type: string, enum: [android, ios] }
+      responses:
+        '200':
+          description: Paired. `device_token` is shown only once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device, device_token, outlet]
+                properties:
+                  device: { $ref: '#/components/schemas/Device' }
+                  device_token: { type: string }
+                  outlet: { $ref: '#/components/schemas/OutletRef' }
+                  last_transaction_number: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /devices/me/employees:
+    get:
+      tags: [devices]
+      summary: Active employees selectable on the PIN login screen (P-01)
+      operationId: listDeviceEmployees
+      security: [{ deviceAuth: [] }]
+      responses:
+        '200':
+          description: Employees (no PIN data)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /devices/{device_id}/revoke:
+    post:
+      tags: [devices]
+      summary: Revoke a device; all employee sessions on it become invalid
+      operationId: revokeDevice
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DeviceId' }]
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- employees
+  /employees:
+    get:
+      tags: [employees]
+      summary: List employees (O-06)
+      operationId: listEmployees
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: is_active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Employees
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Employee' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [employees]
+      summary: Add employee with a PIN (O-06)
+      operationId: createEmployee
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, pin]
+              properties:
+                name: { type: string, maxLength: 60 }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '409':
+          description: PIN already used by another employee in this outlet (`PIN_NOT_UNIQUE`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /employees/{employee_id}:
+    patch:
+      tags: [employees]
+      summary: Rename or activate/deactivate an employee (O-06)
+      operationId: updateEmployee
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/EmployeeId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 60 }
+                is_active: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /employees/{employee_id}/reset-pin:
+    post:
+      tags: [employees]
+      summary: Set a new PIN for an employee (O-06). Audited.
+      operationId: resetEmployeePin
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/EmployeeId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '204': { description: PIN updated }
+        '409':
+          description: '`PIN_NOT_UNIQUE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---------------------------------------------------------------- catalog
+  /catalog:
+    get:
+      tags: [catalog]
+      summary: Full catalog snapshot for the cashier app (P-03)
+      description: Categories and active products (with sold-out flag). Used for first load; afterwards use `/sync/pull`.
+      operationId: getCatalog
+      security: [{ deviceAuth: [] }, { ownerAuth: [] }]
+      responses:
+        '200':
+          description: Catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Catalog' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /categories:
+    get:
+      tags: [catalog]
+      summary: List categories (O-05)
+      operationId: listCategories
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Category' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [catalog]
+      summary: Create category (O-05)
+      operationId: createCategory
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /categories/{category_id}:
+    patch:
+      tags: [catalog]
+      summary: Update category (O-05)
+      operationId: updateCategory
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/CategoryId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [catalog]
+      summary: Soft-delete category; fails if it still has products (O-05)
+      operationId: deleteCategory
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/CategoryId' }]
+      responses:
+        '204': { description: Deleted }
+        '409':
+          description: '`CATEGORY_NOT_EMPTY`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /products:
+    get:
+      tags: [catalog]
+      summary: List products (O-04)
+      operationId: listProducts
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - { name: q, in: query, description: Name search, schema: { type: string } }
+      responses:
+        '200':
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [catalog]
+      summary: Create product (O-04)
+      operationId: createProduct
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /products/{product_id}:
+    get:
+      tags: [catalog]
+      summary: Product detail (O-04)
+      operationId: getProduct
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProductId' }]
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [catalog]
+      summary: Update product; price changes are written to the audit log (O-04)
+      operationId: updateProduct
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProductId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [catalog]
+      summary: Soft-delete product (O-04). Past transactions keep their snapshot.
+      operationId: deleteProduct
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProductId' }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /products/{product_id}/availability:
+    patch:
+      tags: [catalog]
+      summary: Mark product sold out / available (P-11, Should)
+      operationId: setProductAvailability
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ProductId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_sold_out]
+              properties:
+                is_sold_out: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- shifts
+  /shifts:
+    get:
+      tags: [shifts]
+      summary: Shift history with cash reconciliation (O-07)
+      operationId: listShifts
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: employee_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ShiftStatus' } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Shifts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Shift' } }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [shifts]
+      summary: Open the outlet's shift with opening cash (P-02). Idempotent on `id`.
+      description: |
+        Only one shift can be open per outlet. Other employees and devices join the open shift
+        (read it via `GET /shifts/current` or `/sync/pull`) instead of opening a new one.
+        Opening a shift requires the device to be online so the single-open-shift rule can be enforced.
+        Handover = close the current shift, then open a new one.
+      operationId: openShift
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, opening_cash, opened_at]
+              properties:
+                id: { type: string, format: uuid, description: Client-generated UUIDv7 }
+                opening_cash: { $ref: '#/components/schemas/Rupiah' }
+                opened_at: { type: string, format: date-time }
+      responses:
+        '201':
+          description: Shift opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '200':
+          description: Same id already exists (idempotent replay)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '409':
+          description: The outlet already has an open shift (`SHIFT_ALREADY_OPEN`); the body `detail` names it. Join it instead.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /shifts/current:
+    get:
+      tags: [shifts]
+      summary: The outlet's open shift, if any (P-02). Shared by all devices of the outlet.
+      operationId: getCurrentShift
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      responses:
+        '200':
+          description: Open shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '204': { description: No open shift }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /shifts/{shift_id}/summary:
+    get:
+      tags: [shifts]
+      summary: Shift totals (cash, QRIS, expected cash, pending voids) (P-12, O-07)
+      description: Employees can only read the outlet's currently open shift or a shift they closed.
+      operationId: getShiftSummary
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ShiftId' }]
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /shifts/{shift_id}/close:
+    post:
+      tags: [shifts]
+      summary: Close shift with actual cash counted (P-12)
+      description: |
+        Any employee logged in on a paired device of the outlet may close the open shift.
+        Closing is also allowed offline: the app queues a `shift.close` mutation for `/sync/push`
+        after showing a strong warning. The server recomputes the summary when the close is applied.
+        Real sales are never dropped: cash transactions from `/sync/push` that reference this shift are
+        accepted even after it is closed; those with `client_created_at` after `closed_at` are flagged
+        `after_shift_close` and reported separately (`late_*` fields). Online `POST /transactions` against a
+        closed shift still returns `SHIFT_CLOSED` so the cashier opens a new shift.
+      operationId: closeShift
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ShiftId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actual_cash, closed_at]
+              properties:
+                actual_cash: { $ref: '#/components/schemas/Rupiah' }
+                closed_at: { type: string, format: date-time }
+                closing_note: { type: string, maxLength: 500 }
+                closed_offline: { type: boolean, default: false, description: True when the close was done offline and is being replayed via sync }
+                unsynced_count: { type: integer, minimum: 0, description: Mutations still queued on the closing device at close time }
+      responses:
+        '200':
+          description: Closed shift with summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftSummary' }
+        '409':
+          description: '`SHIFT_CLOSED` or `PENDING_QRIS_EXISTS` (cancel or settle pending QRIS first)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---------------------------------------------------------------- transactions
+  /transactions:
+    get:
+      tags: [transactions]
+      summary: List transactions (P-09 for employees, O-03 for owner)
+      description: |
+        Employees: results are restricted to their outlet and `scope` (the open shift or today, WIB);
+        `date_from`/`date_to`/`employee_id` are ignored. Owner: all filters apply.
+      operationId: listTransactions
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [shift, today], default: shift } }
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: employee_id, in: query, schema: { type: string, format: uuid } }
+        - { name: shift_id, in: query, schema: { type: string, format: uuid } }
+        - { name: payment_method, in: query, schema: { $ref: '#/components/schemas/PaymentMethod' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransactionStatus' } }
+        - { name: q, in: query, description: Transaction number or customer label, schema: { type: string } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Transactions (without items)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/TransactionSummary' } }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [transactions]
+      summary: Create a transaction with its payment (P-05..P-07). Idempotent on `id`.
+      description: |
+        - `cash`: transaction is created as `paid`; requires `cash_tendered >= total`.
+        - `qris`: transaction is created as `pending` and a QRIS charge is created through the outlet's
+          PaymentProvider. Response includes `payment.qr_payload` and `payment.confirmation_mode`.
+        The server recomputes all totals from the submitted snapshot and rejects inconsistent math
+        (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
+        `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
+      operationId: createTransaction
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '200':
+          description: Same id already exists (idempotent replay)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '409':
+          description: '`SHIFT_NOT_OPEN`, `SHIFT_CLOSED`, `NUMBER_CONFLICT`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`QRIS_PROVIDER_UNAVAILABLE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /transactions/export:
+    get:
+      tags: [transactions]
+      summary: Export transactions as CSV or Excel (O-03)
+      operationId: exportTransactions
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [csv, xlsx] } }
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: employee_id, in: query, schema: { type: string, format: uuid } }
+        - { name: payment_method, in: query, schema: { $ref: '#/components/schemas/PaymentMethod' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransactionStatus' } }
+        - { name: detail, in: query, description: One row per item instead of per transaction, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: File stream
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /transactions/{transaction_id}:
+    get:
+      tags: [transactions]
+      summary: Transaction detail with items and payments (P-09, O-03)
+      operationId: getTransaction
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      responses:
+        '200':
+          description: Transaction
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /transactions/{transaction_id}/receipt:
+    get:
+      tags: [transactions]
+      summary: Receipt data for digital and 58 mm thermal receipt (P-08, Must)
+      description: |
+        Used for digital receipts and reprints from the history screen. The cashier app formats
+        ESC/POS itself from local data + cached settings, so printing also works offline;
+        this endpoint is the online source for reprints on another device and for the dashboard preview.
+      operationId: getReceipt
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      responses:
+        '200':
+          description: Receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /transactions/{transaction_id}/void-requests:
+    post:
+      tags: [voids]
+      summary: Request void of a paid transaction with a reason (P-10, Should)
+      description: Employee request moves status `paid` → `void_requested`. Owner call voids immediately (`voided`). Audited.
+      operationId: createVoidRequest
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, reason]
+              properties:
+                id: { type: string, format: uuid }
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '201':
+          description: Void request created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoidRequest' }
+        '409':
+          description: '`TRANSACTION_NOT_VOIDABLE` (not paid / already requested)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---------------------------------------------------------------- payments
+  /payments/{payment_id}:
+    get:
+      tags: [payments]
+      summary: Payment status; for `auto` mode also polls the provider (P-07)
+      operationId: getPayment
+      security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/PaymentId' }]
+      responses:
+        '200':
+          description: Payment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /payments/{payment_id}/confirm:
+    post:
+      tags: [payments]
+      summary: Manually confirm a static-QRIS payment as received (P-07). Audited.
+      operationId: confirmPayment
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/PaymentId' }]
+      responses:
+        '200':
+          description: Payment paid; transaction becomes `paid`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '409':
+          description: '`CONFIRMATION_NOT_ALLOWED` (auto mode) or `PAYMENT_NOT_PENDING`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /payments/{payment_id}/cancel:
+    post:
+      tags: [payments]
+      summary: Cancel a pending QRIS payment; transaction becomes `cancelled` (P-07)
+      operationId: cancelPayment
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/PaymentId' }]
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /webhooks/payments/{provider}:
+    post:
+      tags: [payments]
+      summary: Payment gateway webhook (phase 2, dynamic QRIS)
+      description: Signature verified per provider; idempotent on provider reference.
+      operationId: paymentWebhook
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string, enum: [midtrans, xendit] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Acknowledged }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- voids
+  /void-requests:
+    get:
+      tags: [voids]
+      summary: List void requests (O-08, Should)
+      operationId: listVoidRequests
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Void requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoidRequest' } }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /void-requests/{void_request_id}/approve:
+    post:
+      tags: [voids]
+      summary: Approve void from dashboard (O-08, Should)
+      operationId: approveVoidRequest
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/VoidRequestId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoidDecision' }
+      responses:
+        '200':
+          description: Approved; transaction `voided`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /void-requests/{void_request_id}/reject:
+    post:
+      tags: [voids]
+      summary: Reject void (O-08, Should); transaction back to `paid`
+      operationId: rejectVoidRequest
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/VoidRequestId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoidDecision' }
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /void-requests/{void_request_id}/approve-with-pin:
+    post:
+      tags: [voids]
+      summary: Owner approves a void on the cashier device using the owner PIN (P-10, Should)
+      operationId: approveVoidWithOwnerPin
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/VoidRequestId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner_pin]
+              properties:
+                owner_pin: { type: string, pattern: '^[0-9]{6}$' }
+                note: { type: string, maxLength: 300 }
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoidRequest' }
+        '401':
+          description: '`INVALID_OWNER_PIN`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---------------------------------------------------------------- sync
+  /sync/pull:
+    get:
+      tags: [sync]
+      summary: Incremental catalog/config changes since cursor (P-03, P-11, P-13)
+      operationId: syncPull
+      security: [{ deviceAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, description: Opaque; omit for full snapshot, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 500 } }
+      responses:
+        '200':
+          description: Changes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncPullResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /sync/push:
+    post:
+      tags: [sync]
+      summary: Push queued offline mutations in order (P-13). Idempotent per mutation id.
+      operationId: syncPush
+      security: [{ deviceAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mutations]
+              properties:
+                mutations:
+                  type: array
+                  maxItems: 50
+                  items: { $ref: '#/components/schemas/SyncMutation' }
+      responses:
+        '200':
+          description: Per-mutation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, status]
+                      properties:
+                        id: { type: string, format: uuid }
+                        status: { type: string, enum: [applied, duplicate, rejected] }
+                        code: { type: string, description: Error code when rejected }
+                        detail: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- dashboard & reports
+  /dashboard/summary:
+    get:
+      tags: [dashboard]
+      summary: Revenue, transaction count, average ticket, cash vs QRIS (O-02)
+      description: Counts only `paid` and `void_requested` transactions. Owner only.
+      operationId: getDashboardSummary
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /dashboard/sales-series:
+    get:
+      tags: [dashboard]
+      summary: Sales chart per hour or day, WIB (O-02)
+      operationId: getSalesSeries
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: granularity, in: query, required: true, schema: { type: string, enum: [hour, day] } }
+      responses:
+        '200':
+          description: Series
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [bucket_start, revenue, transaction_count]
+                      properties:
+                        bucket_start: { type: string, format: date-time }
+                        revenue: { $ref: '#/components/schemas/Rupiah' }
+                        transaction_count: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /dashboard/top-products:
+    get:
+      tags: [dashboard]
+      summary: Best-selling products by quantity and revenue (O-02)
+      operationId: getTopProducts
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: limit, in: query, schema: { type: integer, default: 5, maximum: 50 } }
+      responses:
+        '200':
+          description: Top products
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [product_name, quantity, revenue]
+                      properties:
+                        product_id: { type: [string, 'null'], format: uuid }
+                        product_name: { type: string }
+                        quantity: { type: integer }
+                        revenue: { $ref: '#/components/schemas/Rupiah' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /reports/sales:
+    get:
+      tags: [reports]
+      summary: Sales report grouped by product, employee, payment method or day (O-09, Should)
+      operationId: getSalesReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: group_by, in: query, required: true, schema: { type: string, enum: [product, employee, payment_method, day] } }
+      responses:
+        '200':
+          description: Report rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, label, quantity, transaction_count, revenue]
+                      properties:
+                        key: { type: string }
+                        label: { type: string }
+                        quantity: { type: integer }
+                        transaction_count: { type: integer }
+                        revenue: { $ref: '#/components/schemas/Rupiah' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- settings & uploads
+  /settings:
+    get:
+      tags: [settings]
+      summary: Store settings incl. receipt header/footer and QRIS (O-10)
+      operationId: getSettings
+      security: [{ ownerAuth: [] }, { deviceAuth: [] }]
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutletSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [settings]
+      summary: Update store settings (O-10)
+      operationId: updateSettings
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OutletSettingsInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutletSettings' }
+        '422':
+          description: '`INVALID_QRIS_PAYLOAD`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /uploads:
+    post:
+      tags: [uploads]
+      summary: Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10)
+      operationId: createUpload
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, content_type, size_bytes]
+              properties:
+                purpose: { type: string, enum: [product_image, logo, qris_image] }
+                content_type: { type: string, enum: [image/jpeg, image/png, image/webp] }
+                size_bytes: { type: integer, maximum: 2097152 }
+      responses:
+        '201':
+          description: Presigned PUT URL; use `public_url` in the product/settings payload afterwards.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [upload_url, public_url, expires_at]
+                properties:
+                  upload_url: { type: string, format: uri }
+                  public_url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    ownerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Owner access token (15 min).
+    employeeAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Employee access token (12 h). Must be sent together with `X-Device-Token`.
+    deviceAuth:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+      description: Long-lived token of a paired, non-revoked device.
+
+  parameters:
+    DeviceId: { name: device_id, in: path, required: true, schema: { type: string, format: uuid } }
+    EmployeeId: { name: employee_id, in: path, required: true, schema: { type: string, format: uuid } }
+    CategoryId: { name: category_id, in: path, required: true, schema: { type: string, format: uuid } }
+    ProductId: { name: product_id, in: path, required: true, schema: { type: string, format: uuid } }
+    ShiftId: { name: shift_id, in: path, required: true, schema: { type: string, format: uuid } }
+    TransactionId: { name: transaction_id, in: path, required: true, schema: { type: string, format: uuid } }
+    PaymentId: { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } }
+    VoidRequestId: { name: void_request_id, in: path, required: true, schema: { type: string, format: uuid } }
+    DateFrom: { name: date_from, in: query, description: Inclusive business date (WIB), schema: { type: string, format: date } }
+    DateTo: { name: date_to, in: query, description: Inclusive business date (WIB), schema: { type: string, format: date } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+
+  responses:
+    BadRequest:
+      description: Validation error (`VALIDATION_ERROR`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Missing/invalid credentials
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated but not allowed (`FORBIDDEN`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Rupiah:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Integer Rupiah. 15000 = Rp15.000.
+    SignedRupiah:
+      type: integer
+      format: int64
+      description: Integer Rupiah that may be negative (e.g. cash difference).
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, examples: [SHIFT_NOT_OPEN] }
+        detail: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              message: { type: string }
+
+    OutletRef:
+      type: object
+      required: [id, code, name, timezone]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, examples: [JUS1] }
+        name: { type: string }
+        timezone: { type: string, examples: [Asia/Jakarta] }
+    OwnerSession:
+      type: object
+      required: [access_token, expires_in, user]
+      properties:
+        access_token: { type: string }
+        expires_in: { type: integer, examples: [900] }
+        user:
+          type: object
+          required: [id, email, name, outlets]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string, format: email }
+            name: { type: string }
+            outlets: { type: array, items: { $ref: '#/components/schemas/OutletRef' } }
+    EmployeeSession:
+      type: object
+      required: [access_token, expires_in, employee]
+      properties:
+        access_token: { type: string }
+        expires_in: { type: integer, examples: [43200] }
+        employee: { $ref: '#/components/schemas/Employee' }
+    Principal:
+      type: object
+      required: [type, id, name, role, outlet_id]
+      properties:
+        type: { type: string, enum: [user, employee] }
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [owner, manager, cashier] }
+        outlet_id: { type: string, format: uuid }
+        device_id: { type: [string, 'null'], format: uuid }
+
+    Device:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, examples: [K01] }
+        name: { type: string }
+        status: { type: string, enum: [pending_pairing, active, revoked] }
+        paired_at: { type: [string, 'null'], format: date-time }
+        last_seen_at: { type: [string, 'null'], format: date-time }
+        app_version: { type: [string, 'null'] }
+    Employee:
+      type: object
+      required: [id, name, is_active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    Category:
+      type: object
+      required: [id, name, sort_order]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        sort_order: { type: integer }
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 40 }
+        sort_order: { type: integer, default: 0 }
+    Product:
+      type: object
+      required: [id, category_id, name, price, is_active, is_sold_out]
+      properties:
+        id: { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        name: { type: string }
+        image_url: { type: [string, 'null'], format: uri }
+        price: { $ref: '#/components/schemas/Rupiah', description: The single selling price; products have no variants }
+        is_active: { type: boolean }
+        is_sold_out: { type: boolean }
+        sort_order: { type: integer }
+        updated_at: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      required: [category_id, name, price]
+      properties:
+        category_id: { type: string, format: uuid }
+        name: { type: string, maxLength: 60 }
+        image_url: { type: [string, 'null'], format: uri }
+        price: { $ref: '#/components/schemas/Rupiah' }
+        is_active: { type: boolean, default: true }
+        sort_order: { type: integer, default: 0 }
+    Catalog:
+      type: object
+      required: [categories, products, cursor]
+      properties:
+        categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
+        products: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        cursor: { type: string, description: Use as `cursor` for the next `/sync/pull` }
+
+    ShiftStatus:
+      type: string
+      enum: [open, closed]
+    Shift:
+      type: object
+      required: [id, opened_on_device_id, opened_by, status, opening_cash, opened_at]
+      properties:
+        id: { type: string, format: uuid }
+        opened_on_device_id: { type: string, format: uuid, description: Device where the shift was opened; all devices of the outlet share it }
+        closed_on_device_id: { type: [string, 'null'], format: uuid }
+        opened_by: { $ref: '#/components/schemas/Employee' }
+        closed_by: { oneOf: [{ $ref: '#/components/schemas/Employee' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/ShiftStatus' }
+        opening_cash: { $ref: '#/components/schemas/Rupiah' }
+        expected_cash: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }] }
+        actual_cash: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }] }
+        cash_difference: { oneOf: [{ $ref: '#/components/schemas/SignedRupiah' }, { type: 'null' }] }
+        opened_at: { type: string, format: date-time }
+        closed_at: { type: [string, 'null'], format: date-time }
+        closed_offline: { type: boolean, description: Close was performed offline and synced later }
+    ShiftSummary:
+      type: object
+      required: [shift, total_cash_sales, total_qris_sales, total_sales, transaction_count, expected_cash, pending_void_count, pending_void_amount, voided_count, voided_amount]
+      properties:
+        shift: { $ref: '#/components/schemas/Shift' }
+        total_cash_sales: { $ref: '#/components/schemas/Rupiah' }
+        total_qris_sales: { $ref: '#/components/schemas/Rupiah' }
+        qris_manual_confirmed_count: { type: integer }
+        total_sales: { $ref: '#/components/schemas/Rupiah' }
+        transaction_count: { type: integer }
+        expected_cash: { $ref: '#/components/schemas/Rupiah', description: opening_cash + cash sales (paid + void_requested) }
+        actual_cash: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }] }
+        cash_difference: { oneOf: [{ $ref: '#/components/schemas/SignedRupiah' }, { type: 'null' }] }
+        pending_void_count: { type: integer }
+        pending_void_amount: { $ref: '#/components/schemas/Rupiah' }
+        voided_count: { type: integer }
+        voided_amount: { $ref: '#/components/schemas/Rupiah' }
+        unsynced_hint: { type: boolean, description: True when the device reported queued mutations at close time }
+        late_transaction_count: { type: integer, description: Synced transactions created after `closed_at` (not in expected_cash) }
+        late_cash_amount: { $ref: '#/components/schemas/Rupiah' }
+        by_employee:
+          type: array
+          description: Per-cashier breakdown; the shift is shared but each transaction is recorded under its cashier
+          items:
+            type: object
+            required: [employee, transaction_count, total_cash_sales, total_qris_sales]
+            properties:
+              employee: { $ref: '#/components/schemas/Employee' }
+              transaction_count: { type: integer }
+              total_cash_sales: { $ref: '#/components/schemas/Rupiah' }
+              total_qris_sales: { $ref: '#/components/schemas/Rupiah' }
+
+    PaymentMethod:
+      type: string
+      enum: [cash, qris]
+    TransactionStatus:
+      type: string
+      enum: [pending, paid, void_requested, voided, cancelled]
+      description: '`cancelled` = pending QRIS that was cancelled by the cashier or expired after 15 minutes (decision Q-1). Terminal; excluded from all totals.'
+    TransactionItemInput:
+      type: object
+      required: [id, product_id, product_name, unit_price, quantity, line_total]
+      properties:
+        id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        product_name: { type: string, description: Snapshot }
+        unit_price: { $ref: '#/components/schemas/Rupiah', description: Snapshot of the product price }
+        quantity: { type: integer, minimum: 1, maximum: 999 }
+        note: { type: string, maxLength: 140 }
+        line_total: { $ref: '#/components/schemas/Rupiah', description: 'unit_price * quantity' }
+    CashPaymentInput:
+      type: object
+      required: [id, method, cash_tendered]
+      properties:
+        id: { type: string, format: uuid }
+        method: { type: string, const: cash }
+        cash_tendered: { $ref: '#/components/schemas/Rupiah' }
+    QrisPaymentInput:
+      type: object
+      required: [id, method]
+      properties:
+        id: { type: string, format: uuid }
+        method: { type: string, const: qris }
+    PaymentInput:
+      oneOf:
+        - $ref: '#/components/schemas/CashPaymentInput'
+        - $ref: '#/components/schemas/QrisPaymentInput'
+      discriminator:
+        propertyName: method
+        mapping:
+          cash: '#/components/schemas/CashPaymentInput'
+          qris: '#/components/schemas/QrisPaymentInput'
+    TransactionCreate:
+      type: object
+      required: [id, shift_id, number, client_created_at, items, subtotal, total, payment]
+      properties:
+        id: { type: string, format: uuid, description: Client-generated UUIDv7 }
+        shift_id: { type: string, format: uuid }
+        number: { type: string, pattern: '^[A-Z0-9]{2,6}-[A-Z0-9]{3}-[0-9]{6}-[0-9]{4}$', examples: [JUS1-K01-261026-0042] }
+        client_created_at: { type: string, format: date-time }
+        customer_label: { type: string, maxLength: 40, description: Optional buyer name/number }
+        items: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TransactionItemInput' } }
+        subtotal: { $ref: '#/components/schemas/Rupiah' }
+        discount_amount: { $ref: '#/components/schemas/Rupiah', default: 0 }
+        tax_amount: { $ref: '#/components/schemas/Rupiah', default: 0 }
+        total: { $ref: '#/components/schemas/Rupiah' }
+        payment: { $ref: '#/components/schemas/PaymentInput' }
+    Payment:
+      type: object
+      required: [id, transaction_id, method, provider, status, amount]
+      properties:
+        id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        provider: { type: string, enum: [cash, qris_static, midtrans, xendit] }
+        status: { type: string, enum: [pending, paid, expired, failed, cancelled] }
+        amount: { $ref: '#/components/schemas/Rupiah' }
+        cash_tendered: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }] }
+        cash_change: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }] }
+        confirmation_mode: { type: [string, 'null'], enum: [manual, auto, null], description: QRIS only }
+        qr_payload: { type: [string, 'null'], description: EMVCo QRIS string to render as QR }
+        qr_image_url: { type: [string, 'null'], format: uri, description: Fallback image for static QRIS }
+        expires_at: { type: [string, 'null'], format: date-time }
+        confirmed_by: { type: [string, 'null'], format: uuid }
+        paid_at: { type: [string, 'null'], format: date-time }
+    TransactionSummary:
+      type: object
+      required: [id, number, status, payment_method, total, employee, client_created_at]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string }
+        status: { $ref: '#/components/schemas/TransactionStatus' }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        total: { $ref: '#/components/schemas/Rupiah' }
+        item_count: { type: integer }
+        customer_label: { type: [string, 'null'] }
+        employee: { $ref: '#/components/schemas/Employee' }
+        shift_id: { type: string, format: uuid }
+        price_mismatch: { type: boolean }
+        after_shift_close: { type: boolean, description: Synced after its shift was closed and created after `closed_at` }
+        client_created_at: { type: string, format: date-time }
+        paid_at: { type: [string, 'null'], format: date-time }
+    Transaction:
+      allOf:
+        - $ref: '#/components/schemas/TransactionSummary'
+        - type: object
+          required: [items, payments, subtotal, discount_amount, tax_amount]
+          properties:
+            subtotal: { $ref: '#/components/schemas/Rupiah' }
+            discount_amount: { $ref: '#/components/schemas/Rupiah' }
+            tax_amount: { $ref: '#/components/schemas/Rupiah' }
+            items:
+              type: array
+              items:
+                type: object
+                required: [id, product_name, unit_price, quantity, line_total]
+                properties:
+                  id: { type: string, format: uuid }
+                  product_id: { type: [string, 'null'], format: uuid }
+                  product_name: { type: string }
+                  unit_price: { $ref: '#/components/schemas/Rupiah' }
+                  quantity: { type: integer }
+                  line_total: { $ref: '#/components/schemas/Rupiah' }
+                  note: { type: [string, 'null'] }
+            payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
+            void_request: { oneOf: [{ $ref: '#/components/schemas/VoidRequest' }, { type: 'null' }] }
+            server_received_at: { type: string, format: date-time }
+    Receipt:
+      type: object
+      required: [store, cashier_name, transaction]
+      properties:
+        store:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            address: { type: [string, 'null'] }
+            logo_url: { type: [string, 'null'], format: uri }
+            phone: { type: [string, 'null'] }
+            header: { type: [string, 'null'], description: Extra header lines set by the owner }
+            footer: { type: [string, 'null'], description: Closing message set by the owner }
+        cashier_name: { type: string }
+        paper_width_mm: { type: integer, enum: [58], default: 58 }
+        transaction: { $ref: '#/components/schemas/Transaction' }
+        share_text: { type: string, description: Plain-text receipt (32 chars per line) for WhatsApp share and ESC/POS printing }
+
+    VoidRequest:
+      type: object
+      required: [id, transaction_id, reason, status, requested_by, requested_at]
+      properties:
+        id: { type: string, format: uuid }
+        transaction_id: { type: string, format: uuid }
+        transaction_number: { type: string }
+        transaction_total: { $ref: '#/components/schemas/Rupiah' }
+        reason: { type: string }
+        status: { type: string, enum: [pending, approved, rejected] }
+        requested_by: { $ref: '#/components/schemas/Employee' }
+        requested_at: { type: string, format: date-time }
+        decided_by: { type: [string, 'null'], format: uuid }
+        decision_channel: { type: [string, 'null'], enum: [dashboard, device_pin, null] }
+        decision_note: { type: [string, 'null'] }
+        decided_at: { type: [string, 'null'], format: date-time }
+    VoidDecision:
+      type: object
+      properties:
+        note: { type: string, maxLength: 300 }
+
+    SyncMutation:
+      type: object
+      required: [id, type, client_created_at, payload]
+      properties:
+        id: { type: string, format: uuid, description: 'Equals the entity id (transaction/void request), or the shift id for `shift.close`' }
+        type:
+          type: string
+          enum: [transaction.create, shift.close, void_request.create, product.mark_sold_out]
+        client_created_at: { type: string, format: date-time }
+        employee_id: { type: string, format: uuid, description: Employee who performed the action (may have logged in offline) }
+        payload:
+          description: Same body as the corresponding online endpoint (`shift.close` adds `shift_id`). QRIS transactions and shift opening are never queued.
+          type: object
+          additionalProperties: true
+    SyncPullResponse:
+      type: object
+      required: [next_cursor, has_more, changes]
+      properties:
+        next_cursor: { type: string }
+        has_more: { type: boolean }
+        changes:
+          type: object
+          properties:
+            categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
+            products: { type: array, items: { $ref: '#/components/schemas/Product' } }
+            employees:
+              type: array
+              description: Active employees with argon2id PIN hash for offline login (only if enabled for outlet)
+              items:
+                type: object
+                required: [id, name, is_active]
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  is_active: { type: boolean }
+                  pin_hash: { type: [string, 'null'] }
+            settings: { oneOf: [{ $ref: '#/components/schemas/OutletSettings' }, { type: 'null' }] }
+            deleted:
+              type: array
+              items:
+                type: object
+                required: [entity, id]
+                properties:
+                  entity: { type: string, enum: [category, product, employee] }
+                  id: { type: string, format: uuid }
+        current_shift: { oneOf: [{ $ref: '#/components/schemas/Shift' }, { type: 'null' }], description: "The outlet's open shift, so every device joins the same one" }
+        device_revoked: { type: boolean, description: When true the app must wipe local credentials }
+
+    DashboardSummary:
+      type: object
+      required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count]
+      properties:
+        revenue: { $ref: '#/components/schemas/Rupiah' }
+        transaction_count: { type: integer }
+        average_ticket: { $ref: '#/components/schemas/Rupiah', description: Rounded down to whole Rupiah }
+        cash_revenue: { $ref: '#/components/schemas/Rupiah' }
+        qris_revenue: { $ref: '#/components/schemas/Rupiah' }
+        cash_count: { type: integer }
+        qris_count: { type: integer }
+        voided_count: { type: integer }
+        pending_void_count: { type: integer }
+        compare_previous_period:
+          type: object
+          properties:
+            revenue_change_pct: { type: [number, 'null'] }
+
+    OutletSettings:
+      type: object
+      required: [outlet, display_name, qris_mode]
+      properties:
+        outlet: { $ref: '#/components/schemas/OutletRef' }
+        display_name: { type: string }
+        address: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+        logo_url: { type: [string, 'null'], format: uri }
+        receipt_header: { type: [string, 'null'], description: 'Extra header lines under the store name/address, e.g. Instagram handle' }
+        receipt_footer: { type: [string, 'null'], description: 'Closing message, e.g. "Terima kasih!"' }
+        qris_mode: { type: string, enum: [static, dynamic] }
+        qris_static_payload: { type: [string, 'null'] }
+        qris_static_image_url: { type: [string, 'null'], format: uri }
+        qris_merchant_name: { type: [string, 'null'] }
+        qris_embed_amount: { type: boolean, description: Embed amount (EMVCo tag 54) into static QRIS }
+        offline_login_enabled: { type: boolean }
+        quick_cash_amounts:
+          type: array
+          items: { $ref: '#/components/schemas/Rupiah' }
+          examples: [[20000, 50000, 100000]]
+    OutletSettingsInput:
+      type: object
+      properties:
+        display_name: { type: string, maxLength: 60 }
+        address: { type: [string, 'null'], maxLength: 200 }
+        phone: { type: [string, 'null'], maxLength: 20 }
+        logo_url: { type: [string, 'null'], format: uri }
+        receipt_header: { type: [string, 'null'], maxLength: 200 }
+        receipt_footer: { type: [string, 'null'], maxLength: 200 }
+        qris_static_payload: { type: [string, 'null'] }
+        qris_static_image_url: { type: [string, 'null'], format: uri }
+        qris_embed_amount: { type: boolean }
+        offline_login_enabled: { type: boolean }
+        quick_cash_amounts: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Rupiah' } }
+        owner_pin: { type: string, pattern: '^[0-9]{6}$', description: Set/replace owner PIN for void approval on device }

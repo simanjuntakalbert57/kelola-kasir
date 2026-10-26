@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kelola Kasir — Aplikasi Kasir HP (hi-fi)</title><link rel="stylesheet" href="design.css"></head><body>
+<div class="doc">
+<h1>Aplikasi Kasir — Hi-fi</h1>
+<p class="lead">HP portrait 360×720 (perangkat pegawai = handphone; one-hand, aksi di zona jempol). Semua teks Bahasa Indonesia, format Rupiah (Rp 18.000), WIB. Target tap: ≥48px, aksi utama 56px.</p>
+
+<h2 class="sec">A. Alur transaksi — HP portrait (perangkat utama pegawai)</h2>
+<div class="grid">
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="brand">🍹 Jus Albert</span><span class="chip on" style="min-height:30px;font-size:13px">Shift 1</span><div class="grow"></div><span>🔍</span></div>
+ <div style="display:flex;gap:6px;padding:10px 10px 0;overflow:hidden"><span class="chip on">⭐ Favorit</span><span class="chip">Jus</span><span class="chip">Smoothie</span><span class="chip">Campur</span></div>
+ <div class="pgrid" style="grid-template-columns:repeat(2,1fr);flex:1"><div class="pcard"><div class="img">🍊</div><div class="nm">Jus Jeruk</div><div class="pr">Rp 12.000</div></div><div class="pcard"><div class="img">🥭</div><div class="nm">Jus Mangga</div><div class="pr">Rp 15.000</div></div><div class="pcard"><div class="img">🥑</div><div class="nm">Jus Alpukat</div><div class="pr">Rp 18.000</div></div><div class="pcard"><div class="img">🍓</div><div class="nm">Jus Stroberi</div><div class="pr">Rp 16.000</div></div></div>
+ <div style="background:var(--surface);box-shadow:0 -10px 30px rgba(0,0,0,.4);border-radius:22px 22px 0 0;padding:12px 14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span><b>3 item</b> <small class="status">· lihat pesanan ›</small></span><b class="num" style="font-size:20px">Rp 42.000</b></div>
+  <div class="row"><span class="btn accent lg">💵 Cash</span><span class="btn primary lg">▦ QRIS</span></div></div>
+ <div class="tabs"><a class="on">Jual</a><a>Riwayat</a><a>Shift</a></div></div>
+ <figcaption><b>K-04 Katalog (layar utama).</b> Grid 2 kolom, semua aksi di zona jempol bawah. Bar bayar muncul begitu ada item dengan <b>Cash</b> &amp; <b>QRIS</b> langsung (tanpa buka keranjang). Tap kartu = langsung tambah 1 item (tanpa pilihan ukuran/gula/topping); tap lagi = qty +1.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><b>Pesanan #0042</b><div class="grow"></div><span class="btn ghost sm">Kosongkan</span></div>
+ <div class="line"><div class="t"><b>Jus Alpukat</b><small>Rp 18.000</small></div><div class="qty"><i>−</i><b>1</b><i>+</i></div></div>
+ <div class="line"><div class="t"><b>Jus Jeruk</b><small>Rp 12.000 / item</small></div><div class="qty"><i>−</i><b>2</b><i>+</i></div></div>
+ <div class="line"><div class="t"><small>＋ Catatan / nama pembeli (opsional)</small></div></div>
+ <div style="flex:1"></div><div class="total"><span>Total</span><span class="num">Rp 42.000</span></div>
+ <div style="padding:0 14px 14px"><div class="row"><span class="btn accent lg">💵 Cash</span><span class="btn primary lg">▦ QRIS</span></div></div></div>
+ <figcaption><b>K-04b Ringkasan pesanan.</b> Dibuka dengan tap bar bayar (opsional). Geser baris ke kiri = hapus; qty ± 36px. Tombol bayar sama dengan di katalog.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="btn ghost sm">←</span><b>Bayar Cash</b><div class="grow"></div><span class="status">#0042</span></div>
+ <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;flex:1">
+  <div style="display:flex;justify-content:space-between;align-items:baseline"><small class="status">Total</small><b class="num" style="font-size:26px">Rp 42.000</b></div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline"><small class="status">Diterima</small><b class="num" style="font-size:26px;color:var(--green-800)">Rp 100.000</b></div>
+  <div class="card" style="background:var(--green-50);display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px"><small class="status">Kembalian</small><b class="num" style="font-size:30px;color:var(--orange-700)">Rp 58.000</b></div>
+  <span class="btn primary lg block">✓ Uang Pas · Rp 42.000</span>
+  <div class="row" style="gap:8px"><span class="chip" style="justify-content:center">20.000</span><span class="chip" style="justify-content:center">50.000</span><span class="chip on" style="justify-content:center">100.000</span></div>
+  <div class="keypad" style="gap:8px"><span class="key k">1</span><span class="key k">2</span><span class="key k">3</span><span class="key k">4</span><span class="key k">5</span><span class="key k">6</span><span class="key k">7</span><span class="key k">8</span><span class="key k">9</span><span class="key k">000</span><span class="key k">0</span><span class="key k">⌫</span></div></div>
+ <div style="padding:0 14px 12px"><span class="btn primary lg block">Selesai</span></div></div>
+ <figcaption><b>K-06 Cash.</b> “Uang Pas” = 1 tap selesai. Kembalian besar. Keypad 52px ke bawah (zona jempol). “Selesai” nonaktif bila uang &lt; total.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="btn ghost sm">←</span><b>Bayar QRIS</b><div class="grow"></div><span class="status">#0042</span></div>
+ <div style="flex:1;padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px">
+  <b class="num" style="font-size:30px">Rp 42.000</b>
+  <div class="card" style="text-align:center;padding:14px"><div style="width:220px;height:220px;background:repeating-conic-gradient(#10201A 0 25%,#fff 0 50%) 0 0/22px 22px;border-radius:8px"></div><b style="display:block;margin-top:8px">QRIS · Jus Albert</b><small class="status">NMID ID1234567890123</small></div>
+  <div class="banner" style="background:var(--warn-bg);color:var(--warn);border-radius:12px">⏳ Menunggu pembayaran — cek notifikasi bank</div></div>
+ <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">✓ Pembayaran sudah diterima</span><span class="btn block">Ganti ke Cash</span></div></div>
+ <figcaption><b>K-07 QRIS (statis, D-1).</b> Layar HP dihadapkan ke pembeli: QR besar &amp; nominal di atas. Konfirmasi manual minta dialog “Yakin sudah masuk Rp 42.000?”. Offline → tombol QRIS nonaktif.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div style="flex:1;padding:28px 20px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+  <div style="font-size:64px">✅</div><h2>Lunas</h2><small class="status">Kembalian</small><b style="font-size:40px;color:var(--orange-700)">Rp 58.000</b>
+  <div class="card" style="width:100%;margin-top:12px;font-family:ui-monospace,monospace;font-size:12px;text-align:left"><div style="text-align:center"><b>JUS ALBERT</b><br>26 Okt 2026 14:32 WIB</div><hr style="margin:6px 0;border:0;border-top:1px dashed #aaa">#0042 · Kasir: Sari<br>1× Jus Alpukat ……… 18.000<br>2× Jus Jeruk ……… 24.000<hr style="margin:6px 0;border:0;border-top:1px dashed #aaa">Total 42.000 · Cash 100.000<br>Kembali 48.000</div>
+  <small class="status" style="margin-top:6px">Kembali ke katalog dalam 5 dtk</small></div>
+ <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px"><span class="btn primary lg block">＋ Pesanan baru</span><div class="row"><span class="btn">🖨 Cetak</span><span class="btn">WhatsApp</span></div></div></div>
+ <figcaption><b>K-08 Sukses + struk.</b> Auto kembali ke katalog agar antrean lancar. Cetak/WhatsApp = opsi Should (D-3).</figcaption></figure>
+</div>
+
+<h2 class="sec">B. Sesi, riwayat &amp; shift — HP portrait</h2>
+<div class="grid">
+<figure class="fig"><div class="frame phone">
+ <div style="flex:1;padding:32px 24px;display:flex;flex-direction:column;justify-content:center">
+  <div style="text-align:center"><div style="font-size:56px">🍹</div><h2>Jus Albert</h2><p style="color:var(--muted)">Pilih nama, lalu masukkan PIN</p></div>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:16px"><span class="chip on">Sari</span><span class="chip">Budi</span><span class="chip">Dewi</span></div>
+  <div class="pin"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></div>
+  <div class="keypad"><span class="key">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span><span class="key">5</span><span class="key">6</span><span class="key">7</span><span class="key">8</span><span class="key">9</span><span class="key"></span><span class="key">0</span><span class="key">⌫</span></div>
+  <p class="errtxt" style="text-align:center;margin-top:10px">PIN salah. Sisa percobaan: 2</p>
+ </div></div>
+ <figcaption><b>K-01 Login PIN (P-01).</b> Pilih pegawai (1 tap) + 6 digit PIN, otomatis masuk di digit ke-6. Salah 5× → terkunci 5 menit. Perangkat belum didaftarkan → layar “Hubungi owner” (error state).</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><b>Buka shift</b></div>
+ <div style="padding:20px;flex:1"><p style="margin-bottom:16px;color:var(--muted)">Halo, Sari! Hitung uang di laci lalu masukkan modal awal.</p>
+  <div class="field"><label>Modal kas awal</label><div class="input" style="font-size:28px;font-weight:800">Rp 200.000</div><div class="hint">Shift terakhir ditutup Rp 200.000 (Budi) — sudah terisi otomatis.</div></div>
+  <div class="keypad"><span class="key">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span><span class="key">5</span><span class="key">6</span><span class="key">7</span><span class="key">8</span><span class="key">9</span><span class="key">000</span><span class="key">0</span><span class="key">⌫</span></div></div>
+ <div style="padding:16px"><span class="btn primary lg block">Buka shift &amp; mulai jualan</span></div></div>
+ <figcaption><b>K-02 Buka shift (P-02).</b> Modal ter-prefill dari kas akhir shift sebelumnya → biasanya 1 tap.</figcaption></figure>
+
+
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><b>Riwayat shift ini</b></div>
+ <div style="display:flex;gap:6px;padding:10px"><span class="chip on">Semua</span><span class="chip">Cash</span><span class="chip">QRIS</span></div>
+ <div style="flex:1;overflow:hidden">
+  <div class="line"><div class="t"><b>#0042 · 14:32</b><small>3 item · Cash</small></div><div style="text-align:right"><b class="num">42.000</b><br><span class="badge b-paid">Lunas</span></div></div>
+  <div class="line"><div class="t"><b>#0041 · 14:20</b><small>1 item · QRIS</small></div><div style="text-align:right"><b class="num">18.000</b><br><span class="badge b-paid">Lunas</span></div></div>
+  <div class="line"><div class="t"><b>#0040 · 14:05</b><small>2 item · Cash</small></div><div style="text-align:right"><b class="num">27.000</b><br><span class="badge b-void_requested">Menunggu void</span></div></div>
+  <div class="line"><div class="t"><b>#0039 · 13:48</b><small>1 item · Cash</small></div><div style="text-align:right"><b class="num">12.000</b><br><span class="badge b-voided">Dibatalkan</span></div></div></div>
+ <div class="tabs"><a>Jual</a><a class="on">Riwayat</a><a>Shift</a></div></div>
+ <figcaption><b>K-09 Riwayat (P-09).</b> Hanya shift/hari ini milik pegawai. Filter metode bayar. Tap baris → detail + “Ajukan void” (P-10).</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="btn ghost sm">←</span><b>#0040</b><span class="badge b-paid">Lunas</span></div>
+ <div style="flex:1;padding:16px"><div class="card"><div class="line" style="padding-left:0"><div class="t"><b>Jus Mangga</b><small>1 × Rp 15.000</small></div><b>15.000</b></div><div class="line" style="padding-left:0"><div class="t"><b>Jus Jeruk</b><small>1 × Rp 12.000</small></div><b>12.000</b></div><div class="total" style="padding:12px 0 0"><span>Total</span><span>Rp 27.000</span></div></div>
+ <div class="field" style="margin-top:16px"><label>Alasan void (wajib)</label><div class="input">Salah pesan menu</div><div class="hint">Perlu persetujuan owner: PIN owner di sini atau approve di dashboard.</div></div></div>
+ <div style="padding:16px;display:flex;flex-direction:column;gap:10px"><span class="btn danger lg block">Ajukan pembatalan</span><span class="btn block">Masukkan PIN owner</span></div></div>
+ <figcaption><b>K-10 Detail &amp; void (P-10).</b> Status berubah ke “Menunggu void” sampai owner approve.</figcaption></figure>
+
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="btn ghost sm">←</span><b>Tutup shift</b></div>
+ <div style="flex:1;padding:16px">
+  <div class="card"><table><tr><td>Modal awal</td><td class="r num">200.000</td></tr><tr><td>Penjualan cash</td><td class="r num">640.000</td></tr><tr><td><b>Kas seharusnya</b></td><td class="r num"><b>840.000</b></td></tr><tr><td>Penjualan QRIS</td><td class="r num">310.000</td></tr></table></div>
+  <div class="field" style="margin-top:16px"><label>Uang kas aktual di laci</label><div class="input" style="font-size:26px;font-weight:800">Rp 835.000</div></div>
+  <div class="banner" style="background:var(--warn-bg);color:var(--warn);border-radius:8px">Selisih −Rp 5.000 (kurang). Catatan wajib bila selisih ≠ 0.</div>
+  <div class="field" style="margin-top:10px"><div class="input" style="color:var(--muted)">Catatan selisih…</div></div></div>
+ <div style="padding:16px"><span class="btn primary lg block">Tutup shift &amp; kirim ke owner</span></div></div>
+ <figcaption><b>K-11 Tutup shift (P-12).</b> Selisih dihitung live: hijau = pas, kuning = ≠0. Setelah tutup: ringkasan read-only + “Keluar”.</figcaption></figure>
+</div>
+
+<h2 class="sec">C. Status layar kasir utama (kosong · loading · error · offline)</h2>
+<div class="grid">
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="brand">🍹</span><div class="grow"></div></div>
+ <div class="pgrid" style="grid-template-columns:repeat(2,1fr)"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
+ <figcaption><b>Loading.</b> Skeleton kartu produk (maks. tampil 2 dtk sebelum pesan error); katalog tersimpan lokal → tampil instan dari cache.</figcaption></figure>
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="brand">🍹</span><div class="grow"></div></div>
+ <div class="empty"><div class="ic">🍹</div><b style="color:var(--ink)">Belum ada menu</b>Minta owner menambah produk di dashboard.<span class="btn">Muat ulang</span></div></div>
+ <figcaption><b>Kosong (katalog).</b> Kosong karena pencarian: “Menu ‘xyz’ tidak ditemukan” + tombol Hapus pencarian. Keranjang kosong: “Ketuk menu untuk mulai pesanan”.</figcaption></figure>
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="brand">🍹</span><div class="grow"></div></div>
+ <div class="banner ban-err">⚠ Gagal memuat menu</div>
+ <div class="empty"><div class="ic">📡</div><b style="color:var(--ink)">Tidak bisa terhubung</b>Periksa internet lalu coba lagi. Data lama tetap ditampilkan bila ada.<span class="btn primary">Coba lagi</span></div></div>
+ <figcaption><b>Error.</b> Error simpan transaksi: dialog “Transaksi belum tersimpan” + Coba lagi (keranjang tidak hilang).</figcaption></figure>
+<figure class="fig"><div class="frame phone">
+ <div class="bar"><span class="brand">🍹</span><span class="chip on" style="min-height:32px">Shift 1</span><div class="grow"></div></div>
+ <div class="banner ban-off">📴 Offline — cash tetap bisa. 3 transaksi menunggu sinkron</div>
+ <div class="pgrid" style="grid-template-columns:repeat(2,1fr);flex:1"><div class="pcard"><div class="img">🍊</div><div class="nm">Jus Jeruk</div><div class="pr">Rp 12.000</div></div><div class="pcard"><div class="img">🥭</div><div class="nm">Jus Mangga</div><div class="pr">Rp 15.000</div></div></div>
+ <div style="padding:12px"><div class="row"><span class="btn accent lg">💵 Cash</span><span class="btn lg off">▦ QRIS</span></div><div class="hint" style="text-align:center">QRIS butuh internet</div></div></div>
+ <figcaption><b>Offline (P-13).</b> Banner kuning persisten dengan antrean sinkron; QRIS nonaktif; struk ditandai “menunggu sinkron”. Saat pulih: banner hijau “Tersinkron ✓” 3 dtk.</figcaption></figure>
+</div>
+</div></body></html>
