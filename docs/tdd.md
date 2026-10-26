@@ -1,6 +1,19 @@
-Technical Design Document — Kelola Kasir (Toko Jus) · MVP v1
+Technical Design Document — Kelola Kasir (Toko Jus) · MVP v1.1
 
-Status: Draft v1 · Penyusun: Tech Lead · Tanggal: 2026-10-26 · Sumber: PRD Kelola Kasir v1 (DEAR-3 / DEAR-4)
+Status: v1.1 (disetujui owner, dengan perubahan dari DEAR-6) · Penyusun: Tech Lead · Tanggal: 2026-10-26 · Sumber: PRD Kelola Kasir v1 (DEAR-3 / DEAR-4), desain final DEAR-5
+
+### Perubahan v1 → v1.1
+
+| # | Keputusan | Dampak di dokumen ini |
+|---|---|---|
+| 1 | Tidak ada varian/opsi produk (ukuran, gula, es, topping). Satu produk = satu harga. | Tabel `option_groups`, `options`, `product_option_groups`, `transaction_item_options` dihapus. `products.base_price` → `products.price`. Item transaksi = produk + qty + snapshot harga. Task M-7 dan F-5 dihapus, B-5 tanpa opsi. |
+| 2 | Kasir = HP Android portrait (360–430 px). Tablet tidak didukung di MVP. | D-2 final. Layout kasir satu kolom (desain DEAR-5). |
+| 3 | Cetak struk thermal Bluetooth ESC/POS 58 mm = **Must**. | P-08 naik ke Must. Bagian §2.6 baru. M-11 jadi Must, termasuk layar Printer (K-12). |
+| 4 | QRIS statis + konfirmasi manual lewat `PaymentProvider`. | D-1 final (sudah sesuai v1). |
+| 5 | Status `cancelled` ditambahkan (Q-1). | Q-1 ditutup. |
+| 6 | Tutup shift boleh saat offline, dengan peringatan keras dan sinkron belakangan (Q-3). | §2.5, mutasi `shift.close` di outbox, penanda `after_shift_close`. |
+| 7 | Satu shift aktif per gerai. Pegawai lain bisa login di shift yang sama, dan setiap transaksi dicatat atas nama kasirnya. Serah terima = tutup lalu buka shift (Q-4). | §2.5, unique index shift terbuka per outlet, `ShiftSummary.by_employee`. Buka shift wajib online (R-8). |
+| 8 | Header/footer struk diatur owner di Pengaturan toko. | `outlet_settings.receipt_header` dan `receipt_footer`. |
 
 ## 0. Ringkasan
 
@@ -9,7 +22,7 @@ Kelola Kasir terdiri dari tiga komponen dalam satu monorepo TypeScript:
 | Komponen | Teknologi | Pengguna |
 |---|---|---|
 | `apps/api` | Node.js 22 + Fastify + Drizzle ORM + PostgreSQL 16 | Semua klien |
-| `apps/kasir` | React Native (Expo, dev build) + SQLite lokal, offline-first | Pegawai (Android tablet/HP) |
+| `apps/kasir` | React Native (Expo, dev build) + SQLite lokal, offline-first | Pegawai (HP Android portrait) |
 | `apps/dashboard` | React + Vite SPA + TanStack Query + Tailwind | Owner (web responsif) |
 | `packages/contracts` | Skema Zod + tipe yang di-generate dari OpenAPI | Dipakai bersama |
 
@@ -17,24 +30,28 @@ Hosting: Railway (API + Postgres, sudah dipakai di proyek Dear Fruity), Cloudfla
 
 Keputusan desain kunci:
 1. **Uang = integer Rupiah** (`BIGINT`), tanpa desimal di seluruh lapisan (DB, API, aplikasi).
-2. **Snapshot harga**: nama, harga, dan opsi produk disalin ke `transaction_items`/`transaction_item_options` saat transaksi dibuat.
+2. **Snapshot harga**: nama dan harga produk disalin ke `transaction_items` saat transaksi dibuat. Produk tidak punya varian/opsi.
 3. **ID dibuat di klien (UUIDv7)** + nomor transaksi yang unik per perangkat → transaksi cash bisa dibuat offline dan disinkron secara idempoten.
 4. **Perangkat terdaftar + PIN pegawai**: perangkat di-pair oleh owner; pegawai login dengan PIN 6 digit hanya di perangkat terdaftar.
 5. **Abstraksi `PaymentProvider`**: QRIS statis (konfirmasi manual) di MVP; QRIS dinamis (Midtrans/Xendit) cukup menambah implementasi provider tanpa mengubah alur kasir.
+6. **Satu shift terbuka per gerai**, dipakai bersama semua perangkat; setiap transaksi mencatat pegawai pembuatnya.
+7. **Cetak struk ESC/POS 58 mm dari aplikasi kasir** (Bluetooth), diformat dari data lokal sehingga tetap jalan saat offline.
 
 Dokumen terkait:
-- ADR: `docs/adr/0001`–`0008`
-- API contract: `docs/api/openapi.yaml` (OpenAPI 3.1, draft)
+- ADR: `docs/adr/0001`–`0010`
+- API contract: `docs/api/openapi.yaml` (OpenAPI 3.1, v0.2.0-draft)
+- Desain: `docs/design/` (DEAR-5, tema gelap, kasir HP portrait)
 
-## 1. Asumsi & Keputusan Owner (D-1/D-2/D-3)
+## 1. Keputusan Owner (D-1/D-2/D-3) — final
 
-Keputusan PRD §7 **belum dijawab owner**. TDD ini memakai asumsi berikut; semuanya bisa diubah tanpa merombak arsitektur.
-
-| ID | Asumsi yang dipakai | Dampak bila owner memilih lain |
+| ID | Keputusan | Catatan |
 |---|---|---|
-| D-1 QRIS | **(a) QRIS statis** + konfirmasi manual pegawai. Arsitektur siap (b) lewat `PaymentProvider`. | (b) → tambah `MidtransQrisProvider`/`XenditQrisProvider` + webhook; aplikasi kasir tidak berubah (layar QRIS sudah mendukung mode `auto`). Butuh verifikasi merchant (±1–2 minggu) dan MDR ±0,7%. |
-| D-2 Perangkat | **Android** (tablet 8"+ landscape & HP portrait). | iPad → React Native tetap jalan, tetapi perlu akun Apple Developer (US$99/tahun) dan distribusi via TestFlight/ABM; printer Bluetooth di iOS lebih terbatas (MFi). |
-| D-3 Printer | **Struk digital (share WhatsApp/gambar) wajib; cetak thermal Bluetooth ESC/POS opsional** (P-08 Should) di belakang feature flag. | Bila printer wajib di MVP → task Mobile M-11 naik prioritas, perlu 1 unit printer uji (58 mm ESC/POS). |
+| D-1 QRIS | **QRIS statis** + konfirmasi manual pegawai, lewat `PaymentProvider`. | Pindah ke QRIS dinamis (Midtrans/Xendit) cukup menambah provider + webhook; aplikasi kasir tidak berubah (layar QRIS sudah mendukung mode `auto`). |
+| D-2 Perangkat | **HP Android portrait** (lebar 360–430 px). Tablet tidak didukung di MVP. | iPad/tablet bisa ditambah nanti tanpa ganti stack. |
+| D-3 Printer | **Cetak struk thermal Bluetooth ESC/POS 58 mm = Must**, ditambah struk digital (share WhatsApp). | Butuh 1 unit printer uji 58 mm ESC/POS (desain memakai contoh RPP02N). Lihat §2.6. |
+| Q-1 | Status `cancelled` untuk QRIS `pending` yang dibatalkan/kedaluwarsa. | §3.3. |
+| Q-3 | Tutup shift boleh offline, dengan peringatan keras, lalu sinkron belakangan. | §2.5. |
+| Q-4 | Satu shift aktif per gerai; pegawai lain login di shift yang sama; transaksi dicatat atas nama kasirnya; serah terima = tutup lalu buka shift. | §2.5. |
 
 Asumsi lain:
 - A-1: 1 gerai di MVP, 1–2 perangkat kasir aktif per gerai, ≤ 500 transaksi/hari.
@@ -48,10 +65,10 @@ Asumsi lain:
 
 ```mermaid
 flowchart LR
-  subgraph Gerai["Gerai (Android)"]
+  subgraph Gerai["Gerai (HP Android)"]
     K["Aplikasi Kasir<br/>React Native/Expo"]
     DB[("SQLite lokal<br/>katalog + outbox")]
-    P["Printer thermal BT<br/>(opsional)"]
+    P["Printer thermal BT 58 mm<br/>ESC/POS"]
     K <--> DB
     K -. ESC/POS .-> P
   end
@@ -96,15 +113,18 @@ kelola-kasir/
 │   ├── kasir/          # Expo (React Native), expo-sqlite, Drizzle (SQLite)
 │   └── dashboard/      # React + Vite, TanStack Router/Query, Tailwind
 ├── packages/
-│   ├── contracts/      # Zod schema + tipe hasil generate dari openapi.yaml
-│   ├── money/          # helper Rupiah (format, parse, sum) — integer only
-│   └── config/         # eslint, tsconfig, prettier bersama
+│   ├── contracts/      # tipe hasil generate dari openapi.yaml (+ skema Zod)
+│   └── money/          # helper Rupiah (format, parse, sum) — integer only
 ├── docs/
 │   ├── tdd.md
 │   ├── adr/
-│   └── api/openapi.yaml
-└── .github/workflows/  # CI: lint, typecheck, test, openapi lint
+│   ├── api/openapi.yaml
+│   └── design/         # desain final DEAR-5 (HTML/CSS/PNG)
+├── tsconfig.base.json, eslint.config.mjs, .prettierrc.json   # konfigurasi bersama di root
+└── .github/workflows/  # CI: lint, typecheck, test, openapi lint, gitleaks
 ```
+
+`pnpm mock` menjalankan mock API (Prism) dari `docs/api/openapi.yaml` di `http://localhost:4010` agar Mobile/Frontend bisa mulai sebelum API jadi.
 
 Tooling: pnpm workspaces + Turborepo, TypeScript strict, ESLint + Prettier, Vitest, Playwright (dashboard e2e), Maestro (kasir e2e, opsional).
 
@@ -138,13 +158,13 @@ Otorisasi role-based (RBAC) di API, bukan di klien:
 
 | Kemampuan | cashier | owner |
 |---|---|---|
-| Buka/tutup shift sendiri, buat transaksi, konfirmasi QRIS | ✅ | — |
-| Lihat transaksi | hanya shift/hari ini di outlet & perangkatnya | semua |
+| Buka/tutup shift gerai, buat transaksi, konfirmasi QRIS, cetak/cetak ulang struk | ✅ | — |
+| Lihat transaksi | hanya shift berjalan/hari ini di outletnya | semua |
 | Ajukan void | ✅ | ✅ (langsung void) |
 | Approve/tolak void | — | ✅ |
 | Tandai produk habis | ✅ | ✅ |
 | Dashboard omzet, laporan, ekspor | ❌ (PRD §5) | ✅ |
-| CRUD produk/kategori/opsi, pegawai, perangkat, pengaturan | — | ✅ |
+| CRUD produk/kategori, pegawai, perangkat, pengaturan (termasuk header/footer struk) | — | ✅ |
 
 **Login PIN saat offline** (P-13, Should): server mengirim daftar `{employee_id, pin_hash}` (argon2id, parameter berat) pegawai aktif outlet tersebut ke perangkat terdaftar, disimpan terenkripsi (expo-secure-store). Saat offline, kasir memverifikasi PIN lokal dan bekerja dengan "sesi offline"; semua transaksi tetap ditandatangani `device_id` + `employee_id` dan divalidasi ulang server saat sinkron. Risiko: hash PIN 6 digit bisa di-brute-force bila perangkat dibobol → mitigasi: hanya di perangkat terdaftar, revoke perangkat menghapus cache saat online berikutnya, dan PIN pegawai berbeda dari PIN owner. Ditandai sebagai keputusan sadar (ADR-0006).
 
@@ -152,13 +172,32 @@ Otorisasi role-based (RBAC) di API, bukan di klien:
 
 Ringkas (detail di ADR-0003 & ADR-0008):
 
-- **Tarik (pull) katalog & konfigurasi**: `GET /v1/sync/pull?cursor=<opaque>` mengembalikan perubahan kategori, produk, opsi, pegawai (tanpa data sensitif selain pin_hash), status habis, dan pengaturan toko sejak cursor, termasuk tombstone (`deleted_at`). Cursor = `max(updated_seq)` dari sequence Postgres global.
-- **Dorong (push) transaksi**: transaksi, item, pembayaran cash, buka/tutup shift, permintaan void ditulis dulu ke tabel `outbox` di SQLite, lalu dikirim batch ke `POST /v1/sync/push`. Setiap mutasi punya `id` UUIDv7 dari klien → **idempoten** (kirim ulang aman; server membalas `applied`/`duplicate`/`rejected` per item).
+- **Tarik (pull) katalog & konfigurasi**: `GET /v1/sync/pull?cursor=<opaque>` mengembalikan perubahan kategori, produk, pegawai (tanpa data sensitif selain pin_hash), status habis, pengaturan toko (termasuk header/footer struk), dan shift yang sedang terbuka (`current_shift`) sejak cursor, termasuk tombstone (`deleted_at`). Cursor = `max(updated_seq)` dari sequence Postgres global.
+- **Dorong (push) transaksi**: transaksi, item, pembayaran cash, tutup shift, permintaan void ditulis dulu ke tabel `outbox` di SQLite, lalu dikirim batch ke `POST /v1/sync/push`. Setiap mutasi punya `id` UUIDv7 dari klien → **idempoten** (kirim ulang aman; server membalas `applied`/`duplicate`/`rejected` per item).
 - **Nomor transaksi** dibuat di klien: `{OUTLET}-{DEV}-{YYMMDD}-{seq4}`, mis. `JUS1-K01-261026-0042`. `DEV` = kode perangkat 3 karakter dari server saat pairing, `seq` reset harian per perangkat → unik tanpa koordinasi server. Constraint unik `(outlet_id, number)` di DB.
-- **Konflik**: transaksi bersifat append-only, jadi konflik hanya mungkin pada (1) harga berubah saat kasir offline → server **menerima** snapshot klien dan menandai `price_mismatch=true` + audit log (bukan menolak, agar penjualan nyata tidak hilang); (2) produk dinonaktifkan → sama, diterima + ditandai; (3) shift sudah ditutup di server → ditolak dengan kode `SHIFT_CLOSED` dan ditampilkan ke pegawai.
+- **Konflik**: transaksi bersifat append-only, jadi konflik hanya mungkin pada (1) harga berubah saat kasir offline → server **menerima** snapshot klien dan menandai `price_mismatch=true` + audit log (bukan menolak, agar penjualan nyata tidak hilang); (2) produk dinonaktifkan → sama, diterima + ditandai; (3) shift sudah ditutup di server → lewat `/sync/push` tetap **diterima** dan, bila `client_created_at` > `closed_at`, ditandai `after_shift_close` (dilaporkan terpisah di ringkasan shift); lewat `POST /transactions` online ditolak `SHIFT_CLOSED` agar pegawai membuka shift baru.
 - **QRIS hanya online.** Tombol QRIS dinonaktifkan saat offline (desain: perlu state disabled + pesan).
 - **Waktu**: simpan `client_created_at` (jam perangkat) dan `server_received_at`. Laporan memakai `client_created_at`; selisih > 10 menit ditandai `clock_skew` di audit.
 - Online-first untuk layar owner: dashboard tidak punya mode offline.
+
+### 2.5 Shift: satu shift aktif per gerai
+
+- **Satu shift `open` per outlet**, ditegakkan di DB dengan unique partial index `shifts (outlet_id) WHERE status = 'open'`. Semua perangkat terdaftar di gerai memakai shift yang sama.
+- **Buka shift wajib online** (`POST /v1/shifts`). Hanya dengan begitu aturan satu shift bisa ditegakkan tanpa konflik. Bila sudah ada shift terbuka, API membalas `409 SHIFT_ALREADY_OPEN` dan aplikasi langsung bergabung ke shift itu. Perangkat lain mengetahui shift aktif dari `GET /v1/shifts/current` atau `current_shift` di `/sync/pull`. Konsekuensinya ada di R-8.
+- **Pegawai lain** login PIN di perangkat mana pun dan bertransaksi di shift yang sama. `transactions.employee_id` = pegawai yang login saat transaksi dibuat. Ringkasan shift memuat rincian per kasir (`by_employee`).
+- **Serah terima** = pegawai A menutup shift (hitung kas), lalu pegawai B membuka shift baru dengan modal kas.
+- **Tutup shift offline** diizinkan setelah peringatan keras ("N transaksi belum tersinkron; ringkasan bisa berubah setelah sinkron"). Aplikasi menyimpan mutasi `shift.close` di outbox dengan `closed_offline=true`. Saat diterapkan, server menghitung ulang ringkasan dari semua transaksi shift dengan `client_created_at ≤ closed_at`. Selama perangkat masih offline, perangkat itu menganggap shift sudah tutup dan meminta buka shift baru saat online.
+- Transaksi offline dari perangkat lain yang tiba setelah shift ditutup tidak dibuang (prinsip "penjualan nyata tidak hilang"). Transaksi itu diterima, ditandai `after_shift_close` bila dibuat setelah `closed_at`, dan dilaporkan di `late_transaction_count`/`late_cash_amount` agar owner bisa menjelaskan selisih kas.
+- Tutup shift ditolak `409 PENDING_QRIS_EXISTS` bila masih ada QRIS `pending`. Pegawai harus konfirmasi atau batalkan dulu.
+
+### 2.6 Cetak struk (thermal Bluetooth ESC/POS 58 mm)
+
+- **Di mana**: aplikasi kasir (React Native dev build) memakai modul native Bluetooth Classic (SPP) untuk printer ESC/POS 58 mm (32 karakter per baris, font A). Library dipilih di M-11 setelah uji dengan printer nyata; antarmuka dibungkus `ReceiptPrinter` agar bisa diganti.
+- **Layar Printer (K-12)**: pindai perangkat terpasang/terdekat, hubungkan, cetak tes. Alamat MAC printer terakhir disimpan lokal per perangkat dan dihubungkan ulang otomatis saat app dibuka atau sebelum mencetak. Izin Android 12+: `BLUETOOTH_CONNECT` dan `BLUETOOTH_SCAN`.
+- **Toggle "Cetak struk"** di layar Cash dan QRIS. Default aktif, diingat per perangkat. Bila aktif, struk dicetak otomatis setelah transaksi `paid` (cash: setelah "Uang Pas"/"Bayar", jadi alur tetap 3 tap; QRIS: setelah konfirmasi). Pencetakan berjalan di latar belakang dan **tidak memblokir** penyimpanan transaksi.
+- **Gagal cetak**: transaksi tetap tersimpan. Layar sukses menampilkan banner "Printer tidak tersambung" dengan "Coba lagi"/"Lewati". **Cetak ulang** tersedia di layar sukses dan detail riwayat; salinan ulang diberi tanda `CETAK ULANG`.
+- **Isi struk**: nama toko, alamat, telepon, `receipt_header` (owner), nomor transaksi, waktu (WIB), nama kasir, item (nama × qty, harga satuan, subtotal baris), total, metode bayar, tunai & kembalian (cash), status, `receipt_footer` (owner). Struk diformat di klien dari SQLite + pengaturan yang tersinkron, sehingga **bisa dicetak saat offline**. `GET /v1/transactions/{id}/receipt` dipakai untuk struk digital, cetak ulang dari perangkat lain, dan pratinjau di dashboard.
+- **Formatter** ESC/POS (teks → byte, termasuk pemotongan nama panjang dan perataan kolom harga) ditulis sebagai fungsi murni di `packages/receipt` (atau di `apps/kasir` sampai dipakai ulang) supaya bisa di-unit-test tanpa printer.
 
 ## 3. Data Model
 
@@ -174,17 +213,13 @@ erDiagram
   OUTLETS ||--o{ CATEGORIES : has
   OUTLETS ||--o{ PRODUCTS : sells
   CATEGORIES ||--o{ PRODUCTS : groups
-  OUTLETS ||--o{ OPTION_GROUPS : defines
-  OPTION_GROUPS ||--o{ OPTIONS : contains
-  PRODUCTS ||--o{ PRODUCT_OPTION_GROUPS : uses
-  OPTION_GROUPS ||--o{ PRODUCT_OPTION_GROUPS : "attached to"
   OUTLETS ||--o{ SHIFTS : has
   EMPLOYEES ||--o{ SHIFTS : opens
-  DEVICES ||--o{ SHIFTS : "runs on"
+  DEVICES ||--o{ SHIFTS : "opened on"
+  DEVICES ||--o{ TRANSACTIONS : "created on"
   SHIFTS ||--o{ TRANSACTIONS : contains
   EMPLOYEES ||--o{ TRANSACTIONS : creates
   TRANSACTIONS ||--o{ TRANSACTION_ITEMS : has
-  TRANSACTION_ITEMS ||--o{ TRANSACTION_ITEM_OPTIONS : has
   TRANSACTIONS ||--o{ PAYMENTS : "paid by"
   TRANSACTIONS ||--o{ VOID_REQUESTS : "may have"
   OUTLETS ||--o{ AUDIT_LOGS : records
@@ -213,8 +248,10 @@ erDiagram
     uuid outlet_id PK
     string display_name
     string address
+    string phone
     string logo_url
-    string receipt_footer
+    string receipt_header "baris tambahan di bawah nama toko"
+    string receipt_footer "ucapan penutup"
     string qris_mode "static|dynamic"
     string qris_static_payload "EMVCo string"
     string qris_static_image_url
@@ -251,38 +288,17 @@ erDiagram
     uuid category_id FK
     string name
     string image_url
-    bigint base_price "Rupiah"
+    bigint price "Rupiah, satu harga per produk"
     bool is_active
     bool is_sold_out
     int sort_order
     timestamptz deleted_at
   }
-  OPTION_GROUPS {
-    uuid id PK
-    uuid outlet_id FK
-    string name "Ukuran, Gula, Es, Topping"
-    string selection "single|multiple"
-    bool is_required
-    int min_select
-    int max_select
-  }
-  OPTIONS {
-    uuid id PK
-    uuid option_group_id FK
-    string name "Large, Less sugar, Nata de coco"
-    bigint price_delta "Rupiah, >= 0"
-    bool is_default
-    bool is_active
-  }
-  PRODUCT_OPTION_GROUPS {
-    uuid product_id FK
-    uuid option_group_id FK
-    int sort_order
-  }
   SHIFTS {
     uuid id PK "UUIDv7 dari klien"
-    uuid outlet_id FK
-    uuid device_id FK
+    uuid outlet_id FK "unik bila status=open"
+    uuid opened_device_id FK
+    uuid closed_device_id FK
     uuid opened_by FK
     uuid closed_by FK
     string status "open|closed"
@@ -296,13 +312,14 @@ erDiagram
     timestamptz opened_at
     timestamptz closed_at
     string closing_note
+    bool closed_offline
   }
   TRANSACTIONS {
     uuid id PK "UUIDv7 dari klien"
     uuid outlet_id FK
     uuid shift_id FK
     uuid device_id FK
-    uuid employee_id FK
+    uuid employee_id FK "kasir yang login"
     string number UK "JUS1-K01-261026-0042"
     string status "pending|paid|void_requested|voided|cancelled"
     string payment_method "cash|qris"
@@ -312,6 +329,7 @@ erDiagram
     bigint tax_amount "0 di MVP"
     bigint total
     bool price_mismatch
+    bool after_shift_close
     timestamptz client_created_at
     timestamptz server_received_at
     timestamptz paid_at
@@ -322,20 +340,10 @@ erDiagram
     uuid transaction_id FK
     uuid product_id FK "referensi, boleh null bila dihapus"
     string product_name "snapshot"
-    bigint unit_base_price "snapshot"
-    bigint unit_options_price "snapshot"
-    bigint unit_price "base + options"
+    bigint unit_price "snapshot harga produk"
     int quantity
     bigint line_total
     string note
-  }
-  TRANSACTION_ITEM_OPTIONS {
-    uuid id PK
-    uuid transaction_item_id FK
-    uuid option_id FK
-    string group_name "snapshot"
-    string option_name "snapshot"
-    bigint price_delta "snapshot"
   }
   PAYMENTS {
     uuid id PK
@@ -388,20 +396,20 @@ Tabel pendukung (tidak digambar): `refresh_tokens`, `device_pairing_codes`, `ide
 | Aturan PRD | Implementasi |
 |---|---|
 | Nomor unik, waktu, pegawai, shift, item, total, metode, status | Kolom `NOT NULL` di `transactions`; unik `(outlet_id, number)`; FK ke `shifts`, `employees`. |
-| Status `paid`, `pending`, `void_requested`, `voided` | `CHECK (status IN (...))` + state machine di service (§3.3). Diusulkan status tambahan `cancelled` untuk QRIS `pending` yang dibatalkan/kedaluwarsa (open question Q-1). |
+| Status `paid`, `pending`, `void_requested`, `voided` | `CHECK (status IN (...))` + state machine di service (§3.3), ditambah status `cancelled` untuk QRIS `pending` yang dibatalkan/kedaluwarsa (keputusan Q-1). `cancelled` tidak masuk total mana pun. |
 | `paid` tidak bisa diedit, hanya void + jejak audit | Tidak ada endpoint `PATCH /transactions`. Trigger DB menolak `UPDATE` pada kolom finansial bila `status <> 'pending'`. Void hanya via `void_requests` + `audit_logs`. |
-| Snapshot harga | `transaction_items.product_name/unit_*` dan `transaction_item_options.*_name/price_delta` disalin saat transaksi dibuat; tidak ada join ke harga produk untuk laporan. |
+| Snapshot harga | `transaction_items.product_name` dan `unit_price` disalin saat transaksi dibuat; tidak ada join ke harga produk untuk laporan. |
 | Integer Rupiah | Semua kolom uang `BIGINT NOT NULL CHECK (>= 0)` (kecuali `cash_difference` boleh negatif). JSON API memakai integer; klien format dengan `packages/money`. |
 | Pegawai tidak bisa lihat omzet keseluruhan | Endpoint `/v1/reports/*` & `/v1/dashboard/*` hanya untuk role owner; endpoint kasir `/v1/transactions` di-scope ke perangkat + shift/hari ini. Ringkasan tutup shift hanya untuk shift milik pegawai itu. |
-| Audit log void & perubahan harga | `audit_logs` ditulis dalam transaksi DB yang sama untuk: `transaction.void_requested/approved/rejected`, `product.price_changed`, `option.price_changed`, `product.deleted`, `employee.pin_reset`, `device.revoked`, `payment.qris_manual_confirmed`, `sync.price_mismatch`. Tabel append-only (role DB aplikasi tidak punya `UPDATE/DELETE`). |
+| Audit log void & perubahan harga | `audit_logs` ditulis dalam transaksi DB yang sama untuk: `transaction.void_requested/approved/rejected`, `product.price_changed`, `product.deleted`, `shift.closed_offline`, `employee.pin_reset`, `device.revoked`, `payment.qris_manual_confirmed`, `sync.price_mismatch`. Tabel append-only (role DB aplikasi tidak punya `UPDATE/DELETE`). |
 | Backup harian | Snapshot Railway + `pg_dump` harian terenkripsi ke R2, retensi 30 hari (ADR-0005). |
 
 Perhitungan (dihitung di klien untuk UX, **divalidasi ulang di server**):
-- `unit_price = unit_base_price + Σ price_delta`
+- `unit_price` = snapshot `products.price`
 - `line_total = unit_price × quantity`
 - `subtotal = Σ line_total`; `total = subtotal − discount_amount + tax_amount`
 - Cash: `cash_change = cash_tendered − total`, wajib `cash_tendered ≥ total`.
-- Tutup shift: `expected_cash = opening_cash + Σ total (cash, status paid|void_requested)`; `cash_difference = actual_cash − expected_cash`. Transaksi `voided` dikeluarkan dari total. Transaksi `void_requested` tetap dihitung sampai diputuskan (dicatat terpisah di ringkasan).
+- Tutup shift: `expected_cash = opening_cash + Σ total (cash, status paid|void_requested, client_created_at ≤ closed_at)`; `cash_difference = actual_cash − expected_cash`. Transaksi `voided` dan `cancelled` dikeluarkan dari total. Transaksi `void_requested` tetap dihitung sampai diputuskan (dicatat terpisah di ringkasan). Transaksi `after_shift_close` dilaporkan terpisah (`late_*`).
 
 ### 3.3 State machine transaksi
 
@@ -423,6 +431,7 @@ stateDiagram-v2
 
 - `transactions (outlet_id, client_created_at DESC)`, `(shift_id)`, `(outlet_id, status)`, `(outlet_id, employee_id, client_created_at)`.
 - `products (outlet_id, updated_seq)`, sama untuk tabel katalog lain (pull sync).
+- `UNIQUE shifts (outlet_id) WHERE status = 'open'` → satu shift aktif per gerai (§2.5).
 - Dashboard O-02 memakai query agregat langsung ke `transactions`/`transaction_items` (volume ≤ 500 trx/hari → < 200k baris/tahun, cukup tanpa tabel agregat). Bila nanti lambat: materialized view `daily_sales` di-refresh tiap 5 menit.
 - Layar kasir < 300 ms per tap: semua interaksi katalog/keranjang di SQLite lokal & state memori; tidak ada panggilan jaringan di jalur tap.
 
@@ -430,7 +439,7 @@ stateDiagram-v2
 
 Kontrak lengkap: `docs/api/openapi.yaml` (OpenAPI 3.1). Konvensi:
 - Base path `/v1`, JSON, `snake_case`, uang integer Rupiah, waktu ISO-8601 UTC.
-- Error: `application/problem+json` dengan `code` stabil (mis. `SHIFT_NOT_OPEN`, `SHIFT_CLOSED`, `INVALID_PIN`, `PIN_LOCKED`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE`, `TRANSACTION_NOT_EDITABLE`, `QRIS_OFFLINE_UNSUPPORTED`).
+- Error: `application/problem+json` dengan `code` stabil (mis. `SHIFT_NOT_OPEN`, `SHIFT_ALREADY_OPEN`, `SHIFT_CLOSED`, `INVALID_PIN`, `PIN_LOCKED`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE`, `TRANSACTION_NOT_EDITABLE`, `QRIS_OFFLINE_UNSUPPORTED`).
 - Pagination: cursor (`?cursor=&limit=`), default 50, max 200.
 - Idempoten: semua `POST` pembuatan dari kasir memakai `id` klien; endpoint online lain menerima header `Idempotency-Key`.
 - Security scheme: `ownerAuth` (Bearer JWT owner), `employeeAuth` (Bearer JWT pegawai + header `X-Device-Token`), `deviceAuth` (hanya `X-Device-Token`).
@@ -440,25 +449,26 @@ Kontrak lengkap: `docs/api/openapi.yaml` (OpenAPI 3.1). Konvensi:
 | Fitur | Endpoint | Tabel utama |
 |---|---|---|
 | P-01 Login PIN di perangkat terdaftar | `POST /devices` (owner), `POST /devices/pair`, `GET /devices/me/employees`, `POST /auth/pin-login`, `POST /auth/pin-logout` | devices, device_pairing_codes, employees |
-| P-02 Buka shift | `POST /shifts`, `GET /shifts/current` | shifts |
-| P-03 Katalog | `GET /catalog` (snapshot penuh), `GET /sync/pull` | categories, products, option_groups, options, product_option_groups |
-| P-04 Varian/opsi | (bagian dari `GET /catalog`); validasi di `POST /transactions` | option_groups, options, transaction_item_options |
+| P-02 Buka shift (satu per gerai, wajib online) | `POST /shifts`, `GET /shifts/current` | shifts |
+| P-03 Katalog | `GET /catalog` (snapshot penuh), `GET /sync/pull` | categories, products |
+| ~~P-04 Varian/opsi~~ | Dihapus (keputusan v1.1 #1) | — |
 | P-05 Keranjang | lokal di aplikasi; dikirim saat checkout lewat `POST /transactions` (`items[].note`, `customer_label`) | transactions, transaction_items |
 | P-06 Bayar cash | `POST /transactions` dengan `payment.method=cash` (online) atau `POST /sync/push` (offline) | transactions, payments |
 | P-07 Bayar QRIS | `POST /transactions` dengan `payment.method=qris` → `GET /payments/{id}` (poll) → `POST /payments/{id}/confirm` (statis) / webhook (dinamis); `POST /payments/{id}/cancel` | payments, transactions |
+| P-08 Struk digital + cetak thermal (Must) | `GET /transactions/{id}/receipt`; cetak ESC/POS di klien dari data lokal + `GET /settings`/`/sync/pull` | transactions, outlet_settings |
 | P-09 Riwayat transaksi | `GET /transactions?scope=shift/today&payment_method=`, `GET /transactions/{id}` | transactions, transaction_items, payments |
-| P-12 Tutup shift | `GET /shifts/{id}/summary`, `POST /shifts/{id}/close` | shifts, transactions |
+| P-12 Tutup shift (boleh offline) | `GET /shifts/{id}/summary`, `POST /shifts/{id}/close`, atau mutasi `shift.close` di `POST /sync/push` | shifts, transactions |
 | O-01 Login owner | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /me` | users, refresh_tokens |
 | O-02 Dashboard | `GET /dashboard/summary?date_from=&date_to=`, `GET /dashboard/sales-series?granularity=hour/day`, `GET /dashboard/top-products` | transactions, transaction_items |
 | O-03 Daftar transaksi + ekspor | `GET /transactions` (filter tanggal, pegawai, metode, status), `GET /transactions/{id}`, `GET /transactions/export?format=csv/xlsx` | transactions, transaction_items, payments |
 | O-04 Kelola produk | `GET/POST /products`, `GET/PATCH/DELETE /products/{id}`, `POST /uploads` (presigned, `purpose=product_image`) | products, audit_logs |
-| O-05 Kategori & varian/add-on | `GET/POST /categories`, `PATCH/DELETE /categories/{id}`, `GET/POST /option-groups`, `PATCH/DELETE /option-groups/{id}`, `PUT /products/{id}/option-groups` | categories, option_groups, options, product_option_groups |
+| O-05 Kategori | `GET/POST /categories`, `PATCH/DELETE /categories/{id}` (tanpa varian/add-on) | categories |
 | O-06 Kelola pegawai | `GET/POST /employees`, `PATCH /employees/{id}` (nonaktifkan), `POST /employees/{id}/reset-pin` | employees, audit_logs |
 | O-07 Riwayat shift & rekonsiliasi | `GET /shifts?date_from=&date_to=&employee_id=`, `GET /shifts/{id}/summary` | shifts |
-| O-10 Pengaturan toko + QRIS | `GET/PATCH /settings`, `POST /uploads` (`purpose=logo/qris_image`) | outlet_settings |
+| O-10 Pengaturan toko + QRIS + header/footer struk | `GET/PATCH /settings` (`receipt_header`, `receipt_footer`), `POST /uploads` (`purpose=logo/qris_image`) | outlet_settings |
 | Perangkat (pendukung P-01) | `GET /devices`, `POST /devices/{id}/revoke` | devices |
 
-Fitur Should yang sudah disiapkan kontraknya (boleh diimplementasikan setelah Must): P-08 `GET /transactions/{id}/receipt` (data struk), P-10 `POST /transactions/{id}/void-requests`, P-11 `PATCH /products/{id}/availability`, P-13 `POST /sync/push`, O-08 `GET /void-requests`, `POST /void-requests/{id}/approve/reject`, `POST /void-requests/{id}/approve-with-pin`, O-09 `GET /reports/sales?group_by=product/employee/payment_method/day`.
+Fitur Should yang sudah disiapkan kontraknya (boleh diimplementasikan setelah Must): P-10 `POST /transactions/{id}/void-requests`, P-11 `PATCH /products/{id}/availability`, P-13 `POST /sync/push`, O-08 `GET /void-requests`, `POST /void-requests/{id}/approve/reject`, `POST /void-requests/{id}/approve-with-pin`, O-09 `GET /reports/sales?group_by=product/employee/payment_method/day`.
 
 ## 5. Desain Pembayaran QRIS
 
@@ -545,28 +555,30 @@ Kontrak klien **tidak berubah** antar mode; aplikasi kasir hanya membaca `confir
 |---|---|---|
 | R-1 | QRIS statis: pegawai salah konfirmasi (klik "Sudah Dibayar" tanpa dana masuk) / fraud. | Dialog konfirmasi, audit per pegawai, laporan QRIS manual per shift untuk dicocokkan owner dengan mutasi bank; rencana pindah ke dinamis (D-1 b). |
 | R-2 | Rekonsiliasi QRIS tidak otomatis di MVP → selisih QRIS tak terdeteksi oleh tutup shift (yang hanya menghitung kas). | Ringkasan tutup shift menampilkan total QRIS terpisah; owner cek mutasi; fase 2 dinamis. |
-| R-3 | Offline lama → data transaksi hanya di perangkat; perangkat hilang/rusak = data hilang. | Sinkron otomatis tiap 30 dtk; banner "N transaksi belum tersinkron"; tutup shift wajib online (atau peringatan keras bila offline). |
+| R-3 | Offline lama → data transaksi hanya di perangkat; perangkat hilang/rusak = data hilang. Tutup shift offline bisa membuat ringkasan berubah setelah sinkron. | Sinkron otomatis tiap 30 dtk; banner "N transaksi belum tersinkron"; tutup shift offline dengan peringatan keras; ringkasan dihitung ulang server dan transaksi telat ditandai `after_shift_close`. |
 | R-4 | Jam perangkat salah → laporan per jam keliru. | Simpan `server_received_at`, tandai skew > 10 menit, aplikasi menampilkan peringatan jam. |
 | R-5 | Brute-force PIN dari cache offline. | Argon2id berat, cache hanya di perangkat terdaftar, revoke perangkat, opsi mematikan login offline. |
-| R-6 | Printer Bluetooth beragam merek. | ESC/POS generik 58 mm, uji 1 model rekomendasi; struk digital sebagai default. |
+| R-6 | Printer Bluetooth beragam merek; koneksi BT putus-sambung; izin Bluetooth Android 12+. | ESC/POS generik 58 mm, 1 model rekomendasi untuk diuji (mis. RPP02N); auto-reconnect; gagal cetak tidak memblokir transaksi; struk digital sebagai cadangan. |
 | R-7 | Biaya hosting naik dari estimasi. | Budget alert Railway; skala MVP kecil. |
+| R-8 | Buka shift wajib online (konsekuensi satu shift per gerai) → bila internet mati sebelum buka toko, kasir tidak bisa mulai berjualan. | Shift biasanya dibuka sekali per hari; HP kasir bisa memakai data seluler sebagai cadangan. Bila sering terjadi, fase 2: buka shift offline "sementara" yang digabung server ke shift aktif. |
 
-| ID | Pertanyaan terbuka | Ke |
+| ID | Pertanyaan | Status |
 |---|---|---|
-| Q-1 | Setuju menambah status `cancelled` untuk QRIS pending yang batal/kedaluwarsa? (PRD hanya menyebut 4 status) | Chief of Staff / owner |
-| Q-2 | D-1/D-2/D-3 (lihat §1). | Owner |
-| Q-3 | Tutup shift saat offline: diizinkan (sinkron belakangan) atau wajib online? Usulan: diizinkan dengan peringatan. | Owner / UI/UX |
-| Q-4 | Apakah satu perangkat bisa dipakai bergantian beberapa pegawai dalam satu shift, atau 1 shift = 1 pegawai? Usulan MVP: 1 shift per perangkat, pegawai yang membuka bertanggung jawab; pegawai lain bisa login tetapi transaksi dicatat atas namanya di shift yang sama. | Owner |
-| Q-5 | Persetujuan biaya: Railway (~US$5–20), domain (~Rp150 ribu/tahun), opsional Play Console (US$25 sekali). | Chief of Staff |
-| Q-6 | Nama repo: usulan `simanjuntakalbert57/kelola-kasir` (monorepo). | Owner |
+| Q-1 | Status `cancelled` untuk QRIS pending yang batal/kedaluwarsa | **Diputuskan**: ya |
+| Q-2 | D-1/D-2/D-3 | **Diputuskan**: lihat §1 |
+| Q-3 | Tutup shift saat offline | **Diputuskan**: boleh, dengan peringatan keras, sinkron belakangan |
+| Q-4 | Pemakaian shift oleh beberapa pegawai | **Diputuskan**: satu shift aktif per gerai, transaksi atas nama kasirnya, serah terima = tutup lalu buka |
+| Q-5 | Persetujuan biaya: Railway (~US$5–20), domain (~Rp150 ribu/tahun), opsional Play Console (US$25 sekali), printer uji 58 mm (±Rp300–600 ribu) | **Terbuka** → Chief of Staff |
+| Q-6 | Nama repo | **Diputuskan**: `simanjuntakalbert57/kelola-kasir` |
 
-**Dampak ke UI/UX (koordinasi dengan DEAR-5):**
-1. Layar QRIS harus punya dua varian dari satu layar: `manual` (tombol "Sudah Dibayar" + dialog konfirmasi) dan `auto` (menunggu + "Cek manual" setelah 60 dtk), plus hitung mundur 15 menit dan tombol "Batal".
-2. State offline: tombol QRIS disabled + pesan; banner jumlah transaksi belum tersinkron; peringatan saat tutup shift offline.
+**Dampak ke UI/UX (sudah tercakup di desain final DEAR-5):**
+1. Layar QRIS punya dua varian: `manual` (tombol "Sudah Dibayar" + dialog konfirmasi) dan `auto` (menunggu + "Cek manual" setelah 60 dtk), plus hitung mundur 15 menit dan tombol "Batal".
+2. State offline: tombol QRIS disabled + pesan; banner jumlah transaksi belum tersinkron; peringatan keras saat tutup shift offline.
 3. Alur pairing perangkat: layar "Masukkan kode perangkat" di kasir (sekali) + layar "Tambah perangkat" di dashboard yang menampilkan kode 8 karakter.
-4. Login PIN: pilih nama pegawai (grid avatar) → keypad PIN; pesan terkunci 5 menit.
-5. Riwayat transaksi menampilkan badge status `pending/paid/void_requested/voided/cancelled` dan penanda "belum tersinkron".
-6. Tutup shift: ringkasan memisahkan cash, QRIS, transaksi menunggu void, dan selisih (bisa negatif, warna merah).
+4. Login PIN: pilih nama pegawai → keypad PIN; pesan terkunci 5 menit. Bila shift gerai sudah terbuka, pegawai langsung masuk ke katalog (tidak ada layar buka shift).
+5. Riwayat transaksi menampilkan badge status `pending/paid/void_requested/voided/cancelled`, nama kasir, dan penanda "belum tersinkron".
+6. Tutup shift: ringkasan memisahkan cash, QRIS, transaksi menunggu void, rincian per kasir, dan selisih (bisa negatif, warna merah).
+7. Cetak struk: toggle "Cetak struk" di Cash & QRIS, status printer, "Cetak ulang", banner gagal cetak, dan layar Printer (K-12).
 
 ## 8. Rencana Breakdown Implementasi
 
@@ -575,9 +587,9 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 ### 8.1 Fondasi
 | ID | Task | Est | Bergantung |
 |---|---|---|---|
-| T-1 | Buat repo monorepo (pnpm + Turborepo), tsconfig/eslint/prettier, `packages/contracts`, `packages/money` | 1d | Q-6 |
+| T-1 | Buat repo monorepo (pnpm + Turborepo), tsconfig/eslint/prettier, `packages/contracts`, `packages/money` | 1d | — |
 | T-2 | CI GitHub Actions: lint, typecheck, test, `redocly lint openapi.yaml`, gitleaks; branch protection main | 0.5d | T-1 |
-| T-3 | Generate tipe TS dari OpenAPI ke `packages/contracts` (openapi-typescript) | 0.5d | T-1 |
+| T-3 | Generate tipe TS dari OpenAPI ke `packages/contracts` (openapi-typescript) + mock server Prism (`pnpm mock`) | 0.5d | T-1 |
 
 ### 8.2 Backend
 | ID | Task | Est | Bergantung |
@@ -586,12 +598,12 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | B-2 | Auth owner (login, refresh rotasi, logout, me), argon2id, rate limit | 1.5d | B-1 |
 | B-3 | Perangkat: create + pairing code, pair, revoke, device token middleware | 1d | B-2 |
 | B-4 | Pegawai CRUD + PIN login/lockout + JWT pegawai + RBAC guard | 1.5d | B-3 |
-| B-5 | Katalog: kategori, produk, option group/opsi, relasi produk-opsi, upload presigned R2, audit perubahan harga | 2.5d | B-2 |
-| B-6 | Pengaturan toko + QRIS statis (upload & decode payload) | 1d | B-5 |
-| B-7 | Shift: buka, current, summary, tutup (hitung expected/selisih) | 1.5d | B-4 |
-| B-8 | Transaksi: create (validasi harga/opsi, snapshot, nomor, cash), list/detail ber-scope role, trigger immutability | 2.5d | B-5, B-7 |
+| B-5 | Katalog: kategori, produk (satu harga, tanpa opsi), upload presigned R2, audit perubahan harga | 1.5d | B-2 |
+| B-6 | Pengaturan toko (termasuk header/footer struk) + QRIS statis (upload & decode payload) | 1d | B-5 |
+| B-7 | Shift: satu shift terbuka per outlet (unique index), buka, current, summary + rincian per kasir, tutup (online & offline via sync) | 2d | B-4 |
+| B-8 | Transaksi: create (validasi harga, snapshot, nomor, cash), list/detail ber-scope role, data struk (`/receipt`), trigger immutability | 2d | B-5, B-7 |
 | B-9 | Payments: `PaymentProvider` + `StaticQrisProvider` (+ amount tag 54/CRC), confirm, cancel, job expire | 2d | B-8, B-6 |
-| B-10 | Sync pull (cursor `updated_seq`, tombstone) + push batch idempoten + penanda price_mismatch/clock_skew | 2.5d | B-8 |
+| B-10 | Sync pull (cursor `updated_seq`, tombstone, `current_shift`) + push batch idempoten (termasuk `shift.close`) + penanda price_mismatch/clock_skew/after_shift_close | 2.5d | B-8 |
 | B-11 | Dashboard summary, sales series, top products (WIB) | 1.5d | B-8 |
 | B-12 | Ekspor CSV/XLSX transaksi (streaming) | 1d | B-8 |
 | B-13 | Void request + approve/reject (dashboard & PIN owner) + audit *(Should)* | 1.5d | B-8 |
@@ -605,15 +617,14 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | M-2 | SQLite lokal (Drizzle) + repository katalog + sync pull periodik | 2d | M-1, B-10 |
 | M-3 | Pairing perangkat + secure storage token | 1d | M-1, B-3 |
 | M-4 | Login PIN (online + cache offline) + lock | 1.5d | M-3, B-4 |
-| M-5 | Buka shift | 0.5d | M-4, B-7 |
+| M-5 | Buka shift (online) / gabung shift gerai yang sudah terbuka | 0.5d | M-4, B-7 |
 | M-6 | Katalog grid per kategori + pencarian + produk habis disembunyikan | 1.5d | M-2 |
-| M-7 | Sheet varian/opsi (single/multiple, required, harga delta) | 1.5d | M-6 |
-| M-8 | Keranjang (qty, catatan, hapus, label pembeli) + kalkulasi via `packages/money` | 1d | M-7 |
+| M-8 | Keranjang (tap kartu = +1, qty, catatan, hapus, label pembeli) + bar bayar + kalkulasi via `packages/money` | 1d | M-6 |
 | M-9 | Bayar cash (keypad, nominal cepat, kembalian) + outbox + sync push | 2d | M-8, B-8, B-10 |
 | M-10 | Bayar QRIS (render QR, mode manual/auto, countdown, cancel), disabled saat offline | 1.5d | M-8, B-9 |
-| M-11 | Struk digital + share WhatsApp; cetak ESC/POS Bluetooth di balik flag *(Should, lihat D-3)* | 2d | M-9 |
+| M-11 | Cetak struk ESC/POS 58 mm via Bluetooth: layar Printer K-12 (pindai, hubungkan, cetak tes, auto-reconnect), toggle "Cetak struk" di Cash/QRIS, cetak ulang, banner gagal cetak; struk digital + share WhatsApp | 3d | M-9, B-6 |
 | M-12 | Riwayat transaksi shift/hari ini + filter + detail + badge belum sinkron | 1.5d | M-9 |
-| M-13 | Tutup shift (input kas aktual, ringkasan, selisih) | 1d | M-12, B-7 |
+| M-13 | Tutup shift (input kas aktual, ringkasan, selisih), termasuk tutup offline dengan peringatan keras | 1.5d | M-12, B-7, B-10 |
 | M-14 | Ajukan void *(Should)*, tandai habis *(Should)* | 1d | M-12, B-13 |
 
 ### 8.4 Frontend (dashboard owner)
@@ -623,10 +634,9 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | F-2 | Dashboard ringkasan + grafik per jam/hari + produk terlaris | 2d | F-1, B-11 |
 | F-3 | Daftar transaksi + filter + detail + ekspor | 2d | F-1, B-8, B-12 |
 | F-4 | Kategori + produk (form, upload foto, status aktif) | 2d | F-1, B-5 |
-| F-5 | Option group/opsi + atur opsi per produk | 1.5d | F-4 |
 | F-6 | Pegawai (tambah, nonaktif, reset PIN) + perangkat (pairing code, revoke) | 1.5d | F-1, B-3, B-4 |
-| F-7 | Riwayat shift & rekonsiliasi kas | 1d | F-1, B-7 |
-| F-8 | Pengaturan toko + upload QRIS statis + preview struk | 1d | F-1, B-6 |
+| F-7 | Riwayat shift & rekonsiliasi kas (rincian per kasir, transaksi telat) | 1d | F-1, B-7 |
+| F-8 | Pengaturan toko (header/footer struk) + upload QRIS statis + pratinjau struk 58 mm | 1d | F-1, B-6 |
 | F-9 | Approve/tolak void *(Should)*, laporan *(Should)* | 2d | B-13, B-15 |
 
 ### 8.5 QA
@@ -635,7 +645,7 @@ Estimasi kasar dalam hari kerja engineer (d). Prefiks: **B** Backend, **M** Mobi
 | Q-A | Test plan dari PRD + TDD (fungsional, RBAC, offline, uang integer, snapshot harga) | 1.5d | TDD disetujui |
 | Q-B | API contract test (schemathesis/Dredd terhadap openapi.yaml) di CI | 1.5d | B-8, T-2 |
 | Q-C | E2E dashboard (Playwright): login, produk, transaksi, shift | 2d | F-3, F-4, F-7 |
-| Q-D | Uji kasir di perangkat nyata: alur ≤ 4 tap/≤ 15 dtk, offline → online, QRIS manual, tutup shift, printer | 2d | M-13 |
+| Q-D | Uji kasir di HP Android nyata: alur ≤ 4 tap/≤ 15 dtk, offline → online, QRIS manual, tutup shift (online & offline), dua perangkat di satu shift, cetak struk printer 58 mm | 2d | M-11, M-13 |
 | Q-E | UAT bersama owner + uji restore backup | 1d | semua Must |
 
 ### 8.6 Urutan & jalur kritis
@@ -649,12 +659,14 @@ flowchart LR
   B7 --> B8 --> B9
   B8 --> B10[B-10 Sync] & B11[B-11 Dashboard] & B12[B-12 Ekspor]
   T3 --> M1[M-1 Kasir skeleton] & F1[F-1 Dashboard skeleton]
-  B10 --> M2[M-2 SQLite+pull] --> M6[M-6..M-8 Katalog/Keranjang] --> M9[M-9 Cash+outbox] --> M12[M-12 Riwayat] --> M13[M-13 Tutup shift]
+  B10 --> M2[M-2 SQLite+pull] --> M6[M-6, M-8 Katalog/Keranjang] --> M9[M-9 Cash+outbox] --> M12[M-12 Riwayat] --> M13[M-13 Tutup shift]
   B9 --> M10[M-10 QRIS]
+  M9 --> M11[M-11 Cetak struk]
   M6 --> M10
   B11 --> F2[F-2 Dashboard]
-  B5 --> F4[F-4/F-5 Produk & opsi]
+  B5 --> F4[F-4 Produk & kategori]
   M13 --> QD[Q-D Uji perangkat] --> QE[Q-E UAT]
+  M11 --> QD
 ```
 
 Jalur kritis: T-1 → B-1 → B-2 → B-3/B-4 → B-7 → B-8 → B-10 → M-2 → M-9 → M-13 → Q-D → Q-E. Dengan 1 orang per peran berjalan paralel, Must selesai **±4–5 minggu** setelah TDD + desain disetujui. Backend sebaiknya mulai B-1..B-5 segera, Mobile/Frontend mulai skeleton dengan mock dari OpenAPI (Prism) agar tidak menunggu.

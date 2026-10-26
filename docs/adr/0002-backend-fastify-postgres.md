@@ -1,6 +1,6 @@
 ADR-0002 — Backend: Node.js + Fastify + Drizzle ORM + PostgreSQL
 
-Status: Proposed · Tanggal: 2026-10-26
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 
 ## Konteks
 Butuh API REST untuk kasir & dashboard, transaksi ACID (transaksi + item + pembayaran + audit dalam satu commit), agregasi laporan, dan siap multi-outlet. Volume MVP kecil (≤ 500 transaksi/hari).

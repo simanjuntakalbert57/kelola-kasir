@@ -1,6 +1,6 @@
 ADR-0004 — Dashboard owner: React + Vite SPA
 
-Status: Proposed · Tanggal: 2026-10-26
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 
 ## Konteks
 Dashboard owner dipakai di browser desktop dan HP, di belakang login, tanpa kebutuhan SEO. Proyek Dear Fruity sudah memakai React + Vite.

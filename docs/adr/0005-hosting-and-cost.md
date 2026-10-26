@@ -18,7 +18,7 @@ Skala MVP: 1 gerai, 1–2 perangkat, ≤ 500 transaksi/hari, 1 owner. Owner suda
 | Domain (mis. `kelolakasir.id`/subdomain domain owner) | registrar lokal | ±Rp150–250 ribu/tahun (≈Rp15–20 ribu/bulan) |
 | **Total** | | **±US$10–25/bulan (±Rp160–400 ribu)** + domain |
 
-Biaya sekali/opsional: Google Play Console US$25 (sekali, bila distribusi via Play; APK langsung juga bisa), printer thermal Bluetooth 58 mm ±Rp300–600 ribu (bila D-3 = cetak), Apple Developer US$99/tahun (hanya bila D-2 = iPad).
+Biaya sekali/opsional: Google Play Console US$25 (sekali, bila distribusi via Play; APK langsung juga bisa), printer thermal Bluetooth 58 mm ±Rp300–600 ribu (wajib: cetak struk = Must sejak TDD v1.1). Apple Developer tidak dibutuhkan (D-2 = HP Android).
 
 Fase 2 (QRIS dinamis): tidak ada biaya bulanan gateway; MDR QRIS ±0,7% per transaksi (mis. omzet QRIS Rp30 juta/bulan → ±Rp210 ribu).
 

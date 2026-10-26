@@ -1,6 +1,6 @@
 ADR-0006 — Auth: pairing perangkat + PIN pegawai, JWT owner
 
-Status: Proposed · Tanggal: 2026-10-26
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 
 ## Konteks
 PRD P-01: pegawai login dengan PIN 6 digit **di perangkat gerai yang didaftarkan owner**. O-01: owner login email + password. PIN 6 digit lemah bila bisa dicoba dari mana saja, sehingga harus terikat perangkat. P-13: kasir perlu tetap bekerja saat offline.

@@ -1,15 +1,20 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.1.0-draft
+  version: 0.2.0-draft
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
   summary: Backend API for the Kelola Kasir cashier app and owner dashboard.
   description: |
-    Draft contract (TDD v1). Conventions:
+    Draft contract (TDD v1.1). Conventions:
     - All money values are integer Rupiah (no decimals).
     - All timestamps are ISO-8601 in UTC; business day is computed in Asia/Jakarta.
     - Errors use `application/problem+json` with a stable `code`.
     - IDs created by the cashier app (shifts, transactions, items, payments, void requests) are client-generated UUIDv7, making creation idempotent.
     - Cursor pagination: `cursor` + `limit` (default 50, max 200).
+    - Products have no variants/options: one product = one price. A transaction item is product + quantity + price snapshot.
+    - One open shift per outlet, shared by every paired device; each transaction records the employee who created it.
     Feature tags (P-xx / O-xx) refer to the PRD.
 servers:
   - url: https://api.kelolakasir.example/v1
@@ -18,18 +23,31 @@ servers:
     description: Local development
 tags:
   - name: auth
+    description: Owner login and employee PIN login
   - name: devices
+    description: Cashier device pairing and revocation
   - name: employees
+    description: Employees and their PINs (owner)
   - name: catalog
+    description: Categories and products; one product has one price
   - name: shifts
+    description: One open shift per outlet, cash reconciliation
   - name: transactions
+    description: Sales, history, receipts and export
   - name: payments
+    description: Cash and QRIS payments through PaymentProvider
   - name: voids
+    description: Void requests and owner decisions
   - name: sync
+    description: Offline catalog pull and mutation push for the cashier app
   - name: dashboard
+    description: Owner dashboard aggregates
   - name: reports
+    description: Owner reports
   - name: settings
+    description: Store settings (receipt header/footer, QRIS)
   - name: uploads
+    description: Presigned uploads for images
 
 security: []
 
@@ -80,6 +98,7 @@ paths:
       security: [{ ownerAuth: [] }]
       responses:
         '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /auth/pin-login:
     post:
       tags: [auth]
@@ -120,6 +139,7 @@ paths:
       security: [{ employeeAuth: [], deviceAuth: [] }]
       responses:
         '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /me:
     get:
       tags: [auth]
@@ -151,6 +171,7 @@ paths:
                 required: [data]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Device' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [devices]
       summary: Register a device and get a one-time pairing code (P-01)
@@ -177,6 +198,7 @@ paths:
                   device: { $ref: '#/components/schemas/Device' }
                   pairing_code: { type: string, pattern: '^[A-HJ-NP-Z2-9]{8}$' }
                   pairing_expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /devices/pair:
     post:
       tags: [devices]
@@ -231,6 +253,7 @@ paths:
                       properties:
                         id: { type: string, format: uuid }
                         name: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /devices/{device_id}/revoke:
     post:
       tags: [devices]
@@ -265,6 +288,7 @@ paths:
                 required: [data]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Employee' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [employees]
       summary: Add employee with a PIN (O-06)
@@ -342,8 +366,8 @@ paths:
   /catalog:
     get:
       tags: [catalog]
-      summary: Full catalog snapshot for the cashier app (P-03, P-04)
-      description: Categories, active products (with sold-out flag) and their option groups. Used for first load; afterwards use `/sync/pull`.
+      summary: Full catalog snapshot for the cashier app (P-03)
+      description: Categories and active products (with sold-out flag). Used for first load; afterwards use `/sync/pull`.
       operationId: getCatalog
       security: [{ deviceAuth: [] }, { ownerAuth: [] }]
       responses:
@@ -352,6 +376,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Catalog' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /categories:
     get:
       tags: [catalog]
@@ -368,6 +393,7 @@ paths:
                 required: [data]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Category' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [catalog]
       summary: Create category (O-05)
@@ -384,6 +410,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /categories/{category_id}:
     patch:
       tags: [catalog]
@@ -402,6 +429,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
       tags: [catalog]
       summary: Soft-delete category; fails if it still has products (O-05)
@@ -435,6 +463,7 @@ paths:
                 required: [data]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [catalog]
       summary: Create product (O-04)
@@ -483,6 +512,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
       tags: [catalog]
       summary: Soft-delete product (O-04). Past transactions keep their snapshot.
@@ -491,30 +521,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/ProductId' }]
       responses:
         '204': { description: Deleted }
-  /products/{product_id}/option-groups:
-    put:
-      tags: [catalog]
-      summary: Replace the ordered list of option groups attached to a product (O-05)
-      operationId: setProductOptionGroups
-      security: [{ ownerAuth: [] }]
-      parameters: [{ $ref: '#/components/parameters/ProductId' }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [option_group_ids]
-              properties:
-                option_group_ids:
-                  type: array
-                  items: { type: string, format: uuid }
-      responses:
-        '200':
-          description: Updated product
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /products/{product_id}/availability:
     patch:
       tags: [catalog]
@@ -537,64 +544,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Product' }
-  /option-groups:
-    get:
-      tags: [catalog]
-      summary: List option groups with options, e.g. Size, Sugar, Ice, Topping (O-05)
-      operationId: listOptionGroups
-      security: [{ ownerAuth: [] }]
-      responses:
-        '200':
-          description: Option groups
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data]
-                properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/OptionGroup' } }
-    post:
-      tags: [catalog]
-      summary: Create option group with its options (O-05)
-      operationId: createOptionGroup
-      security: [{ ownerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OptionGroupInput' }
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OptionGroup' }
-  /option-groups/{option_group_id}:
-    patch:
-      tags: [catalog]
-      summary: Update option group and upsert its options; price changes are audited (O-05)
-      operationId: updateOptionGroup
-      security: [{ ownerAuth: [] }]
-      parameters: [{ $ref: '#/components/parameters/OptionGroupId' }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OptionGroupInput' }
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OptionGroup' }
-    delete:
-      tags: [catalog]
-      summary: Soft-delete option group (O-05)
-      operationId: deleteOptionGroup
-      security: [{ ownerAuth: [] }]
-      parameters: [{ $ref: '#/components/parameters/OptionGroupId' }]
-      responses:
-        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- shifts
   /shifts:
@@ -621,9 +571,15 @@ paths:
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Shift' } }
                   next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [shifts]
-      summary: Open a shift with opening cash (P-02). Idempotent on `id`.
+      summary: Open the outlet's shift with opening cash (P-02). Idempotent on `id`.
+      description: |
+        Only one shift can be open per outlet. Other employees and devices join the open shift
+        (read it via `GET /shifts/current` or `/sync/pull`) instead of opening a new one.
+        Opening a shift requires the device to be online so the single-open-shift rule can be enforced.
+        Handover = close the current shift, then open a new one.
       operationId: openShift
       security: [{ employeeAuth: [], deviceAuth: [] }]
       requestBody:
@@ -649,14 +605,14 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Shift' }
         '409':
-          description: Device already has an open shift (`SHIFT_ALREADY_OPEN`)
+          description: The outlet already has an open shift (`SHIFT_ALREADY_OPEN`); the body `detail` names it. Join it instead.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
   /shifts/current:
     get:
       tags: [shifts]
-      summary: The open shift on this device, if any (P-02)
+      summary: The outlet's open shift, if any (P-02). Shared by all devices of the outlet.
       operationId: getCurrentShift
       security: [{ employeeAuth: [], deviceAuth: [] }]
       responses:
@@ -666,11 +622,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Shift' }
         '204': { description: No open shift }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /shifts/{shift_id}/summary:
     get:
       tags: [shifts]
       summary: Shift totals (cash, QRIS, expected cash, pending voids) (P-12, O-07)
-      description: Employees can only read shifts opened on their device.
+      description: Employees can only read the outlet's currently open shift or a shift they closed.
       operationId: getShiftSummary
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/ShiftId' }]
@@ -685,6 +642,14 @@ paths:
     post:
       tags: [shifts]
       summary: Close shift with actual cash counted (P-12)
+      description: |
+        Any employee logged in on a paired device of the outlet may close the open shift.
+        Closing is also allowed offline: the app queues a `shift.close` mutation for `/sync/push`
+        after showing a strong warning. The server recomputes the summary when the close is applied.
+        Real sales are never dropped: cash transactions from `/sync/push` that reference this shift are
+        accepted even after it is closed; those with `client_created_at` after `closed_at` are flagged
+        `after_shift_close` and reported separately (`late_*` fields). Online `POST /transactions` against a
+        closed shift still returns `SHIFT_CLOSED` so the cashier opens a new shift.
       operationId: closeShift
       security: [{ employeeAuth: [], deviceAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/ShiftId' }]
@@ -699,6 +664,8 @@ paths:
                 actual_cash: { $ref: '#/components/schemas/Rupiah' }
                 closed_at: { type: string, format: date-time }
                 closing_note: { type: string, maxLength: 500 }
+                closed_offline: { type: boolean, default: false, description: True when the close was done offline and is being replayed via sync }
+                unsynced_count: { type: integer, minimum: 0, description: Mutations still queued on the closing device at close time }
       responses:
         '200':
           description: Closed shift with summary
@@ -717,7 +684,7 @@ paths:
       tags: [transactions]
       summary: List transactions (P-09 for employees, O-03 for owner)
       description: |
-        Employees: results are restricted to their device and `scope` (current shift or today, WIB);
+        Employees: results are restricted to their outlet and `scope` (the open shift or today, WIB);
         `date_from`/`date_to`/`employee_id` are ignored. Owner: all filters apply.
       operationId: listTransactions
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
@@ -743,16 +710,17 @@ paths:
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/TransactionSummary' } }
                   next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [transactions]
-      summary: Create a transaction with its payment (P-04..P-07). Idempotent on `id`.
+      summary: Create a transaction with its payment (P-05..P-07). Idempotent on `id`.
       description: |
         - `cash`: transaction is created as `paid`; requires `cash_tendered >= total`.
         - `qris`: transaction is created as `pending` and a QRIS charge is created through the outlet's
           PaymentProvider. Response includes `payment.qr_payload` and `payment.confirmation_mode`.
         The server recomputes all totals from the submitted snapshot and rejects inconsistent math
         (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
-        `price_mismatch`.
+        `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
       operationId: createTransaction
       security: [{ employeeAuth: [], deviceAuth: [] }]
       requestBody:
@@ -777,7 +745,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422':
-          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `INVALID_OPTIONS`, `PRODUCT_UNAVAILABLE`'
+          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -808,10 +776,11 @@ paths:
               schema: { type: string }
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, contentEncoding: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /transactions/{transaction_id}:
     get:
       tags: [transactions]
-      summary: Transaction detail with items, options and payments (P-09, O-03)
+      summary: Transaction detail with items and payments (P-09, O-03)
       operationId: getTransaction
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -826,7 +795,11 @@ paths:
   /transactions/{transaction_id}/receipt:
     get:
       tags: [transactions]
-      summary: Receipt data for digital/thermal receipt (P-08, Should)
+      summary: Receipt data for digital and 58 mm thermal receipt (P-08, Must)
+      description: |
+        Used for digital receipts and reprints from the history screen. The cashier app formats
+        ESC/POS itself from local data + cached settings, so printing also works offline;
+        this endpoint is the online source for reprints on another device and for the dashboard preview.
       operationId: getReceipt
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -836,6 +809,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Receipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /transactions/{transaction_id}/void-requests:
     post:
       tags: [voids]
@@ -880,6 +854,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Payment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /payments/{payment_id}/confirm:
     post:
       tags: [payments]
@@ -911,6 +886,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Transaction' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /webhooks/payments/{provider}:
     post:
       tags: [payments]
@@ -950,6 +926,7 @@ paths:
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/VoidRequest' } }
                   next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /void-requests/{void_request_id}/approve:
     post:
       tags: [voids]
@@ -967,6 +944,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /void-requests/{void_request_id}/reject:
     post:
       tags: [voids]
@@ -984,6 +962,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /void-requests/{void_request_id}/approve-with-pin:
     post:
       tags: [voids]
@@ -1029,6 +1008,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SyncPullResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /sync/push:
     post:
       tags: [sync]
@@ -1066,6 +1046,7 @@ paths:
                         status: { type: string, enum: [applied, duplicate, rejected] }
                         code: { type: string, description: Error code when rejected }
                         detail: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- dashboard & reports
   /dashboard/summary:
@@ -1084,6 +1065,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /dashboard/sales-series:
     get:
       tags: [dashboard]
@@ -1112,6 +1094,7 @@ paths:
                         bucket_start: { type: string, format: date-time }
                         revenue: { $ref: '#/components/schemas/Rupiah' }
                         transaction_count: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /dashboard/top-products:
     get:
       tags: [dashboard]
@@ -1141,6 +1124,7 @@ paths:
                         product_name: { type: string }
                         quantity: { type: integer }
                         revenue: { $ref: '#/components/schemas/Rupiah' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /reports/sales:
     get:
       tags: [reports]
@@ -1171,12 +1155,13 @@ paths:
                         quantity: { type: integer }
                         transaction_count: { type: integer }
                         revenue: { $ref: '#/components/schemas/Rupiah' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- settings & uploads
   /settings:
     get:
       tags: [settings]
-      summary: Store settings incl. receipt and QRIS (O-10)
+      summary: Store settings incl. receipt header/footer and QRIS (O-10)
       operationId: getSettings
       security: [{ ownerAuth: [] }, { deviceAuth: [] }]
       responses:
@@ -1185,6 +1170,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OutletSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     patch:
       tags: [settings]
       summary: Update store settings (O-10)
@@ -1235,6 +1221,7 @@ paths:
                   upload_url: { type: string, format: uri }
                   public_url: { type: string, format: uri }
                   expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
 components:
   securitySchemes:
@@ -1259,7 +1246,6 @@ components:
     EmployeeId: { name: employee_id, in: path, required: true, schema: { type: string, format: uuid } }
     CategoryId: { name: category_id, in: path, required: true, schema: { type: string, format: uuid } }
     ProductId: { name: product_id, in: path, required: true, schema: { type: string, format: uuid } }
-    OptionGroupId: { name: option_group_id, in: path, required: true, schema: { type: string, format: uuid } }
     ShiftId: { name: shift_id, in: path, required: true, schema: { type: string, format: uuid } }
     TransactionId: { name: transaction_id, in: path, required: true, schema: { type: string, format: uuid } }
     PaymentId: { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1396,80 +1382,35 @@ components:
       properties:
         name: { type: string, maxLength: 40 }
         sort_order: { type: integer, default: 0 }
-    Option:
-      type: object
-      required: [id, name, price_delta, is_default, is_active]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string, examples: [Large] }
-        price_delta: { $ref: '#/components/schemas/Rupiah' }
-        is_default: { type: boolean }
-        is_active: { type: boolean }
-        sort_order: { type: integer }
-    OptionGroup:
-      type: object
-      required: [id, name, selection, is_required, min_select, max_select, options]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string, examples: [Ukuran] }
-        selection: { type: string, enum: [single, multiple] }
-        is_required: { type: boolean }
-        min_select: { type: integer, minimum: 0 }
-        max_select: { type: integer, minimum: 1 }
-        options: { type: array, items: { $ref: '#/components/schemas/Option' } }
-    OptionGroupInput:
-      type: object
-      required: [name, selection, is_required, options]
-      properties:
-        name: { type: string, maxLength: 40 }
-        selection: { type: string, enum: [single, multiple] }
-        is_required: { type: boolean }
-        min_select: { type: integer, minimum: 0, default: 0 }
-        max_select: { type: integer, minimum: 1, default: 1 }
-        options:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            required: [name, price_delta]
-            properties:
-              id: { type: string, format: uuid, description: Omit to create a new option }
-              name: { type: string, maxLength: 40 }
-              price_delta: { $ref: '#/components/schemas/Rupiah' }
-              is_default: { type: boolean, default: false }
-              is_active: { type: boolean, default: true }
-              sort_order: { type: integer, default: 0 }
     Product:
       type: object
-      required: [id, category_id, name, base_price, is_active, is_sold_out, option_group_ids]
+      required: [id, category_id, name, price, is_active, is_sold_out]
       properties:
         id: { type: string, format: uuid }
         category_id: { type: string, format: uuid }
         name: { type: string }
         image_url: { type: [string, 'null'], format: uri }
-        base_price: { $ref: '#/components/schemas/Rupiah' }
+        price: { $ref: '#/components/schemas/Rupiah', description: The single selling price; products have no variants }
         is_active: { type: boolean }
         is_sold_out: { type: boolean }
         sort_order: { type: integer }
-        option_group_ids: { type: array, items: { type: string, format: uuid } }
         updated_at: { type: string, format: date-time }
     ProductInput:
       type: object
-      required: [category_id, name, base_price]
+      required: [category_id, name, price]
       properties:
         category_id: { type: string, format: uuid }
         name: { type: string, maxLength: 60 }
         image_url: { type: [string, 'null'], format: uri }
-        base_price: { $ref: '#/components/schemas/Rupiah' }
+        price: { $ref: '#/components/schemas/Rupiah' }
         is_active: { type: boolean, default: true }
         sort_order: { type: integer, default: 0 }
     Catalog:
       type: object
-      required: [categories, products, option_groups, cursor]
+      required: [categories, products, cursor]
       properties:
         categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
         products: { type: array, items: { $ref: '#/components/schemas/Product' } }
-        option_groups: { type: array, items: { $ref: '#/components/schemas/OptionGroup' } }
         cursor: { type: string, description: Use as `cursor` for the next `/sync/pull` }
 
     ShiftStatus:
@@ -1477,10 +1418,11 @@ components:
       enum: [open, closed]
     Shift:
       type: object
-      required: [id, device_id, opened_by, status, opening_cash, opened_at]
+      required: [id, opened_on_device_id, opened_by, status, opening_cash, opened_at]
       properties:
         id: { type: string, format: uuid }
-        device_id: { type: string, format: uuid }
+        opened_on_device_id: { type: string, format: uuid, description: Device where the shift was opened; all devices of the outlet share it }
+        closed_on_device_id: { type: [string, 'null'], format: uuid }
         opened_by: { $ref: '#/components/schemas/Employee' }
         closed_by: { oneOf: [{ $ref: '#/components/schemas/Employee' }, { type: 'null' }] }
         status: { $ref: '#/components/schemas/ShiftStatus' }
@@ -1490,6 +1432,7 @@ components:
         cash_difference: { oneOf: [{ $ref: '#/components/schemas/SignedRupiah' }, { type: 'null' }] }
         opened_at: { type: string, format: date-time }
         closed_at: { type: [string, 'null'], format: date-time }
+        closed_offline: { type: boolean, description: Close was performed offline and synced later }
     ShiftSummary:
       type: object
       required: [shift, total_cash_sales, total_qris_sales, total_sales, transaction_count, expected_cash, pending_void_count, pending_void_amount, voided_count, voided_amount]
@@ -1508,6 +1451,19 @@ components:
         voided_count: { type: integer }
         voided_amount: { $ref: '#/components/schemas/Rupiah' }
         unsynced_hint: { type: boolean, description: True when the device reported queued mutations at close time }
+        late_transaction_count: { type: integer, description: Synced transactions created after `closed_at` (not in expected_cash) }
+        late_cash_amount: { $ref: '#/components/schemas/Rupiah' }
+        by_employee:
+          type: array
+          description: Per-cashier breakdown; the shift is shared but each transaction is recorded under its cashier
+          items:
+            type: object
+            required: [employee, transaction_count, total_cash_sales, total_qris_sales]
+            properties:
+              employee: { $ref: '#/components/schemas/Employee' }
+              transaction_count: { type: integer }
+              total_cash_sales: { $ref: '#/components/schemas/Rupiah' }
+              total_qris_sales: { $ref: '#/components/schemas/Rupiah' }
 
     PaymentMethod:
       type: string
@@ -1515,42 +1471,40 @@ components:
     TransactionStatus:
       type: string
       enum: [pending, paid, void_requested, voided, cancelled]
-      description: '`cancelled` is proposed in TDD (Q-1) for abandoned/expired pending QRIS.'
-    TransactionItemOptionInput:
-      type: object
-      required: [option_id, group_name, option_name, price_delta]
-      properties:
-        option_id: { type: string, format: uuid }
-        group_name: { type: string, description: Snapshot }
-        option_name: { type: string, description: Snapshot }
-        price_delta: { $ref: '#/components/schemas/Rupiah' }
+      description: '`cancelled` = pending QRIS that was cancelled by the cashier or expired after 15 minutes (decision Q-1). Terminal; excluded from all totals.'
     TransactionItemInput:
       type: object
-      required: [id, product_id, product_name, unit_base_price, quantity, options, line_total]
+      required: [id, product_id, product_name, unit_price, quantity, line_total]
       properties:
         id: { type: string, format: uuid }
         product_id: { type: string, format: uuid }
         product_name: { type: string, description: Snapshot }
-        unit_base_price: { $ref: '#/components/schemas/Rupiah' }
+        unit_price: { $ref: '#/components/schemas/Rupiah', description: Snapshot of the product price }
         quantity: { type: integer, minimum: 1, maximum: 999 }
         note: { type: string, maxLength: 140 }
-        options: { type: array, items: { $ref: '#/components/schemas/TransactionItemOptionInput' } }
-        line_total: { $ref: '#/components/schemas/Rupiah', description: '(unit_base_price + sum(options.price_delta)) * quantity' }
+        line_total: { $ref: '#/components/schemas/Rupiah', description: 'unit_price * quantity' }
+    CashPaymentInput:
+      type: object
+      required: [id, method, cash_tendered]
+      properties:
+        id: { type: string, format: uuid }
+        method: { type: string, const: cash }
+        cash_tendered: { $ref: '#/components/schemas/Rupiah' }
+    QrisPaymentInput:
+      type: object
+      required: [id, method]
+      properties:
+        id: { type: string, format: uuid }
+        method: { type: string, const: qris }
     PaymentInput:
       oneOf:
-        - type: object
-          required: [id, method, cash_tendered]
-          properties:
-            id: { type: string, format: uuid }
-            method: { const: cash }
-            cash_tendered: { $ref: '#/components/schemas/Rupiah' }
-        - type: object
-          required: [id, method]
-          properties:
-            id: { type: string, format: uuid }
-            method: { const: qris }
+        - $ref: '#/components/schemas/CashPaymentInput'
+        - $ref: '#/components/schemas/QrisPaymentInput'
       discriminator:
         propertyName: method
+        mapping:
+          cash: '#/components/schemas/CashPaymentInput'
+          qris: '#/components/schemas/QrisPaymentInput'
     TransactionCreate:
       type: object
       required: [id, shift_id, number, client_created_at, items, subtotal, total, payment]
@@ -1598,6 +1552,7 @@ components:
         employee: { $ref: '#/components/schemas/Employee' }
         shift_id: { type: string, format: uuid }
         price_mismatch: { type: boolean }
+        after_shift_close: { type: boolean, description: Synced after its shift was closed and created after `closed_at` }
         client_created_at: { type: string, format: date-time }
         paid_at: { type: [string, 'null'], format: date-time }
     Transaction:
@@ -1613,33 +1568,21 @@ components:
               type: array
               items:
                 type: object
-                required: [id, product_name, unit_base_price, unit_options_price, unit_price, quantity, line_total, options]
+                required: [id, product_name, unit_price, quantity, line_total]
                 properties:
                   id: { type: string, format: uuid }
                   product_id: { type: [string, 'null'], format: uuid }
                   product_name: { type: string }
-                  unit_base_price: { $ref: '#/components/schemas/Rupiah' }
-                  unit_options_price: { $ref: '#/components/schemas/Rupiah' }
                   unit_price: { $ref: '#/components/schemas/Rupiah' }
                   quantity: { type: integer }
                   line_total: { $ref: '#/components/schemas/Rupiah' }
                   note: { type: [string, 'null'] }
-                  options:
-                    type: array
-                    items:
-                      type: object
-                      required: [group_name, option_name, price_delta]
-                      properties:
-                        option_id: { type: [string, 'null'], format: uuid }
-                        group_name: { type: string }
-                        option_name: { type: string }
-                        price_delta: { $ref: '#/components/schemas/Rupiah' }
             payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
             void_request: { oneOf: [{ $ref: '#/components/schemas/VoidRequest' }, { type: 'null' }] }
             server_received_at: { type: string, format: date-time }
     Receipt:
       type: object
-      required: [store, transaction]
+      required: [store, cashier_name, transaction]
       properties:
         store:
           type: object
@@ -1648,9 +1591,13 @@ components:
             name: { type: string }
             address: { type: [string, 'null'] }
             logo_url: { type: [string, 'null'], format: uri }
-            footer: { type: [string, 'null'] }
+            phone: { type: [string, 'null'] }
+            header: { type: [string, 'null'], description: Extra header lines set by the owner }
+            footer: { type: [string, 'null'], description: Closing message set by the owner }
+        cashier_name: { type: string }
+        paper_width_mm: { type: integer, enum: [58], default: 58 }
         transaction: { $ref: '#/components/schemas/Transaction' }
-        share_text: { type: string, description: Plain-text receipt for WhatsApp share }
+        share_text: { type: string, description: Plain-text receipt (32 chars per line) for WhatsApp share and ESC/POS printing }
 
     VoidRequest:
       type: object
@@ -1677,14 +1624,14 @@ components:
       type: object
       required: [id, type, client_created_at, payload]
       properties:
-        id: { type: string, format: uuid, description: Equals the entity id (shift/transaction/void request) }
+        id: { type: string, format: uuid, description: 'Equals the entity id (transaction/void request), or the shift id for `shift.close`' }
         type:
           type: string
-          enum: [shift.open, transaction.create, shift.close, void_request.create, product.mark_sold_out]
+          enum: [transaction.create, shift.close, void_request.create, product.mark_sold_out]
         client_created_at: { type: string, format: date-time }
         employee_id: { type: string, format: uuid, description: Employee who performed the action (may have logged in offline) }
         payload:
-          description: Same body as the corresponding online endpoint. QRIS transactions are never queued.
+          description: Same body as the corresponding online endpoint (`shift.close` adds `shift_id`). QRIS transactions and shift opening are never queued.
           type: object
           additionalProperties: true
     SyncPullResponse:
@@ -1698,7 +1645,6 @@ components:
           properties:
             categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
             products: { type: array, items: { $ref: '#/components/schemas/Product' } }
-            option_groups: { type: array, items: { $ref: '#/components/schemas/OptionGroup' } }
             employees:
               type: array
               description: Active employees with argon2id PIN hash for offline login (only if enabled for outlet)
@@ -1717,8 +1663,9 @@ components:
                 type: object
                 required: [entity, id]
                 properties:
-                  entity: { type: string, enum: [category, product, option_group, option, employee] }
+                  entity: { type: string, enum: [category, product, employee] }
                   id: { type: string, format: uuid }
+        current_shift: { oneOf: [{ $ref: '#/components/schemas/Shift' }, { type: 'null' }], description: "The outlet's open shift, so every device joins the same one" }
         device_revoked: { type: boolean, description: When true the app must wipe local credentials }
 
     DashboardSummary:
@@ -1748,7 +1695,8 @@ components:
         address: { type: [string, 'null'] }
         phone: { type: [string, 'null'] }
         logo_url: { type: [string, 'null'], format: uri }
-        receipt_footer: { type: [string, 'null'] }
+        receipt_header: { type: [string, 'null'], description: 'Extra header lines under the store name/address, e.g. Instagram handle' }
+        receipt_footer: { type: [string, 'null'], description: 'Closing message, e.g. "Terima kasih!"' }
         qris_mode: { type: string, enum: [static, dynamic] }
         qris_static_payload: { type: [string, 'null'] }
         qris_static_image_url: { type: [string, 'null'], format: uri }
@@ -1766,6 +1714,7 @@ components:
         address: { type: [string, 'null'], maxLength: 200 }
         phone: { type: [string, 'null'], maxLength: 20 }
         logo_url: { type: [string, 'null'], format: uri }
+        receipt_header: { type: [string, 'null'], maxLength: 200 }
         receipt_footer: { type: [string, 'null'], maxLength: 200 }
         qris_static_payload: { type: [string, 'null'] }
         qris_static_image_url: { type: [string, 'null'], format: uri }

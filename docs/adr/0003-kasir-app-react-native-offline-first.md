@@ -1,17 +1,17 @@
 ADR-0003 — Aplikasi kasir: React Native (Expo) offline-first dengan SQLite + outbox
 
-Status: Proposed · Tanggal: 2026-10-26
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 
 ## Konteks
-Kasir dipakai di Android tablet/HP (asumsi D-2). Target < 300 ms per tap dan transaksi ≤ 15 detik. Transaksi cash harus tetap bisa dibuat saat internet putus (P-13, Should), QRIS butuh online. Perlu akses Bluetooth untuk printer thermal (P-08, opsional, D-3).
+Kasir dipakai di HP Android portrait (D-2, final v1.1; tablet tidak didukung di MVP). Target < 300 ms per tap dan transaksi ≤ 15 detik. Transaksi cash harus tetap bisa dibuat saat internet putus (P-13, Should), QRIS butuh online. Perlu akses Bluetooth untuk printer thermal ESC/POS 58 mm (P-08, **Must** sejak v1.1, lihat ADR-0010).
 
 ## Keputusan
 - **React Native via Expo** (SDK terbaru, *development build* — bukan Expo Go — agar modul native Bluetooth ESC/POS bisa dipakai).
 - Penyimpanan lokal **SQLite** (`expo-sqlite`) dengan Drizzle; token di `expo-secure-store` (Android Keystore).
 - Pola **local-first untuk katalog, outbox untuk mutasi**:
-  - Katalog, opsi, pegawai aktif, pengaturan toko disalin ke SQLite via `GET /v1/sync/pull` (cursor), tiap 30 detik saat online + saat app ke foreground.
-  - Transaksi cash, buka/tutup shift, void request ditulis ke SQLite + tabel `outbox` dalam satu transaksi lokal, lalu dikirim oleh sync worker ke `POST /v1/sync/push` (batch ≤ 50, retry backoff eksponensial).
-  - Saat online, transaksi tetap lewat outbox (satu jalur kode); QRIS memakai `POST /v1/transactions` langsung karena butuh server.
+  - Katalog, pegawai aktif, pengaturan toko, dan shift gerai yang terbuka disalin ke SQLite via `GET /v1/sync/pull` (cursor), tiap 30 detik saat online + saat app ke foreground.
+  - Transaksi cash, tutup shift, void request ditulis ke SQLite + tabel `outbox` dalam satu transaksi lokal, lalu dikirim oleh sync worker ke `POST /v1/sync/push` (batch ≤ 50, retry backoff eksponensial).
+  - Saat online, transaksi tetap lewat outbox (satu jalur kode); QRIS dan buka shift memakai endpoint online langsung karena butuh server (ADR-0009).
 - State UI: Zustand untuk keranjang; TanStack Query untuk data server online (riwayat, ringkasan shift).
 - Distribusi: EAS Build (APK internal / Play internal testing) + EAS Update.
 

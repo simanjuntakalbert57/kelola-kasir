@@ -1,6 +1,6 @@
 ADR-0007 — Pembayaran QRIS lewat abstraksi PaymentProvider
 
-Status: Proposed · Tanggal: 2026-10-26 · Terkait: PRD D-1
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1) · Terkait: PRD D-1
 
 ## Konteks
 D-1 belum diputuskan owner; rekomendasi PRD: MVP pakai QRIS statis toko (konfirmasi manual pegawai), arsitektur siap QRIS dinamis (Midtrans/Xendit) yang otomatis mendeteksi lunas. Alur kasir tidak boleh berubah saat pindah mode.

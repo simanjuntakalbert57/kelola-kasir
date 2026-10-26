@@ -1,9 +1,9 @@
 ADR-0001 — Monorepo TypeScript (pnpm + Turborepo)
 
-Status: Proposed · Tanggal: 2026-10-26
+Status: Accepted · Tanggal: 2026-10-26 (diterima bersama TDD v1.1)
 
 ## Konteks
-Tiga aplikasi (API, kasir, dashboard) berbagi model data yang sama: produk, opsi, transaksi, uang integer Rupiah. Tim kecil (1 orang per peran) dan kontrak API harus konsisten. Proyek Dear Fruity sebelumnya sudah memakai JavaScript/React/Vite/Express.
+Tiga aplikasi (API, kasir, dashboard) berbagi model data yang sama: produk, transaksi, shift, uang integer Rupiah. Tim kecil (1 orang per peran) dan kontrak API harus konsisten. Proyek Dear Fruity sebelumnya sudah memakai JavaScript/React/Vite/Express.
 
 ## Keputusan
 - Satu repo `kelola-kasir` (monorepo) dengan pnpm workspaces + Turborepo.
