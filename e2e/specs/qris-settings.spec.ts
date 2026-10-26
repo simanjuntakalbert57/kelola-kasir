@@ -1,25 +1,28 @@
 import { expect, test } from '@playwright/test';
 import {
+  OWNER_PASSWORD,
   QRIS_OWNER_EMAIL,
   bearer,
+  buildQris,
   call,
   createCashier,
   openShift,
   ownerToken,
+  sell,
   type Product,
   type Shop,
 } from '../support/api.js';
-import { sell } from '../support/api.js';
 import { openAsOwner } from '../support/ui.js';
-import { OWNER_PASSWORD } from '../support/api.js';
 
-/** Outlet JUS3 (owner `qris@e2e.test`) dipakai khusus uji konfigurasi QRIS, terpisah dari data seed utama. */
-test.describe('QRIS: hanya gambar diisi + "Tanamkan nominal" (TC-QRS-11, TC-SET-01)', () => {
-  test('hanya gambar QRIS (tanpa kode): kasir tetap bisa memulai pembayaran QRIS', async () => {
-    test.fail(
-      true,
-      'DEAR-30: gambar-saja dianggap QRIS terkonfigurasi di dashboard, tapi API menolak semua penjualan QRIS',
-    );
+/**
+ * Outlet JUS3 (owner `qris@e2e.test`) dipakai khusus uji konfigurasi QRIS, terpisah dari data seed utama.
+ * Keputusan DEAR-30 (opsi b): kode QRIS wajib; gambar saja atau "Tanamkan nominal" tanpa kode ditolak di dashboard.
+ */
+test.describe.configure({ mode: 'serial' });
+
+test.describe('QRIS: kode wajib, "Tanamkan nominal" (TC-QRS-11, TC-SET-01, DEAR-30)', () => {
+  test('gambar tanpa kode: simpan ditolak dan "Tanamkan nominal" nonaktif', async ({ page }) => {
+    // Keadaan lama/di luar UI: gambar + embed tersimpan lewat API, kode QRIS kosong.
     const owner = await ownerToken(QRIS_OWNER_EMAIL, OWNER_PASSWORD);
     await call('PATCH', '/settings', {
       headers: bearer(owner),
@@ -29,7 +32,42 @@ test.describe('QRIS: hanya gambar diisi + "Tanamkan nominal" (TC-QRS-11, TC-SET-
         qris_embed_amount: true,
       },
     });
-    const created = await call<{ device: { id: string; code: string }; pairing_code: string }>(
+    await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
+    await expect(page.getByLabel('Nama toko')).toBeVisible();
+    await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeDisabled();
+    await page.getByLabel('Alamat').fill('Jl. Uji QRIS 1');
+    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await expect(page.getByText(/Kode QRIS wajib diisi/)).toBeVisible();
+    await expect(page.getByText('Pengaturan tersimpan.')).toHaveCount(0);
+  });
+
+  test('kode QRIS kosong tanpa gambar/embed tetap boleh disimpan', async ({ page }) => {
+    const owner = await ownerToken(QRIS_OWNER_EMAIL, OWNER_PASSWORD);
+    await call('PATCH', '/settings', {
+      headers: bearer(owner),
+      body: { qris_static_image_url: null, qris_static_payload: null, qris_embed_amount: false },
+    });
+    await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
+    await page.getByLabel('Alamat').fill('Jl. Uji QRIS 2');
+    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
+    await expect(page.getByText(/Kode QRIS wajib diisi/)).toHaveCount(0);
+  });
+
+  test('isi kode QRIS: "Tanamkan nominal" aktif, simpan berhasil, kasir bisa memulai QRIS', async ({
+    page,
+  }) => {
+    await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
+    const embed = page.getByLabel('Tanamkan nominal ke QRIS');
+    await expect(embed).toBeDisabled();
+    await page.getByLabel('Kode QRIS', { exact: true }).fill(buildQris('JUS TIGA'));
+    await expect(embed).toBeEnabled();
+    await embed.check();
+    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
+
+    const owner = await ownerToken(QRIS_OWNER_EMAIL, OWNER_PASSWORD);
+    const created = await call<{ device: { code: string }; pairing_code: string }>(
       'POST',
       '/devices',
       { headers: bearer(owner), body: { name: 'Kasir QRIS' } },
@@ -48,7 +86,6 @@ test.describe('QRIS: hanya gambar diisi + "Tanamkan nominal" (TC-QRS-11, TC-SET-
       body: { category_id: cat.id, name: 'Jus Tes', price: 10_000 },
     });
     const shop = { deviceCode: created.data.device.code, outletCode: 'JUS3' } as Shop;
-    // Diharapkan: transaksi QRIS pending dengan gambar QR dari pengaturan, bukan 503 QRIS_PROVIDER_UNAVAILABLE.
     const sale = await sell(
       shop,
       cashier,
@@ -58,17 +95,5 @@ test.describe('QRIS: hanya gambar diisi + "Tanamkan nominal" (TC-QRS-11, TC-SET-
       'qris',
     );
     expect(sale.id).toBeTruthy();
-  });
-
-  test('UI: simpan gambar-saja + "Tanamkan nominal" tidak menghasilkan error mentah', async ({
-    page,
-  }) => {
-    await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
-    await expect(page.getByLabel('Nama toko')).toBeVisible();
-    await page.getByLabel('Alamat').fill('Jl. Uji QRIS 1');
-    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
-    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
-    await expect(page.getByText(/500|Internal|undefined/)).toHaveCount(0);
-    await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeEnabled(); // gambar-saja dianggap QRIS terpasang
   });
 });
