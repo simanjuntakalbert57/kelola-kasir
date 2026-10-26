@@ -199,6 +199,23 @@ describe('Shift & kas', () => {
     expect(screen.getByText(/−Rp\s?5\.000/)).toBeInTheDocument();
   });
 
+  it('"Hanya yang selisih" loads every page so older differences are not hidden', async () => {
+    let shiftCalls = 0;
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () =>
+        shiftCalls++ > 0
+          ? json({ data: [shift('old', -5000)], next_cursor: null })
+          : json({ data: [shift('new', 0)], next_cursor: 'c2' }),
+    });
+    renderApp('/shift');
+    expect(await screen.findByText('0 ✓ Pas')).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Hanya yang selisih'));
+    expect(await screen.findByText(/−Rp\s?5\.000 ▼ Kurang/)).toBeInTheDocument();
+    expect(screen.queryByText('0 ✓ Pas')).not.toBeInTheDocument();
+  });
+
   it('opens the shift summary with per-cashier breakdown', async () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
