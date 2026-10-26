@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../src/auth/SessionProvider';
+import { SalesProvider } from '../src/sales/SalesProvider';
 import { colors } from '../src/theme';
 
 function Routes() {
@@ -28,6 +29,10 @@ function Routes() {
       </Stack.Protected>
       <Stack.Protected guard={!!session && !!shift}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="cash" />
+        <Stack.Screen name="qris" />
+        <Stack.Screen name="success" options={{ gestureEnabled: false }} />
       </Stack.Protected>
     </Stack>
   );
@@ -38,7 +43,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SessionProvider>
         <StatusBar style="light" />
-        <Routes />
+        <SalesProvider>
+          <Routes />
+        </SalesProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );

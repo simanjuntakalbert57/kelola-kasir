@@ -1,4 +1,9 @@
-import type { Problem, ResponseBody } from '@kelola-kasir/contracts';
+import type {
+  Problem,
+  ResponseBody,
+  SyncMutation,
+  TransactionCreate,
+} from '@kelola-kasir/contracts';
 
 export class ApiError extends Error {
   constructor(
@@ -108,6 +113,34 @@ export function createApiClient(options: ApiClientOptions) {
         device: true,
         query: { cursor },
       }),
+    syncPush: (mutations: SyncMutation[]) =>
+      json<ResponseBody<'/sync/push', 'post'>>('POST', '/sync/push', {
+        device: true,
+        body: { mutations },
+      }),
+    createTransaction: (body: TransactionCreate) =>
+      json<ResponseBody<'/transactions', 'post', 201>>('POST', '/transactions', {
+        device: true,
+        employee: true,
+        body,
+      }),
+    getPayment: (paymentId: string) =>
+      json<ResponseBody<'/payments/{payment_id}', 'get'>>('GET', `/payments/${paymentId}`, {
+        device: true,
+        employee: true,
+      }),
+    confirmPayment: (paymentId: string) =>
+      json<ResponseBody<'/payments/{payment_id}/confirm', 'post'>>(
+        'POST',
+        `/payments/${paymentId}/confirm`,
+        { device: true, employee: true },
+      ),
+    cancelPayment: (paymentId: string) =>
+      json<ResponseBody<'/payments/{payment_id}/cancel', 'post'>>(
+        'POST',
+        `/payments/${paymentId}/cancel`,
+        { device: true, employee: true },
+      ),
     /** `null` when the outlet has no open shift (204). */
     async getCurrentShift(): Promise<ResponseBody<'/shifts/current', 'get'> | null> {
       const res = await request('GET', '/shifts/current', { device: true, employee: true });
