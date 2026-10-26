@@ -7,3 +7,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.expo/
+expo-env.d.ts
+android/
+ios/

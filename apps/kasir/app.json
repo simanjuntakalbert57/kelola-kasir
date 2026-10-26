@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Kelola Kasir",
+    "slug": "kelola-kasir-kasir",
+    "scheme": "kelolakasir",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E1512",
+    "android": {
+      "package": "id.kelolakasir.kasir",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1512",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-status-bar", "expo-dev-client"]
+  }
+}
