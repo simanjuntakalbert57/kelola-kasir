@@ -1,6 +1,6 @@
-# Deploy: VPS Hostinger + Cloudflare (DEAR-19)
+# Deploy: VPS (Rumahweb) + Cloudflare (DEAR-19)
 
-Status: berlaku untuk MVP. Dasar keputusan: [ADR-0012](../adr/0012-vps-hostinger.md) (menggantikan bagian hosting [ADR-0011](../adr/0011-free-tier-hosting.md)). Operasional harian (deploy ulang, rollback, restore, perawatan server): [runbook.md](runbook.md). APK kasir: [apk-release.md](apk-release.md).
+Status: berlaku untuk MVP. Dasar keputusan: [ADR-0012](../adr/0012-vps-hosting.md) (menggantikan bagian hosting [ADR-0011](../adr/0011-free-tier-hosting.md)). Operasional harian (deploy ulang, rollback, restore, perawatan server): [runbook.md](runbook.md). APK kasir: [apk-release.md](apk-release.md).
 
 Semua akun dibuat **atas nama owner**. Secret hanya diisi di `/opt/kelola-kasir/.env` di VPS, di dashboard Cloudflare, atau di GitHub Actions secrets. Secret tidak boleh masuk repo, komentar issue, atau chat. Tech Lead tidak butuh dan tidak akan meminta password atau private key server.
 
@@ -11,7 +11,7 @@ flowchart LR
   HP[Aplikasi kasir APK] -- "HTTPS /v1 (bearer)" --> Caddy
   Browser[Dashboard owner] -- "kelola-kasir.pages.dev" --> Pages[Cloudflare Pages]
   Pages -- "Pages Function /v1/* + X-Proxy-Secret" --> Caddy
-  subgraph VPS[VPS Hostinger KVM 1 · Ubuntu 24.04 · Docker Compose]
+  subgraph VPS[VPS Rumahweb · Ubuntu 24.04 · Docker Compose]
     Caddy[Caddy :443<br/>HTTPS otomatis] --> API[API Fastify]
     API --> DB[(PostgreSQL 16<br/>tidak dibuka ke internet)]
     Timer[timer 01:00 WIB] --> Backup[pg_dump + age]
@@ -44,11 +44,10 @@ Satu lingkungan: VPS ini dipakai sebagai **staging selama UAT** (DEAR-18). Sebel
 Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** menempelkan nilai secret.
 
 ### 1. VPS dan domain
-- [ ] Order **VPS Hostinger KVM 1** (sudah cukup). OS: **Ubuntu 24.04** (tanpa panel). Lokasi: **Indonesia** atau Malaysia.
-- [ ] Saat setup, tambahkan **SSH key milik Bapak** (hPanel → VPS → Settings → SSH keys). Dengan key ini, `setup.sh` bisa mematikan login password. Catat **IP VPS** dari hPanel.
-- [ ] Domain API. Pilih salah satu:
-  - **Disarankan:** pakai domain sendiri (beli di Hostinger atau registrar lain), lalu buat DNS **A record** `api` → IP VPS. Hasilnya `API_DOMAIN=api.<domain>`.
-  - Tanpa domain: pakai hostname bawaan VPS dari hPanel (`srvXXXX.hstgr.cloud`, sudah mengarah ke IP VPS).
+- [ ] VPS **Rumahweb** dengan syarat: virtualisasi **KVM** (bukan OpenVZ/LXC, karena Docker butuh KVM), minimal **2 GB RAM** (disarankan 4 GB), 1 vCPU, 20 GB SSD. OS: **Ubuntu 24.04** tanpa control panel (cPanel/Plesk tidak dipakai).
+- [ ] Catat **IP publik VPS** dan password root dari email aktivasi atau client area Rumahweb. Password root hanya untuk login pertama, jangan ditempel di issue.
+- [ ] Pasang **SSH key milik Bapak** untuk root. Kalau panel Rumahweb tidak menyediakan menu SSH key, jalankan dari laptop: `ssh-copy-id root@<ip-vps>` (sekali minta password root). Pastikan `ssh root@<ip-vps>` bisa masuk tanpa password, karena `setup.sh` mematikan login password setelah key terpasang.
+- [ ] Domain API (wajib, untuk HTTPS): beli domain di Rumahweb atau registrar lain, lalu di pengaturan DNS buat **A record** `api` → IP VPS. Hasilnya `API_DOMAIN=api.<domain>`. Cek dengan `nslookup api.<domain>`, hasilnya harus IP VPS.
   - URL ini ditanam di APK. Kalau nanti diganti, APK harus dibangun dan dipasang ulang, jadi tetapkan sebelum APK rilis.
 
 ### 2. Cloudflare R2 (foto + backup)
@@ -80,7 +79,7 @@ less setup.sh                      # baca dulu isinya
 bash setup.sh '<isi file kelola-kasir-deploy.pub: satu baris ssh-ed25519 AAAA... github-deploy>'
 ```
 Script ini memasang Docker, firewall (22/80/443), fail2ban, update keamanan otomatis, swap, user `deploy`, folder `/opt/kelola-kasir`, dan timer backup 01:00 WIB. Di akhir, script mencetak satu baris **host key** (`<ip> ssh-ed25519 AAAA...`). Salin baris itu untuk langkah 6.
-- [ ] Bila muncul peringatan "SSH password login stays ON", tambahkan SSH key di hPanel lalu jalankan script lagi.
+- [ ] Bila muncul peringatan "SSH password login stays ON", pasang SSH key dulu (`ssh-copy-id root@<ip-vps>`), lalu jalankan script lagi.
 
 ### 5. Isi `/opt/kelola-kasir/.env` di VPS
 Folder ini baru berisi file setelah deploy pertama (langkah 6). Kalau mau mengisi `.env` lebih dulu, buat dari template yang sama:

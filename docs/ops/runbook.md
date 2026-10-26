@@ -1,17 +1,17 @@
 # Runbook operasional (DEAR-19)
 
-Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md). Backup/restore detail: [backup-restore.md](backup-restore.md). APK: [apk-release.md](apk-release.md). Keputusan hosting: [ADR-0012](../adr/0012-vps-hostinger.md).
+Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md). Backup/restore detail: [backup-restore.md](backup-restore.md). APK: [apk-release.md](apk-release.md). Keputusan hosting: [ADR-0012](../adr/0012-vps-hosting.md).
 
 | Hal | Di mana |
 |---|---|
 | Dashboard | `https://kelola-kasir.pages.dev` |
 | API | `https://<API_DOMAIN>` (`/livez`, `/healthz`, `/v1/*`) |
-| Server | VPS Hostinger, folder `/opt/kelola-kasir`. Semua perintah Docker lewat `./compose.sh` di folder itu |
+| Server | VPS Rumahweb, folder `/opt/kelola-kasir`. Semua perintah Docker lewat `./compose.sh` di folder itu |
 | Log API | `./compose.sh logs -f --tail 200 api` (Caddy: `caddy`, DB: `db`) |
 | Error | Sentry → project `kelola-kasir-api` |
 | Deploy | GitHub → Actions → Deploy API to VPS |
 | Backup | timer `kelola-kasir-backup.timer` (01:00 WIB), bucket `kelola-kasir-backup/postgres/`, status di healthchecks.io |
-| Sumber daya server | hPanel → VPS → Overview (CPU, RAM, disk); `df -h`, `docker stats --no-stream` |
+| Sumber daya server | client area Rumahweb (status VPS), `htop`; `df -h`, `docker stats --no-stream` |
 
 ## Deploy
 
@@ -84,14 +84,14 @@ Setelah UAT lolos dan owner setuju:
 - **Update keamanan** dipasang otomatis setiap hari (`unattended-upgrades`). Bila login SSH menampilkan `*** System restart required ***`, reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
 - **Update image dasar** (Postgres 16 minor, Caddy): `./compose.sh pull db caddy && ./compose.sh up -d --wait`, di luar jam buka. Jangan ganti versi mayor Postgres tanpa rencana dump/restore.
 - **Disk**: `df -h` (target < 70%) dan `docker system df`. Image lama dibersihkan otomatis saat deploy. Log Docker dibatasi 100 MB per container.
-- **Snapshot hPanel** (opsional) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.
+- **Snapshot/backup VPS dari Rumahweb** (opsional, bila paketnya menyediakan) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.
 - **Perpanjangan VPS dan domain**: catat tanggal jatuh tempo di kalender owner. Layanan yang telat diperpanjang bisa dihentikan penyedia.
 
 ## Masalah umum
 
 | Gejala | Penyebab / tindakan |
 |---|---|
-| `/healthz` tidak bisa diakses, hPanel menunjukkan VPS mati | Start VPS dari hPanel. Container ikut menyala. Kasir tetap bisa transaksi cash offline selama server mati. |
+| `/healthz` tidak bisa diakses, client area Rumahweb menunjukkan VPS mati | Start/reboot VPS dari client area, atau hubungi support Rumahweb. Container ikut menyala. Kasir tetap bisa transaksi cash offline selama server mati. |
 | `/healthz` → `db: down` | `./compose.sh ps` dan `./compose.sh logs db`. Disk penuh? (`df -h`). Lalu `./compose.sh up -d --wait`. |
 | Error sertifikat HTTPS | DNS A record belum mengarah ke IP VPS, atau port 80/443 tertutup. Cek `./compose.sh logs caddy`. |
 | Deploy gagal di "Set up SSH" / `Host key verification failed` | Variable `VPS_KNOWN_HOSTS` salah, atau VPS di-reinstall (host key baru). Ambil ulang: `ssh-keyscan -t ed25519 <ip-vps>`. |
@@ -103,5 +103,5 @@ Setelah UAT lolos dan owner setuju:
 
 ## Pantauan rutin
 
-- **Mingguan:** Sentry issues baru, `df -h`, RAM/CPU di hPanel, status healthchecks.io.
+- **Mingguan:** Sentry issues baru, `df -h`, RAM/CPU (`htop`), status healthchecks.io.
 - **Bulanan:** uji restore, umur backup terbaru < 26 jam, reboot terjadwal bila ada update kernel.

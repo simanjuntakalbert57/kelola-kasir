@@ -16,6 +16,9 @@ APP_DIR=/opt/kelola-kasir
 [[ "$(id -u)" == 0 ]] || { echo "run as root" >&2; exit 1; }
 case "$DEPLOY_KEY" in ssh-ed25519\ *|ssh-rsa\ *|ecdsa-*) ;; *) echo "not an SSH public key" >&2; exit 1 ;; esac
 grep -q 'VERSION_ID="24.04"' /etc/os-release || echo "warning: tested on Ubuntu 24.04 only" >&2
+# Docker needs a full kernel: OpenVZ/LXC containers are not supported.
+virt="$(systemd-detect-virt 2>/dev/null || true)"
+case "$virt" in openvz|lxc|lxc-libvirt) echo "this VPS is $virt; Docker needs a KVM VPS" >&2; exit 1 ;; esac
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
@@ -103,7 +106,7 @@ EOF
   echo "SSH: password login disabled (root logs in with its key)."
 else
   echo "warning: /root/.ssh/authorized_keys is empty, SSH password login stays ON." >&2
-  echo "         Add your SSH key in hPanel (VPS > Settings > SSH keys), then run this script again." >&2
+  echo "         From your laptop run: ssh-copy-id root@<vps-ip>, then run this script again." >&2
 fi
 
 echo

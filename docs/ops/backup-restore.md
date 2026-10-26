@@ -14,7 +14,7 @@ Image backup memakai client PostgreSQL 16, sama dengan versi database di VPS.
 | Tujuan | **Di luar VPS**: Cloudflare R2 (atau Backblaze B2 bila R2 meminta kartu, ADR-0011), bucket khusus backup, prefix `postgres/` |
 | Retensi | 30 hari (`RETENTION_DAYS`), dipangkas otomatis oleh `backup.sh` |
 | Pemantauan | Ping ke healthchecks.io setelah setiap backup sukses; tidak ada ping 26 jam → email ke owner |
-| Cadangan tambahan | Snapshot VPS hPanel (opsional, manual) |
+| Cadangan tambahan | Snapshot/backup VPS dari Rumahweb (opsional, bila tersedia di paket) |
 | Target pemulihan | RPO ≤ 24 jam, RTO ≤ 2 jam |
 
 ## Setup (sekali)

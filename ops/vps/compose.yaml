@@ -1,4 +1,4 @@
-# Production stack on the Hostinger VPS (ADR-0012, docs/ops/deploy.md).
+# Production stack on the VPS (Rumahweb, ADR-0012, docs/ops/deploy.md).
 #   caddy (80/443, automatic HTTPS) -> api (Fastify) -> db (PostgreSQL 16, never published)
 #   backup (profile "backup"): pg_dump -> age -> R2/B2, started daily by the systemd timer from setup.sh.
 #
@@ -16,9 +16,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       # Read by initdb/10-backup-role.sh on the first start only.
       BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD in .env}
-    # Sized for a 1 vCPU / 4 GB VPS (Hostinger KVM 1).
+    # Defaults fit a 2 GB VPS; on 4 GB set PG_SHARED_BUFFERS=512MB and PG_EFFECTIVE_CACHE_SIZE=1536MB in .env.
     command:
-      [postgres, -c, shared_buffers=512MB, -c, effective_cache_size=1536MB, -c, max_connections=50]
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - max_connections=50
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./initdb:/docker-entrypoint-initdb.d:ro
