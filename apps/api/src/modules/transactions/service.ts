@@ -110,13 +110,25 @@ export async function createTransaction(
 
   const replay = async (): Promise<CreateResult | undefined> => {
     const [existing] = await db
-      .select({ outletId: transactions.outletId })
+      .select({
+        outletId: transactions.outletId,
+        number: transactions.number,
+        total: transactions.total,
+      })
       .from(transactions)
       .where(eq(transactions.id, input.id))
       .limit(1);
     if (!existing) return undefined;
     if (existing.outletId !== actor.outletId) {
       throw errors.conflict('ID_CONFLICT', 'Identifier already in use');
+    }
+    // Same id with other content is not a replay: answering `duplicate` would drop a real sale.
+    if (existing.number !== input.number || existing.total !== input.total) {
+      throw errors.conflict(
+        'ID_REUSED',
+        'Identifier already used by a different transaction',
+        'A transaction with this id exists with another number or total; the sale was not saved',
+      );
     }
     const transaction = await loadTransactionDto(db, input.id);
     return transaction ? { transaction, created: false } : undefined;
@@ -135,7 +147,7 @@ export async function createTransaction(
       }
 
       const [employee] = await tx
-        .select({ id: employees.id })
+        .select({ id: employees.id, isActive: employees.isActive })
         .from(employees)
         .where(and(eq(employees.id, actor.employeeId), eq(employees.outletId, actor.outletId)))
         .limit(1);
@@ -308,6 +320,15 @@ export async function createTransaction(
         device_id: actor.device.id,
         ...(actor.ip ? { ip: actor.ip } : {}),
       };
+      if (!employee.isActive) {
+        // Real sales are kept; the owner can see that a deactivated employee's device sent it.
+        await writeAudit(tx, {
+          ...auditBase,
+          action: 'sync.inactive_employee',
+          after: { employee_id: actor.employeeId },
+          meta,
+        });
+      }
       if (mismatches.length > 0) {
         await writeAudit(tx, {
           ...auditBase,

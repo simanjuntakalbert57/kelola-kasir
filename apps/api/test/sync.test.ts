@@ -548,7 +548,7 @@ describe('sync push: other mutations and envelope', () => {
     expect((await push(shop, [invalid]))[0]).toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('rejects void requests (not available yet) and unknown types per mutation', async () => {
+  it('rejects an invalid void request and unknown types per mutation', async () => {
     const shop = await createShop(env);
     const base = {
       client_created_at: env.clock.now.toISOString(),
@@ -559,7 +559,7 @@ describe('sync push: other mutations and envelope', () => {
       { ...base, id: uuidv7(), type: 'void_request.create' },
       { ...base, id: uuidv7(), type: 'teleport' },
     ]);
-    expect(results.map((r) => r.code)).toEqual(['UNSUPPORTED_MUTATION', 'UNKNOWN_MUTATION']);
+    expect(results.map((r) => r.code)).toEqual(['VALIDATION_ERROR', 'UNKNOWN_MUTATION']);
   });
 
   it('validates the envelope: 1..50 mutations, authentication', async () => {

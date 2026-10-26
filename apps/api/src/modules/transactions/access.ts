@@ -1,0 +1,39 @@
+import { and, eq } from 'drizzle-orm';
+import type { Principal } from '../../context.js';
+import type { Database } from '../../db/client.js';
+import { shifts, transactions } from '../../db/schema.js';
+import { errors } from '../../errors.js';
+import type { TransactionRow } from './serialize.js';
+
+/** Business date (WIB) of an instant, as `yyyy-mm-dd`. */
+export const wibDate = (at: Date): string =>
+  new Date(at.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+/**
+ * A transaction of the caller's outlet. Employees only see the running shift and today's sales
+ * (PRD §5); anything else is `403`, an unknown id (or another outlet's) is `404`.
+ */
+export async function findVisibleTransaction(
+  db: Database,
+  now: Date,
+  principal: Principal,
+  id: string,
+): Promise<TransactionRow> {
+  const [row] = await db
+    .select()
+    .from(transactions)
+    .where(and(eq(transactions.id, id), eq(transactions.outletId, principal.outletId)))
+    .limit(1);
+  if (!row) throw errors.notFound('Transaction not found');
+  if (principal.type !== 'employee') return row;
+  if (wibDate(row.clientCreatedAt) === wibDate(now)) return row;
+  const [shift] = await db
+    .select({ status: shifts.status })
+    .from(shifts)
+    .where(eq(shifts.id, row.shiftId))
+    .limit(1);
+  if (shift?.status !== 'open') {
+    throw errors.forbidden('You can only view transactions of the open shift or of today');
+  }
+  return row;
+}

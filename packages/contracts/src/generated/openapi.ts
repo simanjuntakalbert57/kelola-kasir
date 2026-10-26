@@ -467,7 +467,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export transactions as CSV or Excel (O-03) */
+        /**
+         * Export transactions as CSV or Excel (O-03)
+         * @description Streams the file (rows are read in batches, so large periods do not load into memory). Dates are inclusive WIB
+         *     business dates; without them every transaction of the outlet is exported. Times are WIB (`yyyy-mm-dd hh:mm:ss`),
+         *     amounts are whole Rupiah numbers. CSV is UTF-8 with a BOM and CRLF line ends; text starting with `= + - @` is
+         *     prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
+         *     (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
+         *     Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
+         *     Harga satuan, Total baris, Catatan` (one row per item).
+         */
         get: operations["exportTransactions"];
         put?: never;
         post?: never;
@@ -527,7 +536,13 @@ export interface paths {
         put?: never;
         /**
          * Request void of a paid transaction with a reason (P-10, Should)
-         * @description Employee request moves status `paid` → `void_requested`. Owner call voids immediately (`voided`). Audited.
+         * @description - **Employee**: `paid` → `void_requested` and a pending `VoidRequest` is created (`201`). The sale still counts
+         *       in totals until the owner decides. Idempotent on the optional `id` (the offline outbox sends it): a replay
+         *       answers `200` with the same request. The employee must be allowed to see the transaction (open shift or today).
+         *     - **Owner**: voids immediately (`voided`) and answers `200` with the updated `Transaction`; the reason is kept in the
+         *       audit log. A pending request of an employee on the same transaction is approved with it. Repeating the call is harmless.
+         *     Every void is written to the append-only `audit_logs` (`transaction.void_requested`, `transaction.void_approved`)
+         *     with actor, reason and time, in the same database transaction as the status change.
          */
         post: operations["createVoidRequest"];
         delete?: never;
@@ -673,7 +688,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Owner approves a void on the cashier device using the owner PIN (P-10, Should) */
+        /**
+         * Owner approves a void on the cashier device using the owner PIN (P-10, Should)
+         * @description The owner types the 6-digit owner PIN (set in `PATCH /settings`) on the cashier phone. Decision channel is `device_pin`
+         *     and the approving employee and device are recorded in the audit log. After 5 wrong PINs within 15 minutes for the
+         *     outlet the PIN pad is locked (`423 OWNER_PIN_LOCKED`, `Retry-After`), even for the right PIN. The PIN is never logged.
+         */
         post: operations["approveVoidWithOwnerPin"];
         delete?: never;
         options?: never;
@@ -738,7 +758,10 @@ export interface paths {
         };
         /**
          * Revenue, transaction count, average ticket, cash vs QRIS (O-02)
-         * @description Counts only `paid` and `void_requested` transactions. Owner only.
+         * @description Counts only `paid` and `void_requested` transactions created in the period (`client_created_at`, WIB business days,
+         *     both dates inclusive, default today, at most 366 days). `voided_count` is the number of voided transactions in the
+         *     period. `compare_previous_period` compares with the period of the same length right before it
+         *     (`revenue_change_pct` is `null` when that period had no revenue). Owner only.
          */
         get: operations["getDashboardSummary"];
         put?: never;
@@ -756,7 +779,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sales chart per hour or day, WIB (O-02) */
+        /**
+         * Sales chart per hour or day, WIB (O-02)
+         * @description One bucket per WIB hour or day of the period, empty buckets included with zeros, oldest first. `bucket_start` is the
+         *     UTC instant of the bucket start (a WIB day starts at 17:00Z the day before). Same counting rule as the summary.
+         *     Hourly series span at most 31 days.
+         */
         get: operations["getSalesSeries"];
         put?: never;
         post?: never;
@@ -773,7 +801,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Best-selling products by quantity and revenue (O-02) */
+        /**
+         * Best-selling products by quantity and revenue (O-02)
+         * @description Ranked by quantity, then revenue. Counts `paid` and `void_requested` sales only; `product_name` is the newest sale snapshot.
+         */
         get: operations["getTopProducts"];
         put?: never;
         post?: never;
@@ -878,7 +909,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "UPLOADS_NOT_CONFIGURED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "INVALID_OWNER_PIN";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "UPLOADS_NOT_CONFIGURED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1351,6 +1382,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description `VOID_ALREADY_DECIDED` (the request was already decided the other way) */
+        VoidAlreadyDecided: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Validation error (`VALIDATION_ERROR`) */
         BadRequest: {
             headers: {
@@ -2373,7 +2413,7 @@ export interface operations {
                     "application/json": components["schemas"]["Transaction"];
                 };
             };
-            /** @description `SHIFT_NOT_OPEN` (unknown shift), `SHIFT_CLOSED`, `NUMBER_CONFLICT`, `ID_CONFLICT` (id belongs to another outlet) */
+            /** @description `SHIFT_NOT_OPEN` (unknown shift), `SHIFT_CLOSED`, `NUMBER_CONFLICT`, `ID_CONFLICT` (id belongs to another outlet), `ID_REUSED` (the id exists with another number or total; the sale is NOT saved, so it is never silently dropped as a duplicate) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2432,7 +2472,9 @@ export interface operations {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getTransaction: {
@@ -2494,14 +2536,26 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: uuid */
-                    id: string;
+                    /**
+                     * Format: uuid
+                     * @description Client-generated id of the request (idempotency key); ignored for the owner
+                     */
+                    id?: string;
                     reason: string;
                 };
             };
         };
         responses: {
-            /** @description Void request created */
+            /** @description Idempotent replay of the same request (employee), or the transaction voided at once (owner) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoidRequest"] | components["schemas"]["Transaction"];
+                };
+            };
+            /** @description Request created (employee) */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -2510,8 +2564,21 @@ export interface operations {
                     "application/json": components["schemas"]["VoidRequest"];
                 };
             };
-            /** @description `TRANSACTION_NOT_VOIDABLE` (not paid / already requested) */
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `TRANSACTION_NOT_VOIDABLE` (not `paid`, e.g. already requested, voided or pending QRIS), `ID_CONFLICT` */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `EMPLOYEE_UNKNOWN` */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2677,7 +2744,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Approved; transaction `voided` */
+            /** @description Approved; transaction `voided`. Repeating the same decision is an idempotent replay. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2687,6 +2754,9 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VoidAlreadyDecided"];
         };
     };
     rejectVoidRequest: {
@@ -2704,7 +2774,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Rejected */
+            /** @description Rejected; transaction back to `paid`. Repeating the same decision is an idempotent replay. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2714,6 +2784,9 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VoidAlreadyDecided"];
         };
     };
     approveVoidWithOwnerPin: {
@@ -2743,9 +2816,21 @@ export interface operations {
                     "application/json": components["schemas"]["VoidRequest"];
                 };
             };
-            /** @description `INVALID_OWNER_PIN` */
+            /** @description `INVALID_OWNER_PIN` (also when no owner PIN was ever set) */
             401: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VoidAlreadyDecided"];
+            /** @description `OWNER_PIN_LOCKED` */
+            423: {
+                headers: {
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

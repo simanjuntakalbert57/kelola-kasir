@@ -6,7 +6,8 @@ Backend API: Fastify 5, Drizzle ORM, PostgreSQL 16, Zod. Contract: [`docs/api/op
 Implemented so far (DEAR-8): skeleton, owner auth (B-2), devices (B-3), employees + PIN login + RBAC (B-4),
 shifts (B-7), backup tooling (B-14, see [`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md)).
 DEAR-11: catalog (B-5), store settings and static QRIS (B-6), transactions (B-8), payments (B-9), offline sync (B-10).
-Dashboard, reports, export and void requests follow in B-11..B-13, B-15.
+DEAR-15: dashboard summary/series/top products and sales report (B-11), CSV/XLSX export (B-12), void requests with
+approval and audit (B-13). Notifications follow in B-15.
 
 ## Run locally
 
@@ -104,6 +105,21 @@ instances from doing it twice.
 at most `limit` (default 500) per page. Employees carry `pin_hash` only when the owner enabled offline login.
 `/sync/push` applies mutations in order, each in its own DB transaction; the answer per mutation is `applied`, `duplicate`
 (replay, safe) or `rejected` with a `code`. See TDD §2.4 and ADR-0008 for the conflict rules.
+
+### Dashboard, export and voids (DEAR-15)
+
+| Endpoint                                                   | Auth              | Notes                                                                                       |
+| ---------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------- |
+| `GET /dashboard/summary`, `/sales-series`, `/top-products` | owner             | `paid` + `void_requested` by `client_created_at`, WIB business days; series are zero-filled |
+| `GET /reports/sales?group_by=`                             | owner             | product, employee, payment method or day                                                    |
+| `GET /transactions/export?format=csv\|xlsx`                | owner             | Streamed in batches of 500; `detail=true` = one row per item; audited                       |
+| `POST /transactions/{id}/void-requests`                    | employee, owner   | Employee: `paid` → `void_requested` (idempotent on `id`); owner: voids at once              |
+| `GET /void-requests`, `POST .../approve`, `.../reject`     | owner             | Same decision twice is a replay; the opposite one is `409 VOID_ALREADY_DECIDED`             |
+| `POST /void-requests/{id}/approve-with-pin`                | employee + device | Owner PIN on the cashier phone; 5 wrong PINs per outlet in 15 min lock it (`423`)           |
+
+Reports count `paid` and `void_requested`; `voided`, `cancelled` and `pending` are never revenue. Every void writes
+`transaction.void_requested` / `void_approved` / `void_rejected` to the append-only `audit_logs` (actor, reason, time, channel)
+in the same DB transaction as the status change. A closed shift keeps its frozen totals even if one of its sales is voided later.
 
 ## Design notes
 
