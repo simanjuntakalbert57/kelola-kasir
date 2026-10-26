@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time preparation of a fresh VPS for Kelola Kasir (ADR-0012, docs/ops/deploy.md step 4).
-# Supported OS: Ubuntu 24.04, or AlmaLinux/Rocky Linux 8 or 9 (the Rumahweb VPS runs AlmaLinux 8.9).
+# Supported OS: Ubuntu 24.04, or AlmaLinux/Rocky Linux 8 or 9 (the Rumahweb VPS runs Ubuntu 24.04).
 # Run as root:  bash setup.sh '<deploy public key: ssh-ed25519 AAAA... github-deploy>'
 # Idempotent: running it again only re-applies the same settings.
 #

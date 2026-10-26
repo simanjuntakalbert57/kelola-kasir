@@ -57,7 +57,7 @@ Ringkas (detail: [backup-restore.md](backup-restore.md)):
 4. `./compose.sh up -d --wait`. Migrasi idempoten berjalan saat start. Cek `/healthz`. Hapus `kelola_kasir_old` setelah owner memastikan data benar.
 5. HP kasir menyinkronkan ulang outbox otomatis. Beri tahu owner rentang data yang mungkin hilang.
 
-**VPS hilang atau rusak total:** order/reinstall VPS (AlmaLinux 8.9 atau OS lain yang didukung `setup.sh`), jalankan deploy.md langkah 4–6 dengan **`.env` dan nilai secret yang sama** dari password manager. Deploy membuat database kosong. Lalu jalankan langkah restore di atas (lewati langkah 1). Bila IP berubah: perbarui DNS A record, variable `VPS_HOST` dan `VPS_KNOWN_HOSTS`. Target pemulihan: ≤ 2 jam.
+**VPS hilang atau rusak total:** order/reinstall VPS (Ubuntu 24.04, atau AlmaLinux/Rocky 8–9), jalankan deploy.md langkah 4–6 dengan **`.env` dan nilai secret yang sama** dari password manager. Deploy membuat database kosong. Lalu jalankan langkah restore di atas (lewati langkah 1). Bila IP berubah: perbarui DNS A record, variable `VPS_HOST` dan `VPS_KNOWN_HOSTS`. Target pemulihan: ≤ 2 jam.
 
 Uji restore bulanan: checklist di backup-restore.md.
 

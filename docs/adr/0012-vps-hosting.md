@@ -7,13 +7,13 @@ ADR-0011 memilih free tier (Render Free + Neon Free) dengan biaya US$0. Saat men
 - **Cold start Render Free.** API tidur setelah 15 menit tanpa trafik, dan request pertama sesudahnya butuh ±30–60 detik.
 - **Kuota Neon 100 CU-jam/bulan.** Perkiraan pemakaian ±93 CU-jam bila toko buka 12 jam/hari. Kalau kuota habis, database berhenti sampai akhir bulan.
 
-Owner bertanya apakah VPS Hostinger bisa dipakai. Setelah melihat perbandingannya, owner memutuskan **"lanjut VPS"** pada 26 Okt 2026. Keputusan ini menerima biaya bulanan. Setelah itu owner memilih penyedia **Rumahweb** (bukan Hostinger yang dibahas awalnya). Rancangan di bawah tidak bergantung pada penyedia: syaratnya VPS KVM dengan akses root SSH dan OS yang didukung `setup.sh`: Ubuntu 24.04 atau AlmaLinux/Rocky 8–9. VPS Rumahweb owner memakai **AlmaLinux 8.9** (dipilih owner 26 Okt 2026; dukungan keamanan AlmaLinux 8 sampai 2029). Skala tetap sama: 1 gerai, 1–2 HP kasir, ≤ 500 transaksi/hari.
+Owner bertanya apakah VPS Hostinger bisa dipakai. Setelah melihat perbandingannya, owner memutuskan **"lanjut VPS"** pada 26 Okt 2026. Keputusan ini menerima biaya bulanan. Setelah itu owner memilih penyedia **Rumahweb** (bukan Hostinger yang dibahas awalnya). Rancangan di bawah tidak bergantung pada penyedia: syaratnya VPS KVM dengan akses root SSH dan OS yang didukung `setup.sh`: Ubuntu 24.04 atau AlmaLinux/Rocky 8–9. VPS Rumahweb owner awalnya terpasang AlmaLinux 8.9, lalu di-reinstall owner ke **Ubuntu 24.04** (26 Okt 2026). Ubuntu 24.04 menjadi OS utama, sedangkan AlmaLinux/Rocky tetap didukung sebagai cadangan. Skala tetap sama: 1 gerai, 1–2 HP kasir, ≤ 500 transaksi/hari.
 
 ## Keputusan
 
 | Komponen | Sebelumnya (ADR-0011) | Sekarang |
 |---|---|---|
-| API (Fastify, Docker) | Render Free | **VPS Rumahweb** (virtualisasi KVM, minimal 1 vCPU, 2 GB RAM, 20 GB SSD; disarankan 4 GB RAM), AlmaLinux 8.9, data center Indonesia, Docker Compose |
+| API (Fastify, Docker) | Render Free | **VPS Rumahweb** (virtualisasi KVM, minimal 1 vCPU, 2 GB RAM, 20 GB SSD; disarankan 4 GB RAM), Ubuntu 24.04, data center Indonesia, Docker Compose |
 | PostgreSQL 16 | Neon Free | **Container `postgres:16-alpine` di VPS yang sama**, volume Docker, port tidak dibuka ke internet |
 | HTTPS / reverse proxy | Edge Render | **Caddy 2** (sertifikat Let's Encrypt otomatis) untuk `API_DOMAIN` |
 | Domain API | `*.onrender.com` | Domain owner, mis. `api.<domain>` (A record → IP VPS). Domain bisa dibeli di Rumahweb (juga registrar) dan dikelola DNS-nya di sana |
