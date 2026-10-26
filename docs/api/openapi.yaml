@@ -1277,7 +1277,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/OutletSettings' }
         '422':
-          description: '`INVALID_QRIS_PAYLOAD`'
+          description: |
+            `INVALID_QRIS_PAYLOAD`, or `QRIS_PAYLOAD_REQUIRED` when the resulting settings would have a QRIS image or
+            `qris_embed_amount: true` without a valid `qris_static_payload` (use `POST /settings/qris/decode` to read it from the image)
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1464,6 +1466,7 @@ components:
         # catalog, settings, uploads
         - CATEGORY_NOT_EMPTY
         - INVALID_QRIS_PAYLOAD
+        - QRIS_PAYLOAD_REQUIRED
         - UPLOADS_NOT_CONFIGURED
         # shifts
         - SHIFT_ALREADY_OPEN

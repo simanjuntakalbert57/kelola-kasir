@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { json, mockApi, problem, renderApp, session } from '../test/helpers';
 
+vi.mock('../lib/upload', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  uploadImage: vi.fn(async () => 'https://cdn.test/qris.png'),
+}));
+
 afterEach(() => vi.unstubAllGlobals());
 
 const cat = { id: 'c1', name: 'Jus Buah', sort_order: 0 };
@@ -157,5 +162,61 @@ describe('Pengaturan toko', () => {
     renderApp('/pengaturan');
     await userEvent.click(await screen.findByRole('button', { name: 'Simpan perubahan' }));
     expect(await screen.findByText(/Kode QRIS tidak valid/)).toBeInTheDocument();
+  });
+
+  it('fills the QRIS code from an uploaded image', async () => {
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+      'POST /settings/qris/decode': () =>
+        json({
+          qris_static_payload: 'QRIS-PAYLOAD',
+          qris_merchant_name: 'JUS ALBERT',
+          is_static: true,
+        }),
+      'PATCH /settings': (b) => json({ ...settings, ...(b as object) }),
+    });
+    renderApp('/pengaturan');
+    const file = new File(['png'], 'qris.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
+    expect(await screen.findByText(/Kode QRIS terisi otomatis/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Kode QRIS')).toHaveValue('QRIS-PAYLOAD');
+    expect(calls.find((c) => c.key === 'POST /settings/qris/decode')?.body).toEqual({
+      image_base64: 'cG5n',
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Simpan perubahan' }));
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toMatchObject({
+        qris_static_image_url: 'https://cdn.test/qris.png',
+        qris_static_payload: 'QRIS-PAYLOAD',
+      }),
+    );
+  });
+
+  it('asks for a manual code when the image cannot be read', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+      'POST /settings/qris/decode': () => problem(422, 'INVALID_QRIS_PAYLOAD'),
+    });
+    renderApp('/pengaturan');
+    const file = new File(['png'], 'qris.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
+    expect(await screen.findByText(/isi kode QRIS secara manual/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Kode QRIS')).toHaveValue('');
+  });
+
+  it('does not fill a dynamic QRIS that already carries an amount', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+      'POST /settings/qris/decode': () =>
+        json({ qris_static_payload: 'DYN', qris_merchant_name: 'X', is_static: false }),
+    });
+    renderApp('/pengaturan');
+    const file = new File(['png'], 'qris.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
+    expect(await screen.findByText(/sudah berisi nominal/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Kode QRIS')).toHaveValue('');
   });
 });

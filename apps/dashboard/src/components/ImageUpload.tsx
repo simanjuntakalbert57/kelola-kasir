@@ -8,11 +8,14 @@ export function ImageUpload({
   purpose,
   value,
   onChange,
+  onUploaded,
 }: {
   label: string;
   purpose: UploadPurpose;
   value: string | null | undefined;
   onChange: (url: string | null) => void;
+  /** Called with the picked file after it was uploaded, e.g. to read data out of the image. */
+  onUploaded?: (file: File) => void | Promise<void>;
 }) {
   const id = useId();
   const [busy, setBusy] = useState(false);
@@ -24,6 +27,7 @@ export function ImageUpload({
     setError(null);
     try {
       onChange(await uploadImage(file, purpose));
+      await onUploaded?.(file);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal mengunggah gambar.');
     } finally {

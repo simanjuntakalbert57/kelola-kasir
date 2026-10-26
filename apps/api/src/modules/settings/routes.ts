@@ -76,6 +76,22 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
       return db.transaction(async (tx) => {
         const { outlet, settings: before } = await loadSettings(tx, principal.outletId);
 
+        // The image and "embed amount" only make sense with a valid code: every QRIS sale needs the
+        // payload, so reject the combination here and not only in the dashboard.
+        const nextPayload = qris ? qris.payload : before.qrisStaticPayload;
+        const nextImage =
+          body.qris_static_image_url !== undefined
+            ? body.qris_static_image_url
+            : before.qrisStaticImageUrl;
+        const nextEmbed = body.qris_embed_amount ?? before.qrisEmbedAmount;
+        if (!nextPayload && (nextImage || nextEmbed)) {
+          throw errors.unprocessable(
+            'QRIS_PAYLOAD_REQUIRED',
+            'QRIS payload required',
+            'A QRIS image or qris_embed_amount requires a valid qris_static_payload; decode the image with POST /settings/qris/decode or enter the code manually',
+          );
+        }
+
         if (body.owner_pin) {
           // The owner PIN authorises voids on a cashier device, so it must not be an employee PIN.
           const fingerprint = pinFingerprint(
