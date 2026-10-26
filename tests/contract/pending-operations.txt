@@ -34,3 +34,8 @@ getSalesReport  # GET /reports/sales
 getSettings  # GET /settings
 updateSettings  # PATCH /settings
 createUpload  # POST /uploads
+
+# TEMP (DEAR-22, fix in PR #11): opened_at before year 100 (e.g. 0029-01-01T05:29:05Z) makes POST /shifts and
+# GET /shifts/current return 500. Remove these two lines once PR #11 is on main.
+openShift  # POST /shifts
+getCurrentShift  # GET /shifts/current
