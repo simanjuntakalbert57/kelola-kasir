@@ -50,11 +50,15 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
     await expect(page.getByRole('listitem').filter({ hasText: 'Rina E2E' })).toContainText(
       'Nonaktif',
     );
-    const { data } = await call<{ data: { name: string }[] }>('GET', '/devices/me/employees', {
-      headers: { 'x-device-token': shop.deviceToken },
-    });
-    expect(data.data.map((e) => e.name)).not.toContain('Rina E2E');
-    expect(data.data.map((e) => e.name)).toContain('Siti E2E');
+    const names = async () => {
+      const { data } = await call<{ data: { name: string }[] }>('GET', '/devices/me/employees', {
+        headers: { 'x-device-token': shop.deviceToken },
+      });
+      return data.data.map((e) => e.name);
+    };
+    // The badge can render before the deactivation request lands, so poll the API instead of reading once.
+    await expect.poll(names).not.toContain('Rina E2E');
+    expect(await names()).toContain('Siti E2E');
   });
 
   test('TC-AUTH-04/TC-DEV-01 tambah perangkat menampilkan kode 8 karakter sekali saja', async ({
