@@ -150,6 +150,7 @@ describe('static QRIS settings', () => {
     });
     const cleared = await patch(env, '/v1/settings', bearer(shop.ownerToken), {
       qris_static_payload: null,
+      qris_embed_amount: false,
     });
     expect(json<SettingsDto>(cleared)).toMatchObject({
       qris_static_payload: null,
@@ -167,6 +168,40 @@ describe('static QRIS settings', () => {
     });
     expect(res.statusCode).toBe(422);
     expect(json(res)).toMatchObject({ code: 'INVALID_QRIS_PAYLOAD' });
+  });
+
+  it('rejects a QRIS image or embed amount without a payload (QRIS_PAYLOAD_REQUIRED)', async () => {
+    const shop = await createShop(env, { qris: false });
+    const owner = bearer(shop.ownerToken);
+    const image = 'https://example.test/qris.png';
+    for (const body of [
+      { qris_static_image_url: image },
+      { qris_embed_amount: true },
+      { qris_static_image_url: image, qris_static_payload: null, qris_embed_amount: true },
+    ]) {
+      const res = await patch(env, '/v1/settings', owner, body);
+      expect(res.statusCode).toBe(422);
+      expect(json(res)).toMatchObject({ code: 'QRIS_PAYLOAD_REQUIRED' });
+    }
+    expect(json<SettingsDto>(await get(env, '/v1/settings', owner))).toMatchObject({
+      qris_static_payload: null,
+      qris_embed_amount: false,
+    });
+
+    // With a valid payload the same image is accepted; clearing the payload while the image stays is not.
+    const ok = await patch(env, '/v1/settings', owner, {
+      qris_static_image_url: image,
+      qris_static_payload: buildQris(),
+    });
+    expect(ok.statusCode).toBe(200);
+    const clear = await patch(env, '/v1/settings', owner, { qris_static_payload: null });
+    expect(clear.statusCode).toBe(422);
+    expect(json(clear)).toMatchObject({ code: 'QRIS_PAYLOAD_REQUIRED' });
+    const both = await patch(env, '/v1/settings', owner, {
+      qris_static_payload: null,
+      qris_static_image_url: null,
+    });
+    expect(both.statusCode).toBe(200);
   });
 
   it('decodes the payload from an uploaded QR image', async () => {
