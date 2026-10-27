@@ -130,4 +130,17 @@ test.describe('QRIS: gambar + "Tanamkan nominal" wajib berkode (TC-QRS-11, TC-SE
     await expect(page.getByText(/500|Internal|undefined/)).toHaveCount(0);
     await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeEnabled(); // QRIS terpasang (gambar + kode)
   });
+
+  test('UI: mengosongkan kode QRIS menonaktifkan "Tanamkan nominal" dan simpan ditolak (DEAR-30)', async ({
+    page,
+  }) => {
+    await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
+    const embed = page.getByLabel('Tanamkan nominal ke QRIS');
+    await expect(embed).toBeEnabled();
+    await page.getByLabel('Kode QRIS', { exact: true }).fill('');
+    await expect(embed).toBeDisabled();
+    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await expect(page.getByText(/Kode QRIS wajib diisi/)).toBeVisible();
+    await expect(page.getByText('Pengaturan tersimpan.')).toHaveCount(0);
+  });
 });
