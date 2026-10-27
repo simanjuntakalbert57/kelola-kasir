@@ -72,9 +72,7 @@ export default function OpenShiftScreen() {
         right={<Button label="Keluar" variant="ghost" onPress={logout} />}
       />
       {offline ? <Banner tone="warn">Offline — buka shift butuh internet</Banner> : null}
-      {checking ? (
-        <Banner tone="warn">Memeriksa shift…</Banner>
-      ) : null}
+      {checking ? <Banner tone="warn">Memeriksa shift…</Banner> : null}
       {checkFailed ? <Banner tone="error">Gagal memeriksa shift. Coba lagi.</Banner> : null}
       <View style={styles.body}>
         <Text style={styles.hello}>
@@ -98,13 +96,7 @@ export default function OpenShiftScreen() {
         <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
         <Button
           testID="open-shift-submit"
-          label={
-            busy
-              ? 'Membuka…'
-              : checking
-                ? 'Memeriksa shift…'
-                : 'Buka shift & mulai jualan'
-          }
+          label={busy ? 'Membuka…' : checking ? 'Memeriksa shift…' : 'Buka shift & mulai jualan'}
           variant="primary"
           large
           disabled={!canOpenShift({ offline, busy, shiftChecked, checkFailed })}
