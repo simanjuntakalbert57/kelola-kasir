@@ -1,7 +1,7 @@
 # Backlog Ide Produk — Kelola Kasir
 
 Sumber kebenaran tunggal untuk ide produk. Diperbarui setiap ada ide baru atau keputusan Albert.
-Terakhir diperbarui: 2026-10-26 (DEAR-24, discovery fase 2) · Pemilik: Product Manager (Ide & Benchmark)
+Terakhir diperbarui: 2026-10-27 (tab Keranjang, permintaan Albert) · Pemilik: Product Manager (Ide & Benchmark)
 
 **Status:** `usulan` → `disetujui` / `ditolak` → `dikerjakan`. Keputusan ada di Albert, diteruskan lewat Chief of Staff. `menunggu keputusan Albert` dipakai untuk kandidat MVP dan ide yang mengubah keputusan terkunci.
 
@@ -15,6 +15,7 @@ Effort ≤ 0,5 hari, hanya aplikasi kasir, tanpa perubahan kontrak/DB. Rincian d
 |---|---|---|---|---|---|
 | K-1 | Tombol "Kirim ringkasan shift ke WhatsApp owner" di layar tutup shift | ±0,5 hari | Gratis | menunggu keputusan Albert | Rekomendasi Chief of Staff: tunda, masuk tepat setelah rilis |
 | K-2 | Kalkulator pecahan uang saat input kas aktual tutup shift | ±0,5 hari | Gratis | menunggu keputusan Albert | Rekomendasi Chief of Staff: tunda ke fase 2 |
+| K-3 | Tab "Keranjang" ala marketplace: badge, cek pesanan, bayar Cash/QRIS dari keranjang, tanpa detail produk. RICE 10×1×80%÷2 = **4,0** | ±1,5–2 hari | Gratis | menunggu keputusan Albert | Diminta langsung oleh Albert. Effort melebihi batas ≤ 0,5 hari, tapi hanya aplikasi kasir tanpa perubahan kontrak/DB. [concepts/keranjang-tab.md](concepts/keranjang-tab.md) |
 
 ## Ide Fase 2
 
@@ -45,3 +46,4 @@ Ide #1, #2, #3 (total ±8 hari-orang, estimasi), urutan eksekusi **C → B → A
 | Tanggal | Item | Keputusan | Oleh |
 |---|---|---|---|
 | 2026-10-26 | Backlog awal (15 ide + K-1/K-2) dari discovery fase 2 | Diusulkan, menunggu pilihan Albert | PM |
+| 2026-10-27 | K-3 tab Keranjang | Albert minta menu Keranjang ala marketplace; **detail produk tidak perlu** | Albert |
