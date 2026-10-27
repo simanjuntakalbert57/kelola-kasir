@@ -8,8 +8,8 @@ Semua akun dibuat **atas nama owner**. Secret hanya diisi di `/opt/kelola-kasir/
 
 ```mermaid
 flowchart LR
-  HP[Aplikasi kasir APK] -- "HTTPS /v1 (bearer)" --> Caddy
-  Browser[Dashboard owner] -- "kelola-kasir.pages.dev" --> Pages[Cloudflare Pages]
+  HP[Aplikasi kasir APK] -- "kelola-kasir.pages.dev/v1 (X-Device-Token, bearer)" --> Pages[Cloudflare Pages]
+  Browser[Dashboard owner] -- "kelola-kasir.pages.dev" --> Pages
   Pages -- "Pages Function /v1/* + X-Proxy-Secret" --> Caddy
   subgraph VPS[VPS Rumahweb · Ubuntu 24.04 · Docker Compose]
     Caddy[Caddy :443<br/>HTTPS otomatis] --> API[API Fastify]
@@ -31,7 +31,7 @@ flowchart LR
 | HTTPS | `ops/vps/Caddyfile` | VPS, service `caddy` |
 | Migrasi DB | `node dist/db/migrate.js` di awal start container API (idempoten) | VPS |
 | Deploy + rollback | `.github/workflows/deploy-vps.yml` | GitHub Actions → SSH user `deploy` |
-| Dashboard + proxy | `apps/dashboard` + `apps/dashboard/functions/v1/[[path]].ts` | Cloudflare Pages |
+| Dashboard + proxy `/v1` (dipakai dashboard **dan** APK, ADR-0014) | `apps/dashboard` + `apps/dashboard/functions/v1/[[path]].ts` | Cloudflare Pages |
 | Backup harian | `ops/vps/backup-now.sh` + `ops/backup/` (timer dipasang `ops/vps/setup.sh`) | VPS → R2/B2 |
 | Uptime | `.github/workflows/uptime.yml` (tiap 30 menit) | GitHub Actions |
 | Error | `apps/api/src/lib/error-reporter.ts` (aktif bila `SENTRY_DSN` diisi) | Sentry Developer (free) |
@@ -47,7 +47,7 @@ Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** mene
 - [ ] VPS **Rumahweb** dengan syarat: virtualisasi **KVM** (bukan OpenVZ/LXC, karena Docker butuh KVM), minimal **2 GB RAM** (disarankan 4 GB), 1 vCPU, 20 GB SSD. OS: **Ubuntu 24.04** (terpasang di VPS owner); AlmaLinux/Rocky 8–9 juga didukung. Tanpa control panel (cPanel/Plesk tidak dipakai). OS lain ditolak oleh `setup.sh`.
 - [ ] Catat **IP publik VPS** dan password root dari email aktivasi atau client area Rumahweb. Password root hanya untuk login pertama, jangan ditempel di issue.
 - [ ] Pasang **SSH key milik Bapak** untuk root. Kalau panel Rumahweb tidak menyediakan menu SSH key, jalankan dari laptop: `ssh-copy-id root@<ip-vps>` (sekali minta password root). Pastikan `ssh root@<ip-vps>` bisa masuk tanpa password, karena `setup.sh` mematikan login password setelah key terpasang.
-- [ ] Domain API (wajib, untuk HTTPS): beli domain di Rumahweb atau registrar lain, lalu di pengaturan DNS buat **A record** `api` → IP VPS. Hasilnya `API_DOMAIN=api.<domain>`. Cek dengan `nslookup api.<domain>`, hasilnya harus IP VPS.
+- [ ] Alamat API untuk HTTPS, **tanpa beli domain** (ADR-0014): pakai `API_DOMAIN=<ip-dengan-strip>.sslip.io` (mis. `80-43-0-75.sslip.io`), gratis dan otomatis mengarah ke IP VPS. Cek dengan `nslookup 80-43-0-75.sslip.io`. Alamat ini hanya dipakai Pages (`API_ORIGIN`) dan health check; APK dan browser lewat `kelola-kasir.pages.dev/v1`. Domain sendiri tetap boleh dipakai bila kelak dibeli.
   - URL ini ditanam di APK. Kalau nanti diganti, APK harus dibangun dan dipasang ulang, jadi tetapkan sebelum APK rilis.
 
 ### 2. Cloudflare R2 (foto + backup)
@@ -113,7 +113,7 @@ nano .env
   | `VPS_KNOWN_HOSTS` | baris host key dari akhir `setup.sh` |
   | `API_HEALTH_URL` | `https://<API_DOMAIN>/healthz` |
   | `DASHBOARD_URL` | `https://kelola-kasir.pages.dev` |
-  | `KASIR_API_URL` | `https://<API_DOMAIN>/v1` |
+  | `KASIR_API_URL` | `https://kelola-kasir.pages.dev/v1` (ADR-0014, bukan alamat VPS) |
 
 - [ ] Actions → **Deploy API to VPS** → Run workflow (tag kosong). Workflow membangun image, menyalin `ops/vps` ke `/opt/kelola-kasir`, lalu menjalankan `db`, `api`, dan `caddy`.
 - [ ] Buka `https://<API_DOMAIN>/healthz` → `{"status":"ok","db":"up"}`. Sertifikat HTTPS dibuat otomatis saat pertama diakses (butuh DNS A record sudah aktif).
@@ -132,7 +132,7 @@ Sesudah ini, setiap merge ke `main` yang lolos CI akan otomatis di-deploy.
   | Build output directory | `dist` |
 
 - [ ] Environment variables (Production), **Build**: `NODE_VERSION=24.18.0`, `PNPM_VERSION=10.34.9`.
-- [ ] Environment variables (Production), **Runtime/Functions**: `API_ORIGIN=https://<API_DOMAIN>` (tanpa `/v1`), dan `PROXY_SHARED_SECRET` (tipe **Secret**, nilainya sama dengan di `.env` VPS).
+- [ ] Environment variables (Production), **Runtime/Functions**: `API_ORIGIN=https://<API_DOMAIN>` (tanpa `/v1`), dan `PROXY_SHARED_SECRET` (tipe **Secret**, nilainya sama dengan di `.env` VPS). **Wajib**: APK juga lewat proxy ini, dan tanpa secret semua HP kasir terlihat sebagai satu IP Cloudflare bagi rate limit API.
 - [ ] Deploy, lalu buka `https://kelola-kasir.pages.dev`. Halaman login harus tampil, dan `https://kelola-kasir.pages.dev/v1/me` menjawab `401` (bukti proxy tersambung).
 
 ### 8. Akun owner pertama

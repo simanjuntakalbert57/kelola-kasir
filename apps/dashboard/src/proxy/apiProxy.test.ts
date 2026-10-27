@@ -42,6 +42,26 @@ describe('Pages Function API proxy', () => {
     expect(headers.has('cf-connecting-ip')).toBe(false);
   });
 
+  it('forwards the kasir device token and employee bearer token', async () => {
+    const fetchImpl = upstream(new Response('{}'));
+    await proxyRequest(
+      new Request('https://kelola-kasir.pages.dev/v1/auth/pin-logout', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json, application/problem+json',
+          'X-Device-Token': 'dev_token',
+          Authorization: 'Bearer emp',
+        },
+      }),
+      env,
+      fetchImpl,
+    );
+    const headers = new Headers(fetchImpl.mock.calls[0]?.[1]?.headers);
+    expect(headers.get('x-device-token')).toBe('dev_token');
+    expect(headers.get('authorization')).toBe('Bearer emp');
+    expect(headers.get('accept')).toBe('application/json, application/problem+json');
+  });
+
   it('passes Set-Cookie back unchanged', async () => {
     const fetchImpl = upstream(
       new Response('{}', {
