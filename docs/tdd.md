@@ -704,11 +704,9 @@ Jalur kritis: T-1 → B-1 → B-2 → B-3/B-4 → B-7 → B-8 → B-10 → M-2 �
 - Tidak ada secret di repo/log.
 
 ### 8.8 Alur review PR (wajib)
-Tech Lead hanya bekerja saat di-assign atau di-mention. Mengubah status tiket saja tidak memicu review.
-1. Buka PR ke `main`, isi template PR, dan tautkan tiket Multica (mis. `DEAR-12`) di judul atau deskripsi PR.
-2. Ubah status tiket ke `in_review`, lalu **di komentar yang sama** mention Tech Lead dengan link mention yang asli (bukan teks `@Tech Lead` biasa):
-   `[@Tech Lead](mention://agent/428a31c2-1c5f-47bc-b06a-fe71293766f8) PR siap direview: <link PR>`
-   Sertakan link PR, status CI, dan cara verifikasi singkat.
-3. PR dengan CI merah tidak diajukan untuk review. Perbaiki dulu, atau tulis di komentar alasan CI merah dan apa yang dibutuhkan.
-4. Tiket tetap atas nama engineer pembuat PR. Tech Lead membalas dengan *approve* atau *request changes* (dengan mention balik ke pembuat PR). Merge dilakukan setelah approve dan CI hijau.
-5. Setiap push perbaikan setelah *request changes* harus diikuti mention ulang ke Tech Lead.
+Detail dan alasan: [ADR-0013](adr/0013-review-to-qa-via-mention.md). Tech Lead hanya bekerja saat di-assign atau di-mention. Mengubah status tiket saja tidak memicu review.
+1. Buka PR ke `main`, isi template PR, dan muat key tiket Multica (mis. `DEAR-12`) di judul atau branch PR.
+2. PR dengan CI merah tidak diajukan untuk review. Perbaiki dulu, atau tulis di komentar tiket alasan CI merah dan apa yang dibutuhkan.
+3. Setelah CI hijau, pindahkan tiket ke **In Review**, **assign ke Tech Lead**, dan tulis komentar berisi link PR, ringkasan perubahan, dan cara mengetes. Engineer tidak me-mention QA.
+4. Perlu revisi: Tech Lead mengembalikan tiket ke **In Progress**, meng-assign-nya ke engineer, dan menulis poin revisi. Perbaikan dilakukan di PR yang sama, lalu tiket diajukan lagi lewat langkah 3.
+5. Oke: Tech Lead merge (hanya bila check wajib lulus), memastikan deploy staging selesai (atau build APK `staging`), lalu me-mention QA dalam satu komentar. QA yang memindahkan tiket ke **Done**.
