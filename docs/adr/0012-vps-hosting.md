@@ -1,6 +1,6 @@
 ADR-0012 — Hosting API + database di VPS (Rumahweb) (menggantikan bagian hosting ADR-0011)
 
-Status: Accepted · Tanggal: 2026-10-26 · Keputusan owner: "lanjut VPS" di DEAR-19 · Menggantikan sebagian: [ADR-0011](0011-free-tier-hosting.md)
+Status: Accepted (akses API dari APK diubah oleh [ADR-0014](0014-kasir-via-pages-proxy.md)) · Tanggal: 2026-10-26 · Keputusan owner: "lanjut VPS" di DEAR-19 · Menggantikan sebagian: [ADR-0011](0011-free-tier-hosting.md)
 
 ## Konteks
 ADR-0011 memilih free tier (Render Free + Neon Free) dengan biaya US$0. Saat menyiapkan deploy (DEAR-19) ada dua risiko yang mengganggu kasir:
@@ -16,7 +16,7 @@ Owner bertanya apakah VPS Hostinger bisa dipakai. Setelah melihat perbandinganny
 | API (Fastify, Docker) | Render Free | **VPS Rumahweb** (virtualisasi KVM, minimal 1 vCPU, 2 GB RAM, 20 GB SSD; disarankan 4 GB RAM), Ubuntu 24.04, data center Indonesia, Docker Compose |
 | PostgreSQL 16 | Neon Free | **Container `postgres:16-alpine` di VPS yang sama**, volume Docker, port tidak dibuka ke internet |
 | HTTPS / reverse proxy | Edge Render | **Caddy 2** (sertifikat Let's Encrypt otomatis) untuk `API_DOMAIN` |
-| Domain API | `*.onrender.com` | Domain owner, mis. `api.<domain>` (A record → IP VPS). Domain bisa dibeli di Rumahweb (juga registrar) dan dikelola DNS-nya di sana |
+| Domain API | `*.onrender.com` | ~~Domain owner~~ → **tanpa domain berbayar** (ADR-0014): `80-43-0-75.sslip.io` (gratis, mengikuti IP VPS) hanya sebagai upstream proxy Pages. Klien memakai `kelola-kasir.pages.dev/v1` |
 | Dashboard owner | Cloudflare Pages + proxy `/v1/*` | **Tetap**. Hanya env `API_ORIGIN` yang berubah ke `https://<API_DOMAIN>` |
 | Foto produk, logo | R2 (cadangan: B2) | **Tetap** R2/B2. API tetap stateless, foto tidak disimpan di VPS |
 | Backup harian | GitHub Actions → R2 | **Timer systemd di VPS** (01:00 WIB) → `pg_dump` (role `backup_ro`) → `age` → R2/B2, **di luar VPS**. Heartbeat ke healthchecks.io |
@@ -28,7 +28,7 @@ Berkas: `ops/vps/` (compose, Caddyfile, `setup.sh`, `env.example`, `backup-now.s
 
 ### Bagian ADR-0011 yang tetap berlaku
 - Proxy same-origin `/v1/*` lewat Cloudflare Pages Function, cookie `kk_refresh` host-only, `X-Client-IP` + `X-Proxy-Secret`.
-- Aplikasi kasir memanggil API langsung (bearer token). URL API ditanam di APK saat build (`KASIR_API_URL`).
+- ~~Aplikasi kasir memanggil API langsung~~ → sejak ADR-0014 aplikasi kasir juga lewat proxy Pages (`KASIR_API_URL=https://kelola-kasir.pages.dev/v1`).
 - Penyimpanan objek R2/B2, aturan "tanpa kartu" untuk akun R2/B2, enkripsi backup `age`, retensi 30 hari.
 - Kedaluwarsa QRIS dievaluasi secara lazy (tidak butuh worker).
 
@@ -42,7 +42,7 @@ Diisi owner/Chief of Staff setelah order (angka dari invoice Rumahweb, bukan per
 | Item | Perkiraan saat keputusan | Aktual | Tanggal perpanjangan |
 |---|---|---|---|
 | VPS Rumahweb (paket dipilih owner) | sesuai harga paket di rumahweb.com; perhatikan harga perpanjangan | _belum dicatat_ | _diisi dari invoice_ |
-| Domain API (opsional) | ±Rp150–250 ribu/tahun | _belum_ | _diisi setelah beli_ |
+| Domain API | ±Rp150–250 ribu/tahun | Rp0, tidak dibeli (ADR-0014) | — |
 | R2/B2, Cloudflare Pages, Sentry, healthchecks.io, GitHub Actions | US$0 (free tier) | | |
 
 Tanggal perpanjangan juga dicatat di kalender owner (runbook § Perawatan server).
@@ -67,5 +67,5 @@ Tanggal perpanjangan juga dicatat di kalender owner (runbook § Perawatan server
 - (−) **Biaya bulanan** VPS sesuai paket Rumahweb yang dipilih owner, ditambah domain bila dibeli (±Rp150–250 ribu/tahun). Keputusan biaya oleh owner, diteruskan ke Chief of Staff.
 - (−) **Server unmanaged**: patch OS, disk, dan pemulihan jadi tanggung jawab tim (runbook § Perawatan server). Update keamanan otomatis, tapi reboot kernel dilakukan manual di luar jam buka.
 - (−) **Satu server = satu titik gagal.** Bila VPS mati, API mati sampai VPS pulih. Mitigasi: aplikasi kasir offline-first (transaksi cash jalan terus), backup harian di luar VPS (RPO ≤ 24 jam), dan restore ke VPS baru tertulis di runbook (RTO ≤ 2 jam). Snapshot/backup VPS dari penyedia boleh dipakai sebagai lapisan tambahan, bukan pengganti backup.
-- (−) URL API ditanam di APK. Ganti domain = build dan pasang APK baru. Karena itu domain sebaiknya sudah final sebelum APK rilis.
+- ~~(−) URL API ditanam di APK. Ganti domain = build dan pasang APK baru.~~ Diselesaikan ADR-0014: APK menanam `kelola-kasir.pages.dev/v1`; pindah VPS cukup ubah `API_ORIGIN` di Pages.
 - Satu lingkungan: VPS ini menjadi staging selama UAT, lalu data direset sebelum go-live (runbook § Reset data sebelum go-live).

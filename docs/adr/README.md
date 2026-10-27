@@ -15,5 +15,6 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0009](0009-single-open-shift-per-outlet.md) | Satu shift aktif per gerai, tutup shift offline | Accepted |
 | [0010](0010-receipt-printing-escpos.md) | Cetak struk thermal ESC/POS 58 mm di aplikasi kasir; produk tanpa varian | Accepted |
 | [0011](0011-free-tier-hosting.md) | Hosting free tier: Render + Neon + Cloudflare; proxy `/v1` same-origin; backup via GitHub Actions | Partially superseded by 0012 (proxy `/v1`, R2/B2 tetap berlaku) |
-| [0012](0012-vps-hosting.md) | Hosting API + PostgreSQL di VPS (Rumahweb) (Docker Compose + Caddy), backup harian ke R2/B2 | Accepted |
+| [0012](0012-vps-hosting.md) | Hosting API + PostgreSQL di VPS (Rumahweb) (Docker Compose + Caddy), backup harian ke R2/B2 | Accepted (akses APK diubah 0014) |
 | [0013](0013-review-to-qa-via-mention.md) | Alur review → QA: Tech Lead mention QA setelah merge + deploy staging | Accepted |
+| [0014](0014-kasir-via-pages-proxy.md) | Aplikasi kasir lewat proxy Cloudflare Pages `/v1`, tanpa domain API berbayar | Accepted |

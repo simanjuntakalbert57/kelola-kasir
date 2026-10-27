@@ -1,6 +1,8 @@
 # APK kasir: build, pasang, dan pairing (DEAR-19)
 
-Aplikasi kasir dipasang langsung ke HP Android (sideload), tanpa Play Console (ADR-0011). APK dibuat oleh workflow GitHub Actions **Android APK** (`.github/workflows/android-apk.yml`). URL API ditanam saat build (`EXPO_PUBLIC_API_URL`, default variabel repo `KASIR_API_URL` = `https://<API_DOMAIN>/v1`, ADR-0012). Tanpa variabel itu, build `release` ditolak; build `staging` di PR memakai URL placeholder yang tidak bisa dihubungi.
+Aplikasi kasir dipasang langsung ke HP Android (sideload), tanpa Play Console (ADR-0011). APK dibuat oleh workflow GitHub Actions **Android APK** (`.github/workflows/android-apk.yml`). URL API ditanam saat build (`EXPO_PUBLIC_API_URL`, default variabel repo `KASIR_API_URL` = `https://kelola-kasir.pages.dev/v1`, ADR-0014). APK selalu lewat proxy Cloudflare Pages, jadi pindah VPS cukup ubah `API_ORIGIN` di Pages, **tanpa build ulang APK**. Tanpa variabel itu, build `release` ditolak; build `staging` di PR memakai URL placeholder yang tidak bisa dihubungi.
+
+Darurat (Cloudflare bermasalah atau kuota 100rb request/hari habis): build dengan `api_url=https://80-43-0-75.sslip.io/v1` untuk langsung ke VPS, lalu kembali ke APK normal setelah pulih.
 
 | Varian | Ditandatangani dengan | Kapan |
 |---|---|---|
@@ -35,7 +37,7 @@ GitHub → Actions → **Android APK** → Run workflow → pilih `variant` (`st
 
 Build lokal (opsional, butuh JDK 17 + Android SDK):
 ```sh
-cd apps/kasir && EXPO_PUBLIC_API_URL=https://<API_DOMAIN>/v1 npx expo prebuild --platform android
+cd apps/kasir && EXPO_PUBLIC_API_URL=https://kelola-kasir.pages.dev/v1 npx expo prebuild --platform android
 cd android && KASIR_KEYSTORE_FILE=/path/kelola-kasir-upload.keystore KASIR_KEYSTORE_PASSWORD=... \
   KASIR_KEY_ALIAS=kelola-kasir KASIR_KEY_PASSWORD=... ./gradlew assembleRelease
 # hasil: app/build/outputs/apk/release/app-release.apk
@@ -55,7 +57,7 @@ cd android && KASIR_KEYSTORE_FILE=/path/kelola-kasir-upload.keystore KASIR_KEYST
 Urutan pertama kali: **pair perangkat (kode 8 karakter) → pilih pegawai → PIN 6 digit**. Layar pertama yang muncul di HP baru adalah layar pairing, bukan layar PIN.
 
 1. Di laptop, login dashboard → **Perangkat** → **Tambah perangkat** → beri nama (mis. "HP Kasir 1") → **Buat kode pairing**. Kode 8 karakter berlaku 10 menit dan hanya tampil sekali.
-2. Di HP: layar **Pasangkan perangkat** → ketik kode → **Pasangkan**. Request pertama bisa makan ±1 menit bila server sedang tidur ("Menghubungkan ke server…"); tunggu, jangan tutup aplikasi.
+2. Di HP: layar **Pasangkan perangkat** → ketik kode → **Pasangkan**. Bila muncul "Menghubungkan ke server…" lama, cek `https://kelola-kasir.pages.dev/v1/me` di browser HP (harus `401`).
 3. Setelah terpasang, pilih pegawai, masukkan **PIN 6 digit** (PIN yang dibuat owner di dashboard; bukan kode pairing 8 karakter), **Buka shift**.
 4. Printer: tab **Shift → Printer struk** → nyalakan printer, scan, pilih printer → **Cetak tes**.
 5. Cek cepat: jual 1 produk tunai → struk tercetak → di dashboard, transaksi muncul di **Transaksi** (setelah sinkron ±30 detik).

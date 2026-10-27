@@ -13,7 +13,10 @@ export interface ProxyEnv {
   PROXY_SHARED_SECRET?: string;
 }
 
-/** Request headers the API needs. Everything else (other cookies, CF-* headers) stays behind. */
+/**
+ * Request headers the API needs. Everything else (other cookies, CF-* headers) stays behind.
+ * `x-device-token` carries the kasir app's device auth (ADR-0014: the APK reaches the API through this proxy).
+ */
 const FORWARDED_HEADERS = [
   'accept',
   'accept-language',
@@ -23,6 +26,7 @@ const FORWARDED_HEADERS = [
   'idempotency-key',
   'if-none-match',
   'user-agent',
+  'x-device-token',
 ];
 
 const problem = (status: number, code: string, title: string): Response =>
