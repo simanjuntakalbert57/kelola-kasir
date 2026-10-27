@@ -2,6 +2,7 @@ import { cartTotals, type CartTotals } from '@kelola-kasir/money';
 import type { CatalogProduct } from '../catalog/repository';
 
 export const MAX_QTY = 999;
+export const NOTE_MAX = 60;
 
 export interface CartLine {
   productId: string;
@@ -49,14 +50,15 @@ export function removeLine(cart: Cart, productId: string): Cart {
 }
 
 export function setNote(cart: Cart, productId: string, note: string): Cart {
-  const trimmed = note.trim().slice(0, 140);
+  // Stored raw so spaces can be typed; trimmed when the sale is created (checkout.ts).
+  const value = note.slice(0, NOTE_MAX);
   return {
     ...cart,
     lines: cart.lines.map((l) => {
       if (l.productId !== productId) return l;
       const withoutNote: CartLine = { ...l };
       delete withoutNote.note;
-      return trimmed ? { ...withoutNote, note: trimmed } : withoutNote;
+      return value ? { ...withoutNote, note: value } : withoutNote;
     }),
   };
 }
@@ -90,4 +92,38 @@ export function quickCashAmounts(total: number): number[] {
     if (bill > total) out.add(bill);
   }
   return [...out].sort((a, b) => a - b).slice(0, 4);
+}
+
+/** Tab badge text: hidden (null) when empty, "99+" above 99 (K-3). */
+export function badgeLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return count > 99 ? '99+' : String(count);
+}
+
+/**
+ * Cash/QRIS enabled rules shared by Jual and Keranjang so both screens stay identical (K-3):
+ * Cash needs a total > 0; QRIS needs items and an available QRIS channel.
+ */
+export function payAvailability(
+  cart: Cart,
+  qrisEnabled: boolean,
+): { cash: boolean; qris: boolean } {
+  const hasItems = itemCount(cart) > 0;
+  return {
+    cash: hasItems && totalsOf(cart).total > 0,
+    qris: hasItems && qrisEnabled,
+  };
+}
+
+/** Cart after a payment attempt: emptied on success, untouched otherwise (K-3 KP-5). */
+export function cartAfterPayment(cart: Cart, succeeded: boolean): Cart {
+  return succeeded ? emptyCart : cart;
+}
+
+/** "Kosongkan": only clears (items, notes, buyer name) after the cashier confirms. */
+export async function clearCartIfConfirmed(
+  cart: Cart,
+  confirm: () => Promise<boolean>,
+): Promise<Cart> {
+  return (await confirm()) ? emptyCart : cart;
 }

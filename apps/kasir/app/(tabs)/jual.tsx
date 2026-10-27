@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../src/auth/SessionProvider';
 import type { CatalogProduct } from '../../src/catalog/repository';
-import { addProduct, itemCount, summaryLabel, totalsOf } from '../../src/sales/cart';
+import { addProduct, itemCount, payAvailability, summaryLabel } from '../../src/sales/cart';
 import { qrisAvailability } from '../../src/sales/qris';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors, radius, space } from '../../src/theme';
@@ -73,6 +73,7 @@ export default function JualScreen() {
 
   const count = itemCount(cart);
   const qris = qrisAvailability(online);
+  const pay = payAvailability(cart, qris.enabled);
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -166,14 +167,14 @@ export default function JualScreen() {
           testID="cart-summary"
           accessibilityRole="button"
           disabled={count === 0}
-          onPress={() => router.push('/cart')}
+          onPress={() => router.navigate('/keranjang')}
           style={{ flex: 1 }}
         >
           <Text style={styles.payLabel}>
-            {count === 0 ? 'Keranjang kosong' : summaryLabel(cart, formatRupiah)}
+            {count === 0 ? '🛒 Keranjang kosong' : `🛒 ${summaryLabel(cart, formatRupiah)}`}
           </Text>
           <Text style={styles.payHint}>
-            {count === 0 ? 'Tap menu untuk menambah' : 'Ketuk untuk ubah pesanan'}
+            {count === 0 ? 'Tap menu untuk menambah' : 'Ketuk untuk cek keranjang'}
           </Text>
         </Pressable>
         <Button
@@ -181,7 +182,7 @@ export default function JualScreen() {
           label="Cash"
           variant="accent"
           large
-          disabled={count === 0 || totalsOf(cart).total <= 0}
+          disabled={!pay.cash}
           onPress={() => router.push('/cash')}
           style={styles.payBtn}
         />
@@ -190,7 +191,7 @@ export default function JualScreen() {
           label="QRIS"
           variant="primary"
           large
-          disabled={count === 0 || !qris.enabled}
+          disabled={!pay.qris}
           onPress={() => router.push('/qris')}
           style={styles.payBtn}
         />

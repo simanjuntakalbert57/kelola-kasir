@@ -293,8 +293,8 @@ describe('cart editing', () => {
     cart = setQuantity(cart, 'p1', 5000);
     expect(cart.lines[0]?.quantity).toBe(999);
     cart = setNote(cart, 'p1', '  less ice  ');
-    expect(cart.lines[0]?.note).toBe('less ice');
-    cart = setNote(cart, 'p1', ' ');
+    expect(cart.lines[0]?.note).toBe('  less ice  '); // trimmed at checkout, not while typing
+    cart = setNote(cart, 'p1', '');
     expect(cart.lines[0]).not.toHaveProperty('note');
     cart = setQuantity(cart, 'p2', 0);
     expect(cart.lines.map((l) => l.productId)).toEqual(['p1']);
