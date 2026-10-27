@@ -5,6 +5,7 @@ import { createMemoryStore, STORAGE_KEYS } from '../lib/storage';
 import {
   getLockStatus,
   isValidPairingCode,
+  PAIRING_COPY,
   loadEmployees,
   loadPairing,
   loginWithPin,
@@ -202,5 +203,14 @@ describe('loginWithPin', () => {
         reason: 'locked',
       },
     );
+  });
+});
+
+describe('pairing screen copy', () => {
+  it('distinguishes the 8-char pairing code from the 6-digit employee PIN', () => {
+    expect(PAIRING_COPY.notPin).toContain('bukan PIN');
+    expect(PAIRING_COPY.subtitle).toContain('8 karakter');
+    expect(PAIRING_COPY.steps).toHaveLength(3);
+    expect(PAIRING_COPY.steps[2]).toContain('PIN 6 digit');
   });
 });

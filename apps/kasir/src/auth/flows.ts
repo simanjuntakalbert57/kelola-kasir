@@ -256,3 +256,16 @@ function lockedResult(ms: number): LoginResult {
     message: `PIN terkunci. Coba lagi dalam ${minutes} menit.`,
   };
 }
+
+/** Copy for the pairing screen. Must keep pairing code and employee PIN visibly distinct. */
+export const PAIRING_COPY = {
+  title: 'Pasangkan perangkat',
+  notPin: 'Ini bukan PIN pegawai.',
+  subtitle:
+    'Masukkan kode pairing 8 karakter (huruf + angka) dari owner. Kode ini hanya untuk memasangkan HP ke toko.',
+  steps: [
+    'Owner buka dashboard → Perangkat → Tambah, lalu buat kode pairing.',
+    'Ketik kode 8 karakter itu di sini.',
+    'Setelah terpasang, pegawai login dengan PIN 6 digit.',
+  ],
+} as const;

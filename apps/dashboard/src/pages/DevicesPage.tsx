@@ -44,7 +44,8 @@ function CreateDeviceDialog({ onClose }: { onClose: () => void }) {
       {created ? (
         <div>
           <p className="text-sm text-muted">
-            Masukkan kode ini di aplikasi kasir untuk “{created.device.name}”.
+            Masukkan kode ini di aplikasi kasir, layar Pasangkan perangkat, untuk “
+            {created.device.name}”. Ini bukan PIN pegawai.
           </p>
           <p className="my-3 rounded-[16px] bg-bg py-4 text-center font-mono text-3xl font-extrabold tracking-[0.3em] select-all">
             {created.pairing_code}
