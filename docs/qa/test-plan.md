@@ -212,6 +212,49 @@ Status: `pending / paid / void_requested / voided / cancelled`.
 | TC-NF-07 | P1 | API | Beban ringan: 500 transaksi/hari, puncak 30 trx/menit, p95 `POST /transactions` < 500 ms | A-1 |
 | TC-NF-08 | P2 | DEV | Baterai/memori: sesi 4 jam penggunaan tanpa crash/ANR | NF |
 
+### 5.11 Tab Keranjang (K-3) — diuji setelah fitur diimplementasikan
+Acuan: `docs/product/concepts/keranjang-tab.md` (kriteria penerimaan = KP-1…KP-10, dipetakan di tabel akhir bagian ini). Kat **UT** = unit/komponen otomatis (Vitest + React Native Testing Library di `apps/kasir`; logika murni badge/aturan tombol diuji sebagai fungsi tanpa render); **DEV** = manual di HP Android nyata (360 dp dan 430 dp). Data uji: keranjang dari seed 8 produk; "≥15 baris" memakai 15 produk berbeda (tambahkan produk uji bila seed kurang).
+
+| ID | P | Kat | Skenario & ekspektasi | KP |
+|---|---|---|---|---|
+| TC-KRJ-01 | P1 | UT | **Badge = jumlah item, bukan baris**: 2 baris dengan qty 6 + 6 → badge `12`; tambah qty → badge naik; hapus satu baris → badge turun sesuai qty baris itu | KP-1 |
+| TC-KRJ-02 | P1 | UT | Badge **hilang** saat keranjang kosong (awal sesi, setelah hapus item terakhir, setelah "Kosongkan"); qty ≥100 tidak terpotong/merusak tab bar | KP-1 |
+| TC-KRJ-03 | P0 | UT+DEV | **Setelah transaksi sukses** (Cash dan QRIS) keranjang kosong dan badge hilang; transaksi gagal/dibatalkan di layar bayar → keranjang & badge tetap utuh | KP-5 |
+| TC-KRJ-04 | P0 | UT | **Sinkron Jual ↔ Keranjang**: ubah qty (+/−) di salah satu layar → layar lain menampilkan qty, subtotal baris, total, dan badge yang sama tanpa muat ulang. Qty turun ke 0 = baris terhapus | KP-2 |
+| TC-KRJ-05 | P1 | UT | Hapus item di Keranjang → hilang juga di ringkasan/bar Jual; total & badge dihitung ulang | KP-2 |
+| TC-KRJ-06 | P1 | UT | Catatan item dan **nama pembeli** diisi di Keranjang → tetap ada setelah pindah tab dan kembali; masuk ke transaksi yang dibuat (label pembeli di Riwayat/struk); catatan panjang & karakter khusus (`<script>`, emoji) tersimpan apa adanya, tanpa crash | KP-2 |
+| TC-KRJ-07 | P0 | UT | Isi Keranjang akurat: tiap baris menampilkan nama, harga satuan, stepper, subtotal = harga × qty, total = Σ subtotal (integer Rupiah, mis. 3 × 12.500), jumlah item di footer = badge. Format `Rp 12.500` | KP-2 |
+| TC-KRJ-08 | P0 | DEV | **Footer tetap terlihat saat scroll**: keranjang ≥15 baris, scroll ke atas/bawah/cepat → footer (jumlah item, TOTAL, Cash, QRIS) tidak ikut bergulir dan tidak tertutup tab bar/keyboard/navigation bar; baris terakhir masih bisa digulir sampai tidak tertutup footer. Ulangi dengan keyboard terbuka (isi catatan/nama pembeli) di 360 dp | KP-3 |
+| TC-KRJ-09 | P0 | UT | **Aturan Cash/QRIS di Keranjang = di Jual** (tabel kebenaran dipakai kedua layar, idealnya satu fungsi bersama): total 0/kosong → Cash & QRIS **nonaktif**; total > 0 → Cash aktif; QRIS aktif hanya bila QRIS diaktifkan owner/dikonfigurasi, jika tidak nonaktif. Uji matriks (total 0 / >0) × (QRIS aktif / nonaktif) di **kedua** layar dengan hasil identik | KP-4 |
+| TC-KRJ-10 | P0 | UT+DEV | Cash dari Keranjang membuka `/cash` dengan total & item yang sama; QRIS membuka `/qris`; transaksi tercipta dengan total benar; tidak ada transaksi ganda bila tombol diketuk dua kali cepat | KP-2, KP-4 |
+| TC-KRJ-11 | P1 | UT | **"Kosongkan" meminta konfirmasi**: tap → dialog muncul, keranjang belum berubah | KP-7 |
+| TC-KRJ-12 | P1 | UT | Konfirmasi "Batal" (atau tap di luar/tombol back) → **tidak ada yang dihapus** (item, catatan, nama pembeli, badge utuh). Konfirmasi "Ya/Kosongkan" → semua kosong termasuk catatan & nama pembeli, badge hilang | KP-7 |
+| TC-KRJ-13 | P1 | UT | **State kosong**: pesan "Keranjang kosong" + tombol "Pilih menu"; footer/Cash/QRIS tidak menampilkan total menyesatkan (nonaktif atau tersembunyi); "Kosongkan" tidak tampil/nonaktif | KP-6 |
+| TC-KRJ-14 | P1 | UT+DEV | Tombol "Pilih menu" membuka **tab Jual** (bukan layar lain), tab Jual terpilih di tab bar | KP-6 |
+| TC-KRJ-15 | P1 | UT+DEV | **Bar ringkasan Jual** menampilkan ikon 🛒 dan "N item · Rp…"; tap membuka **tab Keranjang** (tab Keranjang terpilih, bukan layar `/cart` lama atau tumpukan layar); tombol Cash/QRIS di Jual tetap ada. Tombol back sistem dari Keranjang tidak menjebak/keluar aplikasi tak terduga | KP-8 |
+| TC-KRJ-16 | P0 | DEV | **Regresi alur Cash 3 tap dari Jual**: login + shift terbuka, di tab Jual: tap menu (1) → Cash (2) → Uang Pas (3) → sukses; keranjang kosong sesudahnya. Diukur dengan prosedur §7 (skenario A, median ≤15 dtk, target di konsep ≤10 dtk); jumlah tap **tidak bertambah** dibanding sebelum K-3. Ulangi dengan 2 item berbeda (maks 4 tap) | KP-9 |
+| TC-KRJ-17 | P0 | UT | Regresi otomatis alur Jual: dari state keranjang kosong, `addItem` → total benar → aksi bayar Cash menghasilkan payload transaksi identik dengan perilaku sebelum K-3 (snapshot harga, qty, total); tab bar baru tidak mengubah state keranjang | KP-9 |
+| TC-KRJ-18 | P0 | DEV | Regresi mode **offline** (pesawat): keranjang, badge, dan bayar Cash dari Keranjang tetap berfungsi tanpa jaringan; transaksi masuk antrean sinkron (TC-OFF) | KP-2 |
+| TC-KRJ-19 | P1 | DEV | **Tab bar 4 item** (Jual, Keranjang, Riwayat, Shift) berurutan di antara Jual dan Riwayat, muat di **360 dp** (juga 393, 430 dp): label tidak terpotong/bertumpuk, target sentuh ≥ 44 px, badge tidak menutupi label, termasuk badge 2–3 digit dan font sistem diperbesar | KP-1 |
+| TC-KRJ-20 | P1 | UT+DEV | **Negatif — tanpa detail produk**: mengetuk baris item/nama di Keranjang atau kartu menu di Jual tidak membuka layar/lembar detail (kartu menu = tambah ke keranjang); tidak ada route detail produk di `app/` (uji statis: daftar route tidak memuat `product`/`detail`) | KP-10 |
+| TC-KRJ-21 | P2 | DEV | Ketahanan: keranjang dipertahankan saat berpindah antar 4 tab berulang, saat aplikasi ke latar lalu kembali; (bila keranjang tidak dipersist, perilaku saat aplikasi dimatikan dicatat sebagai temuan, bukan defect, sesuai konsep "keranjang lokal") | KP-2 |
+
+**Pemetaan kriteria penerimaan konsep → test case** (semua tercakup ≥1 kasus):
+| KP | Kriteria penerimaan (ringkas) | Test case |
+|---|---|---|
+| KP-1 | Tab di antara Jual & Riwayat; badge = jumlah item, hilang saat kosong | TC-KRJ-01, 02, 19 |
+| KP-2 | Isi tab: daftar item, stepper, hapus, catatan, nama pembeli, footer | TC-KRJ-04…07, 10, 18, 21 |
+| KP-3 | Footer selalu terlihat saat scroll | TC-KRJ-08 |
+| KP-4 | Aturan Cash/QRIS sama persis dengan Jual | TC-KRJ-09, 10 |
+| KP-5 | Transaksi sukses → keranjang kosong, badge hilang | TC-KRJ-03 |
+| KP-6 | State kosong + "Pilih menu" → tab Jual | TC-KRJ-13, 14 |
+| KP-7 | "Kosongkan" minta konfirmasi | TC-KRJ-11, 12 |
+| KP-8 | Bar ringkasan Jual berikon 🛒 → tab Keranjang; Cash/QRIS Jual tetap | TC-KRJ-15 |
+| KP-9 | Alur Cash 3 tap dari Jual lulus seperti sebelumnya | TC-KRJ-16, 17 |
+| KP-10 | Tidak ada layar/lembar detail produk | TC-KRJ-20 |
+
+Catatan: tugas implementasi (Mobile) wajib menyertakan UT untuk kasus bertanda UT/UT+DEV dengan prioritas P0 (TC-KRJ-03, 04, 07, 09, 10, 17) sebelum PR di-review QA. Kasus DEV masuk daftar uji perangkat (Q-D) dan regression build kandidat rilis. Gagal pada TC-KRJ-03/09/10/16/17 = **S1/S2** (alur bayar/uang); TC-KRJ-08 gagal = S2 (kasir tak bisa bayar dari Keranjang saat daftar panjang).
+
 ## 6. Pemetaan Cakupan Fitur PRD → Test Case
 | Fitur | Test case |
 |---|---|
@@ -220,6 +263,7 @@ Status: `pending / paid / void_requested / voided / cancelled`.
 | P-03 | TC-TRX-07, TC-TRX-09, TC-OFF-10 |
 | P-04 (dihapus) | TC-TRX-04, TC-PRD-06 (uji negatif) |
 | P-05 | TC-TRX-10 |
+| K-3 (tab Keranjang) | TC-KRJ-01…21 (§5.11) |
 | P-06 | TC-TRX-01, 02, 11, 12 |
 | P-07 | TC-QRS-01…12, TC-STM-01/02 |
 | P-08 | TC-PRN-01…11 |
@@ -253,9 +297,10 @@ O-11/O-12 (Could, fase 2) di luar lingkup; hanya diverifikasi bahwa `discount_am
 | Lapisan | Cakupan | Alat | Pemicu |
 |---|---|---|---|
 | API contract (Q-B) | Semua operasi `openapi.yaml`: skema respons, kode status, `problem+json` stabil; fuzz ringan | schemathesis (+ Dredd untuk contoh) | tiap PR ke `main` |
+| Unit/komponen kasir (K-3) | TC-KRJ bertanda UT / UT+DEV (§5.11) | Vitest + RNTL (`apps/kasir`) | tiap PR Mobile |
 | API stateful | TC-SHF/TRX/STM/QRS/OFF (sisi server) lewat skenario berurutan + hitung ulang uang | pytest/Vitest + client OpenAPI | tiap PR |
 | E2E dashboard (Q-C) | TC-AUTH-01, TC-PRD, TC-LST, TC-DSH, TC-SHF-12, TC-STM-05/06, TC-SET-01 | Playwright (Chromium + Firefox; 1 run mobile viewport) | tiap PR / nightly penuh |
-| Perangkat nyata (Q-D) | TC-OFF, TC-PRN, TC-QRS-02/07/08, TC-SHF-09, TC-NF-01/02/03 | manual terjadwal + skrip adb untuk offline | per build rilis |
+| Perangkat nyata (Q-D) | TC-OFF, TC-PRN, TC-QRS-02/07/08, TC-SHF-09, TC-NF-01/02/03, TC-KRJ-03/08/14/15/16/18/19 (bagian DEV) | manual terjadwal + skrip adb untuk offline | per build rilis |
 | UAT (Q-E) | Skrip §9 | manual bersama owner | sebelum rilis |
 Aturan: data uji dibuat via API/seed idempoten; tiap test membersihkan datanya; kredensial dari secret CI; tidak ada secret di repo.
 
