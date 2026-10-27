@@ -1,7 +1,7 @@
 import type { Shift } from '@kelola-kasir/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, NetworkError } from '../api/client';
-import { canOpenShift, openOrJoinShift } from './open';
+import { canOpenShift, describeOpenShiftError, openOrJoinShift } from './open';
 
 const SHIFT = { id: 's1', status: 'open', opening_cash: 200000 } as Shift;
 
@@ -52,5 +52,29 @@ describe('canOpenShift', () => {
     expect(canOpenShift({ ...base, offline: true })).toBe(false);
     expect(canOpenShift({ ...base, busy: true })).toBe(false);
     expect(canOpenShift({ ...base, shiftChecked: false })).toBe(false);
+  });
+});
+
+describe('describeOpenShiftError', () => {
+  const p = (status: number, code: string, problem?: object) =>
+    new ApiError(status, code, 'raw english', problem as never);
+
+  it('maps clock skew, session, revoked, conflict, network and server errors', () => {
+    const skew = describeOpenShiftError(
+      p(422, 'VALIDATION_ERROR', { errors: [{ path: 'opened_at' }] }),
+    );
+    expect(skew.message).toMatch(/Jam di HP/);
+    expect(describeOpenShiftError(p(401, 'UNAUTHORIZED')).action).toBe('login');
+    expect(describeOpenShiftError(p(401, 'DEVICE_REVOKED')).action).toBe('reset');
+    expect(describeOpenShiftError(p(403, 'FORBIDDEN')).message).toMatch(/tidak boleh/);
+    expect(describeOpenShiftError(p(409, 'SHIFT_ALREADY_OPEN')).message).toMatch(/bergabung/);
+    expect(describeOpenShiftError(new NetworkError()).message).toMatch(/terhubung/);
+    expect(describeOpenShiftError(p(503, 'X')).message).toMatch(/Server/);
+  });
+
+  it('never leaks raw API text', () => {
+    for (const e of [p(400, 'X'), new Error('boom'), p(422, 'V')]) {
+      expect(describeOpenShiftError(e).message).not.toMatch(/raw english|boom/);
+    }
   });
 });

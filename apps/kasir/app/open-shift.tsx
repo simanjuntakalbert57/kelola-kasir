@@ -1,17 +1,26 @@
 import { formatRupiah } from '@kelola-kasir/money';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ApiError, NetworkError } from '../src/api/client';
 import { useSession } from '../src/auth/SessionProvider';
-import { canOpenShift } from '../src/shift/open';
+import { canOpenShift, describeOpenShiftError } from '../src/shift/open';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
+import { IS_STAGING } from '../src/config';
 import { colors, radius, space } from '../src/theme';
 import { Banner, Button, Keypad, TopBar } from '../src/ui/components';
 
 export default function OpenShiftScreen() {
-  const { session, shiftChecked, checkShift, openShift, suggestedOpeningCash, logout } =
-    useSession();
+  const {
+    session,
+    shiftChecked,
+    checkShift,
+    openShift,
+    suggestedOpeningCash,
+    logout,
+    resetDevice,
+  } = useSession();
+  const router = useRouter();
   const [digits, setDigits] = useState('');
   const [suggested, setSuggested] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,20 +42,24 @@ export default function OpenShiftScreen() {
 
   const amount = digitsToRupiah(digits);
   const offline = session?.offline ?? false;
+  const checking = !shiftChecked && !checkFailed && !offline;
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
       await openShift(amount);
+      router.replace('/jual');
     } catch (e) {
-      setError(
-        e instanceof NetworkError
-          ? 'Buka shift butuh internet agar satu gerai hanya punya satu shift.'
-          : e instanceof ApiError
-            ? e.message
-            : 'Gagal membuka shift.',
-      );
+      const failure = describeOpenShiftError(e);
+      const detail = IS_STAGING && e instanceof Error ? `\n${e.name}: ${e.message}` : '';
+      if (failure.action === 'login') {
+        // logout() redirects to /login straight away, so a message here would never be seen.
+        await logout();
+      } else {
+        setError(failure.message + detail);
+        if (failure.action === 'reset') await resetDevice();
+      }
     } finally {
       setBusy(false);
     }
@@ -59,6 +72,7 @@ export default function OpenShiftScreen() {
         right={<Button label="Keluar" variant="ghost" onPress={logout} />}
       />
       {offline ? <Banner tone="warn">Offline — buka shift butuh internet</Banner> : null}
+      {checking ? <Banner tone="warn">Memeriksa shift…</Banner> : null}
       {checkFailed ? <Banner tone="error">Gagal memeriksa shift. Coba lagi.</Banner> : null}
       <View style={styles.body}>
         <Text style={styles.hello}>
@@ -82,7 +96,7 @@ export default function OpenShiftScreen() {
         <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
         <Button
           testID="open-shift-submit"
-          label={busy ? 'Membuka…' : 'Buka shift & mulai jualan'}
+          label={busy ? 'Membuka…' : checking ? 'Memeriksa shift…' : 'Buka shift & mulai jualan'}
           variant="primary"
           large
           disabled={!canOpenShift({ offline, busy, shiftChecked, checkFailed })}

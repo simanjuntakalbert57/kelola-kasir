@@ -35,6 +35,7 @@ jobs:
     timeout-minutes: 60
     env:
       VARIANT: ${{ inputs.variant || 'staging' }}
+      EXPO_PUBLIC_APP_VARIANT: ${{ inputs.variant || 'staging' }}
       EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.KASIR_API_URL || 'https://api.kelola-kasir.invalid/v1' }}
     steps:
       - uses: actions/checkout@v4

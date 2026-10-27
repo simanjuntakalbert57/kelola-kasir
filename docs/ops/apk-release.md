@@ -28,6 +28,7 @@ Workflow menulis keystore ke folder sementara runner dan menghapusnya setelah bu
 
 GitHub → Actions → **Android APK** → Run workflow → pilih `variant` (`staging` / `release`), `api_url` boleh kosong. Build ±20–30 menit. Hasilnya ada di bagian **Artifacts** run tersebut (`kelola-kasir-<versi>-<varian>-<commit>.apk` + `.sha256`), tersimpan 14 hari.
 
+- `EXPO_PUBLIC_APP_VARIANT` (diisi workflow dari `variant`, default `staging`) ikut tertanam di APK saat build. Pada `staging`, layar menampilkan teks error mentah dari API untuk diagnosis; pada `release` hanya pesan Bahasa Indonesia. Build lokal: set variabel ini sendiri (kosong = `release`).
 - Sebelum rilis: naikkan `expo.version` (mis. `0.2.0`) dan `android.versionCode` (+1) di `apps/kasir/app.json`, juga `APP_VERSION` di `apps/kasir/src/config.ts`.
 - Simpan salinan APK release di Google Drive owner (artifact Actions kedaluwarsa).
 - Repo publik: artifact bisa diunduh akun GitHub mana pun. APK tidak berisi secret dan tidak berguna tanpa kode pairing; hapus artifact setelah diunduh bila ingin.
