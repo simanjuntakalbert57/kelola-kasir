@@ -702,3 +702,13 @@ Jalur kritis: T-1 → B-1 → B-2 → B-3/B-4 → B-7 → B-8 → B-10 → M-2 �
 - Unit test untuk logika uang/shift/state machine; integration test endpoint dengan Postgres nyata (Testcontainers); coverage modul `transactions`, `shifts`, `payments`, `sync` ≥ 80%.
 - CI hijau; tidak merge ke `main` tanpa review Tech Lead.
 - Tidak ada secret di repo/log.
+
+### 8.8 Alur review PR (wajib)
+Tech Lead hanya bekerja saat di-assign atau di-mention. Mengubah status tiket saja tidak memicu review.
+1. Buka PR ke `main`, isi template PR, dan tautkan tiket Multica (mis. `DEAR-12`) di judul atau deskripsi PR.
+2. Ubah status tiket ke `in_review`, lalu **di komentar yang sama** mention Tech Lead dengan link mention yang asli (bukan teks `@Tech Lead` biasa):
+   `[@Tech Lead](mention://agent/428a31c2-1c5f-47bc-b06a-fe71293766f8) PR siap direview: <link PR>`
+   Sertakan link PR, status CI, dan cara verifikasi singkat.
+3. PR dengan CI merah tidak diajukan untuk review. Perbaiki dulu, atau tulis di komentar alasan CI merah dan apa yang dibutuhkan.
+4. Tiket tetap atas nama engineer pembuat PR. Tech Lead membalas dengan *approve* atau *request changes* (dengan mention balik ke pembuat PR). Merge dilakukan setelah approve dan CI hijau.
+5. Setiap push perbaikan setelah *request changes* harus diikuti mention ulang ke Tech Lead.

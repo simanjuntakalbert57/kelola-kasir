@@ -8,6 +8,7 @@
 - [ ] Tests added/updated (money, shift and state-machine logic covered by unit tests)
 - [ ] `pnpm lint && pnpm typecheck && pnpm test` pass locally
 - [ ] No secrets, tokens or passwords in code, logs or fixtures
+- [ ] Multica issue moved to `in_review` and Tech Lead mentioned in an issue comment with this PR link (TDD §8.8)
 
 ## How to verify
 
