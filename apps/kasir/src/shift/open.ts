@@ -71,7 +71,7 @@ export function describeOpenShiftError(error: unknown): OpenShiftFailure {
       };
     }
     if (error.status === 422) {
-      const onClock = JSON.stringify(error.problem ?? '').includes('opened_at');
+      const onClock = error.problem?.errors?.some((e) => e.path === 'opened_at') ?? false;
       return {
         message: onClock
           ? 'Jam di HP ini tidak sesuai (terlalu cepat). Perbaiki tanggal & jam di Pengaturan HP, lalu coba lagi.'

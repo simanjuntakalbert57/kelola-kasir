@@ -61,7 +61,7 @@ describe('describeOpenShiftError', () => {
 
   it('maps clock skew, session, revoked, conflict, network and server errors', () => {
     const skew = describeOpenShiftError(
-      p(422, 'VALIDATION_FAILED', { errors: [{ path: 'opened_at' }] }),
+      p(422, 'VALIDATION_ERROR', { errors: [{ path: 'opened_at' }] }),
     );
     expect(skew.message).toMatch(/Jam di HP/);
     expect(describeOpenShiftError(p(401, 'UNAUTHORIZED')).action).toBe('login');

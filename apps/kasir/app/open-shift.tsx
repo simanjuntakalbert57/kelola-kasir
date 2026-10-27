@@ -42,6 +42,7 @@ export default function OpenShiftScreen() {
 
   const amount = digitsToRupiah(digits);
   const offline = session?.offline ?? false;
+  const checking = !shiftChecked && !checkFailed && !offline;
 
   const submit = async () => {
     setBusy(true);
@@ -52,9 +53,13 @@ export default function OpenShiftScreen() {
     } catch (e) {
       const failure = describeOpenShiftError(e);
       const detail = IS_STAGING && e instanceof Error ? `\n${e.name}: ${e.message}` : '';
-      setError(failure.message + detail);
-      if (failure.action === 'login') await logout();
-      else if (failure.action === 'reset') await resetDevice();
+      if (failure.action === 'login') {
+        // logout() redirects to /login straight away, so a message here would never be seen.
+        await logout();
+      } else {
+        setError(failure.message + detail);
+        if (failure.action === 'reset') await resetDevice();
+      }
     } finally {
       setBusy(false);
     }
@@ -67,7 +72,7 @@ export default function OpenShiftScreen() {
         right={<Button label="Keluar" variant="ghost" onPress={logout} />}
       />
       {offline ? <Banner tone="warn">Offline — buka shift butuh internet</Banner> : null}
-      {!shiftChecked && !checkFailed && !offline ? (
+      {checking ? (
         <Banner tone="warn">Memeriksa shift…</Banner>
       ) : null}
       {checkFailed ? <Banner tone="error">Gagal memeriksa shift. Coba lagi.</Banner> : null}
@@ -96,7 +101,7 @@ export default function OpenShiftScreen() {
           label={
             busy
               ? 'Membuka…'
-              : !shiftChecked && !checkFailed && !offline
+              : checking
                 ? 'Memeriksa shift…'
                 : 'Buka shift & mulai jualan'
           }
