@@ -1,6 +1,6 @@
 # Konsep — Tab "Keranjang" ala Marketplace (cek pesanan + bayar)
 
-Status: usulan, **kandidat MVP** (menunggu keputusan Albert) · Ide K-3 di [backlog](../backlog.md) · Penyusun: Product Manager (Ide & Benchmark) · Tanggal: 2026-10-27 · Sumber: permintaan Albert lewat chat
+Status: **disetujui Albert, masuk MVP** (2026-10-27) · Ide K-3 di [backlog](../backlog.md) · Penyusun: Product Manager (Ide & Benchmark) · Tanggal: 2026-10-27 · Sumber: permintaan Albert lewat chat
 
 ## Ringkasan eksekutif
 - Albert ingin **menu Keranjang tersendiri** seperti di marketplace. Di menu itu pegawai bisa mengecek isi pesanan dan langsung membayar (Cash/QRIS).
@@ -100,7 +100,7 @@ Metrik ini belum bisa diukur otomatis karena belum ada event analitik di aplikas
 |---|---|
 | Tab Keranjang dan badge | Detail produk (**ditolak Albert**, 2026-10-27) |
 | Footer total + Cash/QRIS | Simpan beberapa keranjang (*open bill*/parkir pesanan) — ide terpisah bila dibutuhkan |
-| Konfirmasi "Kosongkan" + ikon 🛒 di bar Jual | Panel keranjang mini di bawah menu Jual (usulan sebelumnya; lihat pertanyaan terbuka) |
+| Konfirmasi "Kosongkan" + ikon 🛒 di bar Jual | Panel keranjang mini di bawah menu Jual (tidak dikerjakan; Albert memilih tab saja, 2026-10-27) |
 
 ## RICE
 | R | I | C | E (hari) | Skor |
@@ -109,6 +109,10 @@ Metrik ini belum bisa diukur otomatis karena belum ada event analitik di aplikas
 
 Semua nilai adalah estimasi PM dengan skala yang sama seperti [discovery-fase2.md §4](../discovery-fase2.md#4-backlog-ide-fase-2-rice).
 
-## Pertanyaan terbuka (untuk Albert)
-1. Apakah tab Keranjang **menggantikan** usulan sebelumnya (panel keranjang langsung di bawah menu Jual), atau dua-duanya dipakai? Rekomendasi PM: cukup tab Keranjang dulu, karena lebih sederhana. Panel mini bisa ditambah kalau pegawai masih kurang terbantu.
-2. Masuk ke MVP sekarang, atau langsung setelah rilis?
+## Keputusan Albert (2026-10-27)
+1. Detail produk **tidak perlu**.
+2. Pakai **tab Keranjang saja**. Panel keranjang mini di bawah menu Jual tidak dikerjakan.
+3. **Masuk MVP.** Chief of Staff akan memecahnya menjadi issue engineering.
+
+## Pertanyaan terbuka
+Tidak ada.
