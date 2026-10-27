@@ -1,5 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Text, type ColorValue } from 'react-native';
+import { badgeLabel, itemCount } from '../../src/sales/cart';
+import { useSales } from '../../src/sales/SalesProvider';
 import { colors } from '../../src/theme';
 
 const icon = (glyph: string) =>
@@ -8,6 +10,8 @@ const icon = (glyph: string) =>
   };
 
 export default function TabsLayout() {
+  const { cart } = useSales();
+  const badge = badgeLabel(itemCount(cart));
   return (
     <Tabs
       screenOptions={{
@@ -20,6 +24,15 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="jual" options={{ title: 'Jual', tabBarIcon: icon('🍹') }} />
+      <Tabs.Screen
+        name="keranjang"
+        options={{
+          title: 'Keranjang',
+          tabBarIcon: icon('🛒'),
+          ...(badge ? { tabBarBadge: badge } : {}),
+          tabBarBadgeStyle: { backgroundColor: colors.orange, color: '#fff', fontWeight: '800' },
+        }}
+      />
       <Tabs.Screen name="riwayat" options={{ title: 'Riwayat', tabBarIcon: icon('🧾') }} />
       <Tabs.Screen name="shift" options={{ title: 'Shift', tabBarIcon: icon('⏱') }} />
     </Tabs>

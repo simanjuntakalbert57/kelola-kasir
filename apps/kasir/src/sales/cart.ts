@@ -91,3 +91,32 @@ export function quickCashAmounts(total: number): number[] {
   }
   return [...out].sort((a, b) => a - b).slice(0, 4);
 }
+
+/** Tab badge text: hidden (null) when empty, "99+" above 99 (K-3). */
+export function badgeLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return count > 99 ? '99+' : String(count);
+}
+
+/**
+ * Cash/QRIS enabled rules shared by Jual and Keranjang so both screens stay identical (K-3):
+ * Cash needs a total > 0; QRIS needs items and an available QRIS channel.
+ */
+export function payAvailability(
+  cart: Cart,
+  qrisEnabled: boolean,
+): { cash: boolean; qris: boolean } {
+  const hasItems = itemCount(cart) > 0;
+  return {
+    cash: hasItems && totalsOf(cart).total > 0,
+    qris: hasItems && qrisEnabled,
+  };
+}
+
+/** "Kosongkan": only clears (items, notes, buyer name) after the cashier confirms. */
+export async function clearCartIfConfirmed(
+  cart: Cart,
+  confirm: () => Promise<boolean>,
+): Promise<Cart> {
+  return (await confirm()) ? emptyCart : cart;
+}

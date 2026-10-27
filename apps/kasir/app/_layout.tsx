@@ -30,7 +30,6 @@ function Routes() {
       </Stack.Protected>
       <Stack.Protected guard={!!session && !!shift}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
         <Stack.Screen name="cash" />
         <Stack.Screen name="qris" />
         <Stack.Screen name="success" options={{ gestureEnabled: false }} />

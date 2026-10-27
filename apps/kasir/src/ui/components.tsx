@@ -204,7 +204,17 @@ const styles = StyleSheet.create({
   },
 });
 
-export function EmptyState({ icon, title, body }: { icon: string; title: string; body: string }) {
+export function EmptyState({
+  icon,
+  title,
+  body,
+  action,
+}: {
+  icon: string;
+  title: string;
+  body: string;
+  action?: ReactNode;
+}) {
   return (
     <View
       style={{
@@ -218,6 +228,7 @@ export function EmptyState({ icon, title, body }: { icon: string; title: string;
       <Text style={{ fontSize: 48 }}>{icon}</Text>
       <Text style={{ color: colors.ink, fontSize: 18, fontWeight: '800' }}>{title}</Text>
       <Text style={{ color: colors.muted, textAlign: 'center', lineHeight: 20 }}>{body}</Text>
+      {action}
     </View>
   );
 }
