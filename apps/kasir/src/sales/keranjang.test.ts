@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { createTestDb } from '../db/testDb';
 import type { CatalogProduct } from '../catalog/repository';
 import {
   addProduct,
   badgeLabel,
+  cartAfterPayment,
   clearCartIfConfirmed,
   emptyCart,
   itemCount,
+  NOTE_MAX,
   payAvailability,
   removeLine,
   setCustomerLabel,
@@ -14,6 +17,7 @@ import {
   totalsOf,
   type Cart,
 } from './cart';
+import { createCashSale, type SaleContext } from './checkout';
 
 const p = (id: string, price: number) => ({ id, name: id, price }) as unknown as CatalogProduct;
 
@@ -72,11 +76,56 @@ describe('Pay button rules (TC-KRJ-09)', () => {
   });
 });
 
-describe('Cart after sale / failed payment (TC-KRJ-03, TC-KRJ-10, TC-KRJ-17)', () => {
-  it('payment totals are unchanged by tab navigation (pure state)', () => {
+describe('Notes keep spaces until checkout (review fix)', () => {
+  it('setNote stores raw text, capped at NOTE_MAX', () => {
+    const c = setNote(cartOf(['a', 5000, 1]), 'a', 'less ');
+    expect(c.lines[0]?.note).toBe('less ');
+    expect(setNote(c, 'a', 'x'.repeat(NOTE_MAX + 10)).lines[0]?.note).toHaveLength(NOTE_MAX);
+    expect(setNote(c, 'a', '').lines[0]?.note).toBeUndefined();
+  });
+});
+
+describe('Cash sale payload + cart reset (TC-KRJ-03, TC-KRJ-17)', () => {
+  const CTX: SaleContext = {
+    outletCode: 'JUS1',
+    deviceCode: 'K01',
+    timeZone: 'Asia/Jakarta',
+    shiftId: '0190aaaa-0000-7000-8000-000000000001',
+    employee: { id: 'e1', name: 'Sari' },
+  };
+  const T = new Date('2026-10-26T07:32:00Z');
+
+  it('outbox body keeps price snapshot, qty, line_total, total, trimmed note and customer_label', async () => {
+    const db = await createTestDb();
+    let c = cartOf(['a', 12500, 3], ['b', 7000, 2]);
+    c = setNote(c, 'a', '  less sugar ');
+    c = setNote(c, 'b', '   ');
+    c = setCustomerLabel(c, ' Budi ');
+    await createCashSale(db, CTX, c, 100000, T);
+    const rows = await db.all<{ payload: string }>('SELECT payload FROM outbox');
+    expect(rows).toHaveLength(1);
+    const body = JSON.parse(rows[0]?.payload ?? '{}') as Record<string, unknown>;
+    expect(body).toMatchObject({ customer_label: 'Budi', total: 51500, subtotal: 51500 });
+    const items = body.items as Record<string, unknown>[];
+    expect(items[0]).toMatchObject({
+      product_id: 'a',
+      unit_price: 12500,
+      quantity: 3,
+      line_total: 37500,
+      note: 'less sugar',
+    });
+    expect(items[1]).toMatchObject({ unit_price: 7000, quantity: 2, line_total: 14000 });
+    expect(items[1]).not.toHaveProperty('note');
+  });
+
+  it('cart is empty with no badge after a successful sale; failed payment leaves it intact', () => {
     const c = cartOf(['a', 12500, 3]);
-    expect(totalsOf(c).total).toBe(37500);
-    expect(c.lines[0]).toMatchObject({ productId: 'a', unitPrice: 12500, quantity: 3 });
+    const failed = cartAfterPayment(c, false);
+    expect(failed).toBe(c);
+    expect(badgeLabel(itemCount(failed))).toBe('3');
+    const paid = cartAfterPayment(c, true);
+    expect(paid).toEqual(emptyCart);
+    expect(badgeLabel(itemCount(paid))).toBeNull();
   });
 });
 

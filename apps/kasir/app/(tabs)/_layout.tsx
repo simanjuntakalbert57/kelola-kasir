@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Tabs } from 'expo-router';
 import { Text, type ColorValue } from 'react-native';
 import { badgeLabel, itemCount } from '../../src/sales/cart';
@@ -11,28 +12,36 @@ const icon = (glyph: string) =>
 
 export default function TabsLayout() {
   const { cart } = useSales();
-  const badge = badgeLabel(itemCount(cart));
+  const count = itemCount(cart);
+  const badge = badgeLabel(count);
+  const keranjangOptions = useMemo(
+    () => ({
+      title: 'Keranjang',
+      tabBarIcon: icon('🛒'),
+      tabBarAccessibilityLabel: count > 0 ? `Keranjang, ${count} item` : 'Keranjang',
+      ...(badge ? { tabBarBadge: badge } : {}),
+      tabBarBadgeStyle: {
+        backgroundColor: colors.orange,
+        color: '#fff',
+        fontWeight: '800' as const,
+      },
+    }),
+    [badge, count],
+  );
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.greenText,
         tabBarInactiveTintColor: colors.muted,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, height: 64 },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
         sceneStyle: { backgroundColor: colors.bg },
       }}
     >
       <Tabs.Screen name="jual" options={{ title: 'Jual', tabBarIcon: icon('🍹') }} />
-      <Tabs.Screen
-        name="keranjang"
-        options={{
-          title: 'Keranjang',
-          tabBarIcon: icon('🛒'),
-          ...(badge ? { tabBarBadge: badge } : {}),
-          tabBarBadgeStyle: { backgroundColor: colors.orange, color: '#fff', fontWeight: '800' },
-        }}
-      />
+      <Tabs.Screen name="keranjang" options={keranjangOptions} />
       <Tabs.Screen name="riwayat" options={{ title: 'Riwayat', tabBarIcon: icon('🧾') }} />
       <Tabs.Screen name="shift" options={{ title: 'Shift', tabBarIcon: icon('⏱') }} />
     </Tabs>

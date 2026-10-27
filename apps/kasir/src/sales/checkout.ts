@@ -35,7 +35,7 @@ function baseBody(cart: Cart, ctx: SaleContext, number: string, now: Date) {
       unit_price: l.unitPrice,
       quantity: l.quantity,
       line_total: totals.lineTotals[i] ?? 0,
-      ...(l.note ? { note: l.note } : {}),
+      ...(l.note?.trim() ? { note: l.note.trim() } : {}),
     })),
     subtotal: totals.subtotal,
     discount_amount: totals.discountAmount,

@@ -17,7 +17,7 @@ import { openDatabase } from '../db/expoDb';
 import { getMeta, META, setMeta } from '../db/meta';
 import type { Db } from '../db/types';
 import { pendingCount, pushOutbox, PUSH_INTERVAL_MS, resetDeferred } from '../sync/outbox';
-import { emptyCart, type Cart } from './cart';
+import { cartAfterPayment, emptyCart, type Cart } from './cart';
 import type { CashSale, SaleContext } from './checkout';
 import type { QrisSession } from './qris';
 
@@ -184,7 +184,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       lastSale,
       completeSale: (sale) => {
         setLastSale(sale);
-        setCartState(emptyCart);
+        setCartState((c) => cartAfterPayment(c, true));
         setQris(null);
         void refreshPending();
         void push();

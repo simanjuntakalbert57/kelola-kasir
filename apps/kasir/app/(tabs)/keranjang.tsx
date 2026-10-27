@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   clearCartIfConfirmed,
   itemCount,
+  NOTE_MAX,
   payAvailability,
   removeLine,
   setCustomerLabel,
@@ -18,16 +19,14 @@ import { useSales } from '../../src/sales/SalesProvider';
 import { colors, radius, space } from '../../src/theme';
 import { Button, EmptyState, TopBar } from '../../src/ui/components';
 
-const NOTE_MAX = 60;
-
-function confirmClear(): Promise<boolean> {
+function confirmClear(summary: string): Promise<boolean> {
   if (Platform.OS === 'web') {
-    return Promise.resolve(globalThis.confirm('Kosongkan keranjang?'));
+    return Promise.resolve(globalThis.confirm(`Kosongkan keranjang? ${summary} akan dihapus.`));
   }
   return new Promise((resolve) => {
     Alert.alert(
       'Kosongkan keranjang?',
-      'Semua item, catatan, dan nama pembeli akan dihapus.',
+      `${summary} akan dihapus, termasuk catatan dan nama pembeli.`,
       [
         { text: 'Batal', style: 'cancel', onPress: () => resolve(false) },
         { text: 'Kosongkan', style: 'destructive', onPress: () => resolve(true) },
@@ -45,7 +44,9 @@ export default function KeranjangScreen() {
   const pay = payAvailability(cart, qris.enabled);
 
   const onClear = async () => {
-    const next = await clearCartIfConfirmed(cart, confirmClear);
+    const next = await clearCartIfConfirmed(cart, () =>
+      confirmClear(summaryLabel(cart, formatRupiah)),
+    );
     if (next !== cart) setCart(() => next);
   };
 
@@ -68,7 +69,7 @@ export default function KeranjangScreen() {
         <EmptyState
           icon="🛒"
           title="Keranjang kosong"
-          body="Pilih menu di tab Jual untuk mulai pesanan."
+          body="Ketuk menu di tab Jual untuk memulai pesanan."
           action={
             <Button
               testID="pick-menu"
@@ -80,6 +81,7 @@ export default function KeranjangScreen() {
         />
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={[...cart.lines]}
           keyExtractor={(l) => l.productId}
           keyboardShouldPersistTaps="handled"
@@ -137,9 +139,7 @@ export default function KeranjangScreen() {
         />
       )}
       <View style={styles.footer}>
-        <Text style={styles.total}>
-          {count === 0 ? 'Keranjang kosong' : summaryLabel(cart, formatRupiah)}
-        </Text>
+        <Text style={styles.total}>{summaryLabel(cart, formatRupiah)}</Text>
         <View style={styles.row}>
           <Button
             testID="pay-cash"
