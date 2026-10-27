@@ -58,7 +58,7 @@ export default function PairingScreen() {
           autoCapitalize="characters"
           autoCorrect={false}
           maxLength={8}
-          placeholder="ABCD1234"
+          placeholder="ABCD2345"
           placeholderTextColor={colors.muted}
           accessibilityLabel="Kode pairing"
         />
