@@ -1,7 +1,21 @@
+/**
+ * Hermes (release builds) has no global `crypto`, so fall back to expo-crypto's
+ * native CSPRNG. It is required lazily so Node (tests) never loads it.
+ */
+function secureRandom(bytes: Uint8Array): void {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes);
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const crypto: { getRandomValues: (b: Uint8Array) => unknown } = require('expo-crypto');
+  crypto.getRandomValues(bytes);
+}
+
 /** UUIDv7 (RFC 9562) for client-generated ids (ADR-0008). */
 export function uuidv7(
   now: number = Date.now(),
-  random: (bytes: Uint8Array) => void = (b) => crypto.getRandomValues(b),
+  random: (bytes: Uint8Array) => void = secureRandom,
 ): string {
   const bytes = new Uint8Array(16);
   random(bytes);
