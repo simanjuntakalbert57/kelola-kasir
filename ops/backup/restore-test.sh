@@ -11,6 +11,9 @@ here="$(dirname "$0")"
 . "$here/s3.sh"
 : "${RESTORE_DATABASE_URL:?RESTORE_DATABASE_URL is required}"
 : "${BACKUP_TARGET:?BACKUP_TARGET is required}"
+# Read the key first: nothing below may consume stdin. Kept in memory only.
+key="$(cat)"
+[ -n "$key" ] || { echo "restore-test: no age private key on stdin" >&2; exit 1; }
 case "$BACKUP_TARGET" in s3://*) s3_setup ;; esac
 
 name="${1:-$(backup_names | tail -n 1)}"
@@ -25,6 +28,6 @@ esac
 echo "restore-test: $name ($(wc -c <"$workdir/$name" | tr -d ' ') bytes)" >&2
 
 start="$(date +%s)"
-AGE_IDENTITY_FILE=/dev/stdin "$here/restore.sh" "$workdir/$name" "$RESTORE_DATABASE_URL"
+AGE_IDENTITY_FILE=<(printf '%s\n' "$key") "$here/restore.sh" "$workdir/$name" "$RESTORE_DATABASE_URL"
 echo "restore-test: restored in $(($(date +%s) - start)) s" >&2
 "$here/verify-restore.sh" "$RESTORE_DATABASE_URL"
