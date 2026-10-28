@@ -36,4 +36,6 @@ jobs:
             "$VPS_HOST" "$VPS_USER" > ~/.ssh/config
 
       - name: Backup status
-        run: ssh vps /opt/kelola-kasir/backup-status.sh | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -o pipefail
+          ssh vps /opt/kelola-kasir/backup-status.sh | tee -a "$GITHUB_STEP_SUMMARY"
