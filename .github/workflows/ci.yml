@@ -130,9 +130,20 @@ jobs:
             --entrypoint /opt/backup/restore.sh backup "/backups/$(basename "$file")" "$target"
           ./compose.sh --profile backup run --rm --entrypoint /opt/backup/verify-restore.sh backup "$target"
           # Owner's restore test: key on stdin, throwaway database dropped afterwards.
-          ./restore-test.sh < backups/ci.key
-          ! ./compose.sh exec -T db psql -U kelola_kasir -d postgres -Atc 'select 1 from pg_database where datname = $$restore_check$$' | grep -q 1
+          set -o pipefail
+          ./restore-test.sh < backups/ci.key 2>&1 | tee restore-test.log
+          # The database password must never appear in the output (it ends up in screenshots).
+          # (`! cmd` never fails a step under `bash -e`, hence the explicit exits.)
+          if grep -qF "$pw" restore-test.log; then echo "::error::restore-test output contains the password"; exit 1; fi
+          if ./compose.sh exec -T db psql -U kelola_kasir -d postgres -Atc 'select 1 from pg_database where datname = $$restore_check$$' | grep -q 1; then
+            echo "::error::restore_check was not dropped"; exit 1
+          fi
           ./backup-status.sh
+          # Password rotation: the api must come back healthy and backups keep working.
+          ./rotate-db-password.sh
+          if grep -qxF "POSTGRES_PASSWORD=$pw" .env; then echo "::error::password not rotated"; exit 1; fi
+          curl -kfsS https://localhost/healthz | grep -q '"db":"up"'
+          ./backup-now.sh
       - if: failure()
         working-directory: .vps
         run: ./compose.sh logs --tail 200 || true
