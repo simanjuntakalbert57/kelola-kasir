@@ -12,8 +12,10 @@
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   R2/B2 key (object read/write only)
 # Optional:
 #   RETENTION_DAYS      default 30
-#   BACKUP_S3_REGION    signing region; default: <region> of a B2 endpoint (s3.<region>.backblazeb2.com), else auto (R2)
+#   BACKUP_S3_REGION    signing region (see s3.sh)
 set -euo pipefail
+# shellcheck source=ops/backup/s3.sh
+. "$(dirname "$0")/s3.sh"
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
 : "${AGE_RECIPIENT:?AGE_RECIPIENT is required}"
@@ -47,27 +49,18 @@ case "$BACKUP_TARGET" in
     find "$dir" -name 'kelola-kasir-*.dump.age' -type f -mtime "+${RETENTION_DAYS}" -print -delete | sed 's/^/pruned /' >&2
     ;;
   s3://*)
-    : "${R2_ENDPOINT:?R2_ENDPOINT is required for s3:// targets}"
-    # B2 rejects SigV4 requests signed for any region other than the endpoint's own, R2 expects "auto".
-    region="${BACKUP_S3_REGION:-}"
-    if [ -z "$region" ]; then
-      case "$R2_ENDPOINT" in
-        *://s3.*.backblazeb2.com*) region="${R2_ENDPOINT#*://s3.}"; region="${region%%.backblazeb2.com*}" ;;
-        *) region=auto ;;
-      esac
-    fi
-    export AWS_DEFAULT_REGION="$region"
+    s3_setup
     dest="${BACKUP_TARGET%/}"
-    aws s3 cp --endpoint-url "$R2_ENDPOINT" --only-show-errors "$file" "${dest}/${name}"
+    s3 cp --only-show-errors "$file" "${dest}/${name}"
     log "uploaded ${dest}/${name} (${size} bytes)"
     cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y%m%dT%H%M%SZ 2>/dev/null || date -u -v "-${RETENTION_DAYS}d" +%Y%m%dT%H%M%SZ)"
     # Names embed the UTC timestamp, so retention is a plain string comparison.
-    aws s3 ls --endpoint-url "$R2_ENDPOINT" "${dest}/" | awk '{print $4}' | while read -r key; do
+    s3 ls "${dest}/" | awk '{print $4}' | while read -r key; do
       case "$key" in
         kelola-kasir-*.dump.age)
           ts="${key#kelola-kasir-}"; ts="${ts%.dump.age}"
           if [[ "$ts" < "$cutoff" ]]; then
-            aws s3 rm --endpoint-url "$R2_ENDPOINT" --only-show-errors "${dest}/${key}"
+            s3 rm --only-show-errors "${dest}/${key}"
             log "pruned ${key}"
           fi
           ;;

@@ -129,6 +129,10 @@ jobs:
           ./compose.sh --profile backup run --rm -e AGE_IDENTITY_FILE=/backups/ci.key \
             --entrypoint /opt/backup/restore.sh backup "/backups/$(basename "$file")" "$target"
           ./compose.sh --profile backup run --rm --entrypoint /opt/backup/verify-restore.sh backup "$target"
+          # Owner's restore test: key on stdin, throwaway database dropped afterwards.
+          ./restore-test.sh < backups/ci.key
+          ! ./compose.sh exec -T db psql -U kelola_kasir -d postgres -Atc 'select 1 from pg_database where datname = $$restore_check$$' | grep -q 1
+          ./backup-status.sh
       - if: failure()
         working-directory: .vps
         run: ./compose.sh logs --tail 200 || true
