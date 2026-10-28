@@ -12,6 +12,7 @@
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   R2/B2 key (object read/write only)
 # Optional:
 #   RETENTION_DAYS      default 30
+#   BACKUP_S3_REGION    signing region; default: <region> of a B2 endpoint (s3.<region>.backblazeb2.com), else auto (R2)
 set -euo pipefail
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
@@ -47,6 +48,15 @@ case "$BACKUP_TARGET" in
     ;;
   s3://*)
     : "${R2_ENDPOINT:?R2_ENDPOINT is required for s3:// targets}"
+    # B2 rejects SigV4 requests signed for any region other than the endpoint's own, R2 expects "auto".
+    region="${BACKUP_S3_REGION:-}"
+    if [ -z "$region" ]; then
+      case "$R2_ENDPOINT" in
+        *://s3.*.backblazeb2.com*) region="${R2_ENDPOINT#*://s3.}"; region="${region%%.backblazeb2.com*}" ;;
+        *) region=auto ;;
+      esac
+    fi
+    export AWS_DEFAULT_REGION="$region"
     dest="${BACKUP_TARGET%/}"
     aws s3 cp --endpoint-url "$R2_ENDPOINT" --only-show-errors "$file" "${dest}/${name}"
     log "uploaded ${dest}/${name} (${size} bytes)"

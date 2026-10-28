@@ -90,7 +90,12 @@ services:
 
   backup:
     profiles: [backup]
-    build: ./backup
+    build:
+      context: ./backup
+      # The Rumahweb VPS cannot resolve DNS from Docker's default bridge (DEAR-33, 28 Oct): `apk add` in the
+      # build failed with "DNS: transient error". Builds use the host network; the running container uses
+      # the compose network (embedded DNS), which the deploy workflow checks after every rollout.
+      network: host
     depends_on:
       db:
         condition: service_healthy
@@ -101,7 +106,8 @@ services:
       R2_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
       AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
-      AWS_DEFAULT_REGION: auto
+      # Empty = derived by backup.sh: auto for R2, <region> of https://s3.<region>.backblazeb2.com for B2.
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
     volumes:
       # Only used by local:<dir> targets (CI smoke test, emergency copies); empty otherwise.
