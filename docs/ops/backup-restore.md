@@ -33,9 +33,10 @@ Langkah lengkap ada di [deploy.md](deploy.md) langkah 2–5 dan 9. Ringkasnya:
    | `BACKUP_TARGET` | `s3://kelola-kasir-backup/postgres` |
    | `BACKUP_S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` (atau endpoint B2) |
    | `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | token bucket backup |
+   | `BACKUP_S3_REGION` | opsional; kosong = otomatis (`auto` untuk R2, `<region>` dari `s3.<region>.backblazeb2.com` untuk B2) |
    | `BACKUP_HEARTBEAT_URL` | ping URL healthchecks.io |
 
-5. Jalankan sekali: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`, lalu pastikan objek `kelola-kasir-<UTC timestamp>.dump.age` muncul di bucket dan healthchecks.io berstatus up.
+5. Jalankan sekali: `sudo -u deploy /opt/kelola-kasir/backup-now.sh` (atau Actions → Deploy API to VPS → Run workflow dengan `run_backup` dicentang), lalu pastikan objek `kelola-kasir-<UTC timestamp>.dump.age` muncul di bucket dan healthchecks.io berstatus up.
 6. Alert: healthchecks.io mengirim email bila ping harian tidak datang (backup gagal, timer mati, atau VPS mati).
 
 `backup.sh` gagal keras (exit ≠ 0) bila `pg_dump` gagal atau berkas hasil < 1 KB, sehingga backup kosong tidak dianggap sukses.

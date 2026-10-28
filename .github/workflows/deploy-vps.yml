@@ -16,6 +16,10 @@ on:
       tag:
         description: 'Rollback: full commit SHA of an image deployed before. Empty = build and deploy main.'
         required: false
+      run_backup:
+        description: 'After the rollout, run backup-now.sh once (proof that the nightly backup works).'
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-vps
@@ -142,6 +146,28 @@ jobs:
             exit 1
           fi
           REMOTE
+
+      # Sentry and the media bucket are reached from the api container over the compose network. The host's
+      # Docker default bridge has no working DNS on this VPS (DEAR-33), so fail loudly if the compose network
+      # loses it too: that would silently break photo uploads, error reports and the nightly backup.
+      - name: Check outbound DNS and HTTPS from the api container
+        if: env.VPS_HOST != ''
+        run: |
+          ssh vps 'cd /opt/kelola-kasir && ./compose.sh exec -T api node -e "
+            const dns = require(\"node:dns\").promises;
+            const hosts = [\"sentry.io\"];
+            if (process.env.STORAGE_ENDPOINT) hosts.push(new URL(process.env.STORAGE_ENDPOINT).hostname);
+            (async () => {
+              for (const h of hosts) console.log(h, \"->\", (await dns.lookup(h)).address);
+              const r = await fetch(\"https://sentry.io/\", { method: \"HEAD\", signal: AbortSignal.timeout(10000) });
+              console.log(\"https://sentry.io/ ->\", r.status);
+            })().catch((e) => { console.error(\"outbound check failed:\", e.message); process.exit(1); });
+          "'
+
+      - name: Run the backup once
+        if: env.VPS_HOST != '' && inputs.run_backup
+        run: |
+          ssh vps 'cd /opt/kelola-kasir && ./backup-now.sh && systemctl list-timers kelola-kasir-backup.timer --no-pager'
 
       - name: Log out of GHCR on the VPS
         if: always() && env.VPS_HOST != ''
