@@ -9,7 +9,9 @@ if [[ -z "$(sed -n 's/^AGE_RECIPIENT=//p' .env | tail -n 1)" ]]; then
   echo "backup skipped: AGE_RECIPIENT is empty in .env (backups not configured yet)" >&2
   exit 0
 fi
-./compose.sh --profile backup run --rm --build backup
+# Host network for the build: Docker's default bridge has no working DNS on the VPS (DEAR-33).
+docker build --quiet --network host -t kelola-kasir-backup ./backup >/dev/null
+./compose.sh --profile backup run --rm backup
 url="$(sed -n 's/^BACKUP_HEARTBEAT_URL=//p' .env | tail -n 1)"
 if [[ -n "$url" ]]; then
   curl -fsS -m 10 --retry 3 -o /dev/null "$url"

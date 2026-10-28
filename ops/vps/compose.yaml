@@ -90,12 +90,13 @@ services:
 
   backup:
     profiles: [backup]
-    build:
-      context: ./backup
-      # The Rumahweb VPS cannot resolve DNS from Docker's default bridge (DEAR-33, 28 Oct): `apk add` in the
-      # build failed with "DNS: transient error". Builds use the host network; the running container uses
-      # the compose network (embedded DNS), which the deploy workflow checks after every rollout.
-      network: host
+    # Built by backup-now.sh with `docker build --network host`: the Rumahweb VPS cannot resolve DNS from
+    # Docker's default bridge (DEAR-33, 28 Oct), so `apk add` failed in a compose build. Compose's own
+    # `build.network: host` is rejected by its bake builder without --allow=network.host.
+    # The running container stays on the compose network (embedded DNS), checked by the deploy workflow.
+    image: kelola-kasir-backup
+    pull_policy: never
+    build: ./backup
     depends_on:
       db:
         condition: service_healthy
