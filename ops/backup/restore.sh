@@ -18,4 +18,6 @@ if [ "$existing" != "0" ]; then
 fi
 
 age --decrypt --identity "$AGE_IDENTITY_FILE" "$backup" | pg_restore --no-owner --no-privileges --exit-on-error --dbname "$target"
-echo "restore: finished; run ops/backup/verify-restore.sh $target to sanity check" >&2
+# Never print the password of the target URL: this output ends up in screenshots and issue comments.
+safe_target="$(printf '%s' "$target" | sed -E 's#://([^:/@]+):.*@#://\1:***@#')"
+echo "restore: finished; run ops/backup/verify-restore.sh ${safe_target} to sanity check" >&2

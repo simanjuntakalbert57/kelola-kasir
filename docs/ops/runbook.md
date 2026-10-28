@@ -38,6 +38,12 @@ Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md
 
 **APK.** Pasang ulang APK versi sebelumnya (simpan salinan setiap APK rilis di Drive owner; artifact Actions kedaluwarsa setelah 14 hari). Android menolak downgrade `versionCode`. Untuk downgrade: pastikan semua transaksi tersinkron ("0 transaksi belum tersinkron"), uninstall, pasang APK lama, lalu pairing ulang.
 
+## Rotasi password database
+
+Bila `POSTGRES_PASSWORD` pernah terlihat (log, screenshot, komentar), anggap bocor: Actions → **Rotate database password** →
+Run workflow, ketik `rotate`. Password baru dibuat di VPS dan hanya ditulis ke `.env` (`ops/vps/rotate-db-password.sh`); API restart
+beberapa detik, lalu workflow mengecek `/healthz` dan menjalankan satu backup. Setelahnya salin nilai baru dari `.env` VPS ke password manager.
+
 ## Restore backup
 
 Ringkas (detail: [backup-restore.md](backup-restore.md)):
