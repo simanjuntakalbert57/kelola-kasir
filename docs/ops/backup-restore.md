@@ -41,6 +41,21 @@ Langkah lengkap ada di [deploy.md](deploy.md) langkah 2–5 dan 9. Ringkasnya:
 
 `backup.sh` gagal keras (exit ≠ 0) bila `pg_dump` gagal atau berkas hasil < 1 KB, sehingga backup kosong tidak dianggap sukses.
 
+## Uji restore cepat (owner, dari laptop)
+
+Kunci privat `age` tetap di laptop: dikirim lewat stdin dan tidak pernah ditulis ke disk VPS. Skrip memakai backup terbaru di bucket,
+me-restore-nya ke database sementara `restore_check`, menjalankan `verify-restore.sh`, lalu menghapus database itu.
+
+```sh
+ssh root@<vps> 'sudo -u deploy /opt/kelola-kasir/restore-test.sh' < ~/path/kelola-kasir-backup.key
+# backup tertentu: ... restore-test.sh kelola-kasir-20261028T095822Z.dump.age' < ~/path/kelola-kasir-backup.key
+```
+
+Lulus bila `tables` = 19, `open_shifts_per_outlet_max` ≤ 1, dan baris terakhir `restore-test: dropped restore_check`.
+
+Status backup harian tanpa membuka VPS: Actions → **Backup status** → Run workflow (`ops/vps/backup-status.sh`): hasil run terakhir,
+jadwal timer berikutnya, heartbeat terpasang, dan 5 objek terbaru di bucket.
+
 ## Restore
 
 Selalu restore ke database **kosong** baru (skrip menolak database yang sudah berisi tabel). Jangan pernah restore langsung di atas produksi.
