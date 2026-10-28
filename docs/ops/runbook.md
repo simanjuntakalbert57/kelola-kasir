@@ -85,7 +85,13 @@ Setelah UAT lolos dan owner setuju:
 - **Update image dasar** (Postgres 16 minor, Caddy): `./compose.sh pull db caddy && ./compose.sh up -d --wait`, di luar jam buka. Jangan ganti versi mayor Postgres tanpa rencana dump/restore.
 - **Disk**: `df -h` (target < 70%) dan `docker system df`. Image lama dibersihkan otomatis saat deploy. Log Docker dibatasi 100 MB per container.
 - **Snapshot/backup VPS dari Rumahweb** (opsional, bila paketnya menyediakan) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.
-- **Perpanjangan VPS dan domain**: catat tanggal jatuh tempo di kalender owner. Layanan yang telat diperpanjang bisa dihentikan penyedia.
+- **Perpanjangan layanan berbayar** (DEAR-76). Layanan yang telat diperpanjang bisa dihentikan penyedia. Pasang juga pengingat H-14 di kalender owner.
+
+  | Layanan | Penyedia | Jatuh tempo berikutnya | Auto-renew | Diisi oleh |
+  |---|---|---|---|---|
+  | VPS | Rumahweb | _(diisi Albert, YYYY-MM-DD)_ | _(aktif / belum)_ | Albert |
+
+  Domain API tidak dibeli (dashboard dan APK memakai `kelola-kasir.pages.dev`), jadi tidak ada domain yang perlu diperpanjang.
 
 ## Masalah umum
 
