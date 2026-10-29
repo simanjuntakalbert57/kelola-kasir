@@ -129,8 +129,11 @@ export function SalesProvider({ children }: { children: ReactNode }) {
     busy.current.push = true;
     try {
       let result = await pushOutbox(api, db);
+      // An empty outbox makes no request, so it proves nothing about connectivity: only a real round trip
+      // may flip the indicator back to online (otherwise the idle push tick masks a failed pull/push).
+      const reached = result.sent > 0;
       while (result.remaining > 0 && result.sent > 0) result = await pushOutbox(api, db);
-      setOnline(true);
+      if (reached) setOnline(true);
     } catch (error) {
       if (error instanceof NetworkError) setOnline(false);
     } finally {
