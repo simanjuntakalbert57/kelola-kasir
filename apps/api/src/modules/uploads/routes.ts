@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AppContext } from '../../context.js';
 import { errors } from '../../errors.js';
 import { presignUrl } from '../../lib/presign.js';
+import { MEDIA_PATH } from '../../lib/urls.js';
 import { parse } from '../../lib/validate.js';
 import { requireUser, type Guards } from '../../plugins/auth.js';
 
@@ -17,7 +18,10 @@ const body = z.object({
   size_bytes: z.number().int().min(1).max(MAX_BYTES),
 });
 
-/** Presigned PUT uploads to S3-compatible storage (O-04, O-10). Objects are namespaced per outlet. */
+/**
+ * Presigned PUT uploads to S3-compatible storage (O-04, O-10). Objects are namespaced per outlet and
+ * the bucket is private: `public_url` is the stable API media URL (ADR-0015).
+ */
 export function uploadRoutes(ctx: AppContext, guards: Guards) {
   const { storage } = ctx.config;
 
@@ -47,7 +51,7 @@ export function uploadRoutes(ctx: AppContext, guards: Guards) {
       });
       return reply.status(201).send({
         upload_url: uploadUrl,
-        public_url: `${storage.publicBaseUrl}/${key}`,
+        public_url: `${storage.apiPublicBaseUrl}${MEDIA_PATH}${key}`,
         expires_at: new Date(now.getTime() + UPLOAD_TTL_SEC * 1000).toISOString(),
       });
     });

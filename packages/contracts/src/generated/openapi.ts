@@ -870,6 +870,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/media/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stable image URL (private bucket)
+         * @description No authentication (`<img>` cannot send a bearer token). Redirects (302) to a presigned GET that expires in 10 minutes; `Cache-Control: private, max-age=300`. `key` is `<outletId>/<purpose>/<uuid>.<ext>` as returned in `public_url` by `POST /uploads`; any other key is 404 (ADR-0015).
+         */
+        get: operations["getMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uploads": {
         parameters: {
             query?: never;
@@ -3144,6 +3164,47 @@ export interface operations {
             };
         };
     };
+    getMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Object key (may contain slashes). */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the presigned download URL. */
+            302: {
+                headers: {
+                    Location?: string;
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Key is not a key issued by this API. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `UPLOADS_NOT_CONFIGURED` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     createUpload: {
         parameters: {
             query?: never;
@@ -3163,7 +3224,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned PUT URL; use `public_url` in the product/settings payload afterwards. */
+            /** @description Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings payload afterwards. */
             201: {
                 headers: {
                     [name: string]: unknown;

@@ -46,7 +46,7 @@ async function main(): Promise<void> {
       STORAGE_BUCKET: 'contract',
       STORAGE_ACCESS_KEY_ID: 'contract-access-key',
       STORAGE_SECRET_ACCESS_KEY: 'contract-secret-key',
-      STORAGE_PUBLIC_BASE_URL: 'https://cdn.contract.test',
+      API_PUBLIC_BASE_URL: 'https://api.contract.test',
       LOG_LEVEL: process.env['LOG_LEVEL'] ?? 'warn',
       // The fuzzer sends hundreds of login/pair requests: rate limits would only add noise.
       RATE_LIMIT_LOGIN_MAX: '100000',

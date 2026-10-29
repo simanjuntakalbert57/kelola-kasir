@@ -279,7 +279,7 @@ describe('uploads', () => {
     accessKeyId: 'AKIDEXAMPLE',
     secretAccessKey: 'secret-example',
     region: 'auto',
-    publicBaseUrl: 'https://media.example',
+    apiPublicBaseUrl: 'https://api.example',
   };
 
   it('answers 503 when storage is not configured', async () => {
@@ -313,7 +313,9 @@ describe('uploads', () => {
       expect(upload.searchParams.get('X-Amz-SignedHeaders')).toBe('content-type;host');
       expect(upload.searchParams.get('X-Amz-Expires')).toBe('600');
       expect(upload.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
-      expect(body.public_url).toBe(`https://media.example${upload.pathname.replace('/media', '')}`);
+      expect(body.public_url).toBe(
+        `https://api.example/v1/media${upload.pathname.replace('/media', '')}`,
+      );
       expect(new Date(body.expires_at).getTime()).toBeGreaterThan(withStorage.clock.now.getTime());
       expect(body.upload_url).not.toContain('secret-example');
     } finally {

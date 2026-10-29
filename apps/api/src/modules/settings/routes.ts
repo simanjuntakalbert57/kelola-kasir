@@ -21,7 +21,7 @@ const rupiah = z.number().int().min(1).max(100_000_000);
 
 export function settingsRoutes(ctx: AppContext, guards: Guards) {
   const { db, config } = ctx;
-  const url = imageUrlSchema(config.storage?.publicBaseUrl);
+  const url = imageUrlSchema(config.storage);
   const text = (max: number) =>
     z
       .string()

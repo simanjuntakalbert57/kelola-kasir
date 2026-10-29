@@ -36,13 +36,19 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default(''),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(5),
   RATE_LIMIT_PAIR_MAX: z.coerce.number().int().min(1).default(10),
-  /** S3-compatible object storage (Cloudflare R2) for presigned image uploads. All or nothing. */
+  /**
+   * S3-compatible object storage (R2 or B2) for presigned image uploads. The bucket stays private
+   * and images are served through `GET /v1/media/*` (ADR-0015). The four core variables plus
+   * `API_PUBLIC_BASE_URL` are all or nothing.
+   */
   STORAGE_ENDPOINT: z.url().optional(),
   STORAGE_BUCKET: z.string().min(1).optional(),
   STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   STORAGE_REGION: z.string().min(1).default('auto'),
-  /** Public base URL the uploaded objects are served from (R2 public bucket / custom domain). */
+  /** Public origin clients reach this API at (the Pages proxy, ADR-0014). Media URLs are `<it>/v1/media/<key>`. */
+  API_PUBLIC_BASE_URL: z.url().optional(),
+  /** Legacy: base URL of a public bucket. Optional; URLs under it are still accepted when saved (ADR-0015). */
   STORAGE_PUBLIC_BASE_URL: z.url().optional(),
 });
 
@@ -52,7 +58,10 @@ export interface StorageConfig {
   accessKeyId: string;
   secretAccessKey: string;
   region: string;
-  publicBaseUrl: string;
+  /** Origin of the API as seen by clients; stable media URLs are `${apiPublicBaseUrl}/v1/media/<key>`. */
+  apiPublicBaseUrl: string;
+  /** Legacy public bucket URL; only used to keep previously saved image URLs valid. */
+  publicBaseUrl?: string;
 }
 
 export interface Config {
@@ -122,7 +131,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     e.STORAGE_BUCKET,
     e.STORAGE_ACCESS_KEY_ID,
     e.STORAGE_SECRET_ACCESS_KEY,
-    e.STORAGE_PUBLIC_BASE_URL,
   ];
   let storage: StorageConfig | null = null;
   if (storageValues.some(Boolean)) {
@@ -130,11 +138,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       !e.STORAGE_ENDPOINT ||
       !e.STORAGE_BUCKET ||
       !e.STORAGE_ACCESS_KEY_ID ||
-      !e.STORAGE_SECRET_ACCESS_KEY ||
-      !e.STORAGE_PUBLIC_BASE_URL
+      !e.STORAGE_SECRET_ACCESS_KEY
     ) {
       throw new Error(
-        'Invalid environment: STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY and STORAGE_PUBLIC_BASE_URL must be set together',
+        'Invalid environment: STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY must be set together',
+      );
+    }
+    if (!e.API_PUBLIC_BASE_URL) {
+      throw new Error(
+        'Invalid environment: API_PUBLIC_BASE_URL is required when storage is configured',
       );
     }
     storage = {
@@ -143,7 +155,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       accessKeyId: e.STORAGE_ACCESS_KEY_ID,
       secretAccessKey: e.STORAGE_SECRET_ACCESS_KEY,
       region: e.STORAGE_REGION,
-      publicBaseUrl: e.STORAGE_PUBLIC_BASE_URL.replace(/\/+$/, ''),
+      apiPublicBaseUrl: e.API_PUBLIC_BASE_URL.replace(/\/+$/, ''),
+      ...(e.STORAGE_PUBLIC_BASE_URL
+        ? { publicBaseUrl: e.STORAGE_PUBLIC_BASE_URL.replace(/\/+$/, '') }
+        : {}),
     };
   }
 

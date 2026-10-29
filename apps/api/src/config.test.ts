@@ -24,6 +24,7 @@ describe('loadConfig', () => {
       STORAGE_ACCESS_KEY_ID: '',
       STORAGE_SECRET_ACCESS_KEY: '',
       STORAGE_PUBLIC_BASE_URL: '',
+      API_PUBLIC_BASE_URL: '',
       COOKIE_SECURE: '',
     });
     expect(config.sentry).toBeNull();
@@ -79,7 +80,7 @@ describe('object storage config', () => {
     STORAGE_BUCKET: 'media',
     STORAGE_ACCESS_KEY_ID: 'key',
     STORAGE_SECRET_ACCESS_KEY: 'secret',
-    STORAGE_PUBLIC_BASE_URL: 'https://media.example/',
+    API_PUBLIC_BASE_URL: 'https://app.example/',
   };
 
   it('is off by default', () => {
@@ -89,9 +90,23 @@ describe('object storage config', () => {
   it('normalises trailing slashes and defaults the region', () => {
     expect(loadConfig({ ...base, ...storage }).storage).toMatchObject({
       endpoint: 'https://acct.r2.cloudflarestorage.com',
-      publicBaseUrl: 'https://media.example',
+      apiPublicBaseUrl: 'https://app.example',
       region: 'auto',
     });
+    expect(loadConfig({ ...base, ...storage }).storage?.publicBaseUrl).toBeUndefined();
+  });
+
+  it('keeps the legacy public bucket URL optional', () => {
+    expect(
+      loadConfig({ ...base, ...storage, STORAGE_PUBLIC_BASE_URL: 'https://media.example/' }).storage
+        ?.publicBaseUrl,
+    ).toBe('https://media.example');
+  });
+
+  it('requires the API public base URL once storage is configured', () => {
+    expect(() => loadConfig({ ...base, ...storage, API_PUBLIC_BASE_URL: '' })).toThrow(
+      /API_PUBLIC_BASE_URL/,
+    );
   });
 
   it('is all or nothing', () => {

@@ -18,6 +18,7 @@ import { employeeRoutes } from './modules/employees/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { paymentRoutes } from './modules/payments/routes.js';
 import { createPaymentService } from './modules/payments/service.js';
+import { mediaRoutes } from './modules/media/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
 import { shiftRoutes } from './modules/shifts/routes.js';
 import { syncRoutes } from './modules/sync/routes.js';
@@ -113,6 +114,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(catalogRoutes(ctx, guards));
       await v1.register(settingsRoutes(ctx, guards));
       await v1.register(uploadRoutes(ctx, guards));
+      await v1.register(mediaRoutes(ctx));
       await v1.register(transactionRoutes(ctx, guards));
       await v1.register(voidRoutes(ctx, guards));
       await v1.register(reportRoutes(ctx, guards));
