@@ -910,6 +910,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notifications/telegram": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Telegram notification channel of the signed-in owner for this outlet
+         * @description Always 200. `status` is `not_linked` when the owner never linked (or unlinked), `pending` while a link code
+         *     is outstanding, `active` once the code was used in Telegram, `blocked` when the bot was blocked or the chat
+         *     disappeared (link again to recover). `configured: false` means the bot is not set up on this server; the
+         *     dashboard shows a "not available yet" state and hides the actions.
+         */
+        get: operations["getTelegramChannel"];
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect Telegram
+         * @description Deletes the channel and its delivery log, then sends a best-effort "notifications turned off" message to the chat. Idempotent.
+         */
+        delete: operations["unlinkTelegram"];
+        options?: never;
+        head?: never;
+        /** Turn notification types on or off */
+        patch: operations["updateTelegramPrefs"];
+        trace?: never;
+    };
+    "/notifications/telegram/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a one-time link code (10 minutes) and the Telegram deep link
+         * @description Replaces any outstanding code; an `active` channel stays active until the new code is used. Only the SHA-256
+         *     of the code is stored. Opening `deep_link` on the phone and pressing Start sends `/start <code>` to the bot;
+         *     poll `GET /notifications/telegram` until `status` is `active`. Max 5 calls per 10 minutes per owner.
+         */
+        post: operations["createTelegramLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/telegram/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a test message to the linked chat
+         * @description Max 1 call per 10 seconds per owner. Delivery is asynchronous (same queue and retries as real notifications).
+         */
+        post: operations["sendTelegramTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/telegram/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Telegram Bot API webhook (called by Telegram only)
+         * @description Registered by the API at startup (`setWebhook` with `secret_token`, `allowed_updates: [message, my_chat_member]`).
+         *     The secret header is compared in constant time. Only private chats are handled: `/start <code>` links,
+         *     `/start` without code replies with instructions, `/stop` unlinks every channel of that chat, and a
+         *     `my_chat_member` update with status `kicked` marks the channel `blocked`. Every other update is acknowledged
+         *     with 200 so Telegram does not retry. A reply, when there is one, is returned as the response body
+         *     (`{"method":"sendMessage","chat_id":…,"text":…}`), so no extra outbound call is made.
+         *     The Pages proxy must forward `X-Telegram-Bot-Api-Secret-Token` (ADR-0014/ADR-0016).
+         */
+        post: operations["telegramWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -929,7 +1025,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "NOTIFICATION_CHANNEL_NOT_LINKED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1405,6 +1501,49 @@ export interface components {
             quick_cash_amounts?: components["schemas"]["Rupiah"][];
             /** @description Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned. */
             owner_pin?: string;
+        };
+        /** @description Notification types the owner receives. Shift summaries and daily digests come later (concept B). */
+        NotificationPrefs: {
+            /** @description Paid transactions (`transaction.paid`) and offline batch summaries (`transaction.batch`) */
+            transaction: boolean;
+            /** @description Void requested and decided (`void.requested`, `void.decided`) */
+            void: boolean;
+        };
+        NotificationPrefsInput: {
+            transaction?: boolean;
+            void?: boolean;
+        };
+        /** @enum {string} */
+        TelegramChannelStatus: "not_linked" | "pending" | "active" | "blocked";
+        TelegramChannel: {
+            /** @description False when the server has no Telegram bot; all actions are unavailable. */
+            configured: boolean;
+            status: components["schemas"]["TelegramChannelStatus"];
+            /** @description Bot username without `@`, e.g. `kelolakasir_jus_bot`; null when not configured. */
+            bot_username?: string | null;
+            /** @description `@username` or first name of the linked Telegram account, for display only */
+            chat_label?: string | null;
+            prefs: components["schemas"]["NotificationPrefs"];
+            /** Format: date-time */
+            linked_at?: string | null;
+            /** Format: date-time */
+            blocked_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Expiry of the outstanding link code, if any
+             */
+            link_expires_at?: string | null;
+        };
+        TelegramLink: {
+            /**
+             * Format: uri
+             * @description `https://t.me/<bot_username>?start=<code>`; show as button and QR code. The code is single use.
+             * @example https://t.me/kelolakasir_jus_bot?start=Qm9vZ2llV29vZ2llQm9vZ2llV29vZ2ll
+             */
+            deep_link: string;
+            bot_username: string;
+            /** Format: date-time */
+            expires_at: string;
         };
     };
     responses: {
@@ -3250,6 +3389,193 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getTelegramChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Channel state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramChannel"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    unlinkTelegram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected (or was not linked) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateTelegramPrefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationPrefsInput"];
+            };
+        };
+        responses: {
+            /** @description Updated channel */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramChannel"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `NOTIFICATION_CHANNEL_NOT_LINKED` (no channel row; call `POST /notifications/telegram/link` first) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createTelegramLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Link code created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramLink"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description `NOTIFICATIONS_NOT_CONFIGURED` (no Telegram bot on this server) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    sendTelegramTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `NOTIFICATION_CHANNEL_NOT_LINKED` (status is not `active`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            /** @description `NOTIFICATIONS_NOT_CONFIGURED` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    telegramWebhook: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Telegram-Bot-Api-Secret-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    update_id: number;
+                    message?: {
+                        [key: string]: unknown;
+                    };
+                    my_chat_member?: {
+                        [key: string]: unknown;
+                    };
+                } & {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Acknowledged. Body is empty (`{}`) or a Telegram `sendMessage` method call. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        method?: "sendMessage";
+                        chat_id?: number;
+                        text?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

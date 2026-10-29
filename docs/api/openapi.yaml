@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.3.0-draft
+  version: 0.4.0-draft
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -54,6 +54,8 @@ tags:
     description: Store settings (receipt header/footer, QRIS)
   - name: uploads
     description: Presigned uploads for images
+  - name: notifications
+    description: Owner notifications to Telegram for paid transactions and voids (ADR-0016)
 
 security: []
 
@@ -1393,6 +1395,146 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ---------------------------------------------------------------- notifications (ADR-0016)
+  /notifications/telegram:
+    get:
+      tags: [notifications]
+      summary: Telegram notification channel of the signed-in owner for this outlet
+      description: |
+        Always 200. `status` is `not_linked` when the owner never linked (or unlinked), `pending` while a link code
+        is outstanding, `active` once the code was used in Telegram, `blocked` when the bot was blocked or the chat
+        disappeared (link again to recover). `configured: false` means the bot is not set up on this server; the
+        dashboard shows a "not available yet" state and hides the actions.
+      operationId: getTelegramChannel
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Channel state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelegramChannel' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [notifications]
+      summary: Turn notification types on or off
+      operationId: updateTelegramPrefs
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPrefsInput' }
+      responses:
+        '200':
+          description: Updated channel
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelegramChannel' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: '`NOTIFICATION_CHANNEL_NOT_LINKED` (no channel row; call `POST /notifications/telegram/link` first)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [notifications]
+      summary: Disconnect Telegram
+      description: Deletes the channel and its delivery log, then sends a best-effort "notifications turned off" message to the chat. Idempotent.
+      operationId: unlinkTelegram
+      security: [{ ownerAuth: [] }]
+      responses:
+        '204': { description: Disconnected (or was not linked) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /notifications/telegram/link:
+    post:
+      tags: [notifications]
+      summary: Create a one-time link code (10 minutes) and the Telegram deep link
+      description: |
+        Replaces any outstanding code; an `active` channel stays active until the new code is used. Only the SHA-256
+        of the code is stored. Opening `deep_link` on the phone and pressing Start sends `/start <code>` to the bot;
+        poll `GET /notifications/telegram` until `status` is `active`. Max 5 calls per 10 minutes per owner.
+      operationId: createTelegramLink
+      security: [{ ownerAuth: [] }]
+      responses:
+        '201':
+          description: Link code created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TelegramLink' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED` (no Telegram bot on this server)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /notifications/telegram/test:
+    post:
+      tags: [notifications]
+      summary: Queue a test message to the linked chat
+      description: Max 1 call per 10 seconds per owner. Delivery is asynchronous (same queue and retries as real notifications).
+      operationId: sendTelegramTest
+      security: [{ ownerAuth: [] }]
+      responses:
+        '202': { description: Queued }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: '`NOTIFICATION_CHANNEL_NOT_LINKED` (status is not `active`)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /integrations/telegram/webhook:
+    post:
+      tags: [notifications]
+      summary: Telegram Bot API webhook (called by Telegram only)
+      description: |
+        Registered by the API at startup (`setWebhook` with `secret_token`, `allowed_updates: [message, my_chat_member]`).
+        The secret header is compared in constant time. Only private chats are handled: `/start <code>` links,
+        `/start` without code replies with instructions, `/stop` unlinks every channel of that chat, and a
+        `my_chat_member` update with status `kicked` marks the channel `blocked`. Every other update is acknowledged
+        with 200 so Telegram does not retry. A reply, when there is one, is returned as the response body
+        (`{"method":"sendMessage","chat_id":…,"text":…}`), so no extra outbound call is made.
+        The Pages proxy must forward `X-Telegram-Bot-Api-Secret-Token` (ADR-0014/ADR-0016).
+      operationId: telegramWebhook
+      parameters:
+        - name: X-Telegram-Bot-Api-Secret-Token
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Telegram `Update` object; only the fields the API reads are listed.
+              required: [update_id]
+              additionalProperties: true
+              properties:
+                update_id: { type: integer }
+                message: { type: object, additionalProperties: true }
+                my_chat_member: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Acknowledged. Body is empty (`{}`) or a Telegram `sendMessage` method call.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  method: { type: string, enum: [sendMessage] }
+                  chat_id: { type: integer }
+                  text: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     ownerAuth:
@@ -1500,6 +1642,9 @@ components:
         - INVALID_QRIS_PAYLOAD
         - QRIS_PAYLOAD_REQUIRED
         - UPLOADS_NOT_CONFIGURED
+        # notifications (ADR-0016, planned)
+        - NOTIFICATIONS_NOT_CONFIGURED
+        - NOTIFICATION_CHANNEL_NOT_LINKED
         # shifts
         - SHIFT_ALREADY_OPEN
         - SHIFT_CLOSED
@@ -1964,3 +2109,40 @@ components:
         offline_login_enabled: { type: boolean }
         quick_cash_amounts: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Rupiah' } }
         owner_pin: { type: string, pattern: '^[0-9]{6}$', description: 'Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned.' }
+
+    NotificationPrefs:
+      type: object
+      description: Notification types the owner receives. Shift summaries and daily digests come later (concept B).
+      required: [transaction, void]
+      properties:
+        transaction: { type: boolean, description: 'Paid transactions (`transaction.paid`) and offline batch summaries (`transaction.batch`)' }
+        void: { type: boolean, description: 'Void requested and decided (`void.requested`, `void.decided`)' }
+    NotificationPrefsInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        transaction: { type: boolean }
+        void: { type: boolean }
+    TelegramChannelStatus:
+      type: string
+      enum: [not_linked, pending, active, blocked]
+    TelegramChannel:
+      type: object
+      required: [configured, status, prefs]
+      properties:
+        configured: { type: boolean, description: False when the server has no Telegram bot; all actions are unavailable. }
+        status: { $ref: '#/components/schemas/TelegramChannelStatus' }
+        bot_username: { type: [string, 'null'], description: 'Bot username without `@`, e.g. `kelolakasir_jus_bot`; null when not configured.' }
+        chat_label: { type: [string, 'null'], description: '`@username` or first name of the linked Telegram account, for display only' }
+        prefs: { $ref: '#/components/schemas/NotificationPrefs' }
+        linked_at: { type: [string, 'null'], format: date-time }
+        blocked_at: { type: [string, 'null'], format: date-time }
+        link_expires_at: { type: [string, 'null'], format: date-time, description: 'Expiry of the outstanding link code, if any' }
+    TelegramLink:
+      type: object
+      required: [deep_link, bot_username, expires_at]
+      properties:
+        deep_link: { type: string, format: uri, description: '`https://t.me/<bot_username>?start=<code>`; show as button and QR code. The code is single use.', examples: ['https://t.me/kelolakasir_jus_bot?start=Qm9vZ2llV29vZ2llQm9vZ2llV29vZ2ll'] }
+        bot_username: { type: string }
+        expires_at: { type: string, format: date-time }
