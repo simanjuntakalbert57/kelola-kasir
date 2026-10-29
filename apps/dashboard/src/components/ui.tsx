@@ -1,10 +1,19 @@
-import { AlertTriangle, Check, Clock, Info, X } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { AlertTriangle, Check, ChevronDown, Clock, Info, X } from 'lucide-react';
+import {
+  Children,
+  isValidElement,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type {
+  CSSProperties,
+  KeyboardEvent,
   ButtonHTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
-  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react';
 
@@ -134,27 +143,228 @@ export function Field({
 const controlCls = (error?: string) =>
   `min-h-12 w-full rounded-2xl bg-surface px-3.5 py-2.5 text-base text-ink ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-1 ring-line-strong'}`;
 
+type SelectOption = { value: string; label: string; disabled: boolean };
+
+function readOptions(children: ReactNode): SelectOption[] {
+  const out: SelectOption[] = [];
+  Children.forEach(children, (child) => {
+    if (
+      !isValidElement<{ value?: string | number; children?: ReactNode; disabled?: boolean }>(child)
+    )
+      return;
+    const label = Children.toArray(child.props.children).join('');
+    out.push({
+      value: String(child.props.value ?? label),
+      label,
+      disabled: Boolean(child.props.disabled),
+    });
+  });
+  return out;
+}
+
+export type SelectChange = { target: { name: string; value: string } };
+
+const LIST_MAX = 288;
+const LIST_GAP = 6;
+
+/**
+ * Custom listbox dropdown (replaces the native select, whose OS popup cannot be styled).
+ * Options are declared as <option> children; onChange receives an event-like { target }.
+ */
 export function SelectField({
   label,
   error,
+  value,
+  name = '',
+  onChange,
+  disabled,
   children,
-  ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; error?: string | undefined }) {
+}: {
+  label: string;
+  error?: string | undefined;
+  value: string;
+  name?: string;
+  onChange: (e: SelectChange) => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
   const id = useId();
+  const listId = `${id}-list`;
+  const options = readOptions(children);
+  const selectedIdx = options.findIndex((o) => o.value === value);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [pos, setPos] = useState<CSSProperties>({});
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const typed = useRef({ text: '', at: 0 });
+
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) btnRef.current?.focus();
+  };
+  const openList = () => {
+    if (disabled) return;
+    setActive(selectedIdx >= 0 ? selectedIdx : options.findIndex((o) => !o.disabled));
+    setOpen(true);
+  };
+  const choose = (i: number) => {
+    const o = options[i];
+    if (!o || o.disabled) return;
+    onChange({ target: { name, value: o.value } });
+    close(true);
+  };
+
+  // Place the list below the button, or above when there is no room; never off-screen.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const want = Math.min(LIST_MAX, options.length * 44 + 12);
+    const below = vh - r.bottom - LIST_GAP - 8;
+    const above = r.top - LIST_GAP - 8;
+    const up = below < want && above > below;
+    const maxHeight = Math.max(120, Math.min(LIST_MAX, up ? above : below));
+    const width = Math.min(Math.max(r.width, 180), window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    setPos(
+      up
+        ? { left, width, maxHeight, bottom: vh - r.top + LIST_GAP }
+        : { left, width, maxHeight, top: r.bottom + LIST_GAP },
+    );
+  }, [open, options.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (listRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      setOpen(false);
+      // The click's default action moves focus after pointerdown; only reclaim it when it lands nowhere.
+      setTimeout(() => {
+        if (document.activeElement === document.body) btnRef.current?.focus();
+      }, 0);
+    };
+    const onScroll = (e: Event) => {
+      if (!listRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    document.addEventListener('pointerdown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && active >= 0) {
+      document.getElementById(`${id}-opt-${active}`)?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [open, active, id]);
+
+  const move = (from: number, step: 1 | -1) => {
+    for (let i = from + step; i >= 0 && i < options.length; i += step) {
+      if (!options[i]?.disabled) return i;
+    }
+    return from;
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    const k = e.key;
+    if (!open) {
+      if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter' || k === ' ') {
+        e.preventDefault();
+        openList();
+      }
+      return;
+    }
+    if (k === 'ArrowDown') setActive(move(active, 1));
+    else if (k === 'ArrowUp') setActive(move(active, -1));
+    else if (k === 'Home') setActive(move(-1, 1));
+    else if (k === 'End') setActive(move(options.length, -1));
+    else if (k === 'Enter' || k === ' ') choose(active);
+    else if (k === 'Escape') close(true);
+    else if (k === 'Tab') setOpen(false);
+    else if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const now = Date.now();
+      const t = typed.current;
+      t.text = now - t.at > 700 ? k.toLowerCase() : t.text + k.toLowerCase();
+      t.at = now;
+      const idx = options.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(t.text));
+      if (idx >= 0) setActive(idx);
+      return;
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1 block text-sm font-extrabold">
+      <span
+        id={`${id}-label`}
+        onClick={() => btnRef.current?.focus()}
+        className="mb-1 block text-sm font-extrabold"
+      >
         {label}
-      </label>
-      <select
+      </span>
+      <button
+        ref={btnRef}
         id={id}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-labelledby={`${id}-label`}
+        aria-activedescendant={open && active >= 0 ? `${id}-opt-${active}` : undefined}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-err` : undefined}
-        className={controlCls(error)}
-        {...props}
+        disabled={disabled}
+        onClick={() => (open ? close(false) : openList())}
+        onKeyDown={onKeyDown}
+        className={`${controlCls(error)} flex items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:bg-dis-bg disabled:text-dis-ink`}
       >
-        {children}
-      </select>
+        <span className="min-w-0 flex-1 truncate">{options[selectedIdx]?.label ?? ''}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={`size-5 shrink-0 text-muted transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open ? (
+        <ul
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-labelledby={`${id}-label`}
+          style={pos}
+          className="fixed z-50 overflow-y-auto rounded-[14px] bg-surface p-1.5 text-ink shadow-card ring-1 ring-line-strong"
+        >
+          {options.map((o, i) => {
+            const selected = i === selectedIdx;
+            return (
+              <li
+                key={o.value}
+                id={`${id}-opt-${i}`}
+                role="option"
+                aria-selected={selected}
+                aria-disabled={o.disabled || undefined}
+                onPointerMove={() => !o.disabled && setActive(i)}
+                onClick={() => choose(i)}
+                className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-[15px] ${selected ? 'font-extrabold text-pri' : ''} ${i === active ? 'bg-tint outline-2 -outline-offset-2 outline-focus' : ''} ${o.disabled ? 'cursor-not-allowed text-dis-ink' : ''}`}
+              >
+                <span className="min-w-0 flex-1">{o.label}</span>
+                {selected ? (
+                  <Check aria-hidden="true" className="size-5 shrink-0 text-pri" />
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {error ? (
         <p id={`${id}-err`} role="alert" className="mt-1 text-[13px] text-danger">
           {error}

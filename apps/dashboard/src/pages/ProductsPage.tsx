@@ -232,17 +232,25 @@ function ProductDialog({
           error={errors.name?.message}
           {...form.register('name')}
         />
-        <SelectField
-          label="Kategori"
-          error={errors.category_id?.message}
-          {...form.register('category_id')}
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </SelectField>
+        <Controller
+          control={form.control}
+          name="category_id"
+          render={({ field }) => (
+            <SelectField
+              label="Kategori"
+              error={errors.category_id?.message}
+              name={field.name}
+              value={field.value}
+              onChange={(e) => field.onChange(e.target.value)}
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </SelectField>
+          )}
+        />
         <Field
           label="Harga (Rp)"
           inputMode="numeric"

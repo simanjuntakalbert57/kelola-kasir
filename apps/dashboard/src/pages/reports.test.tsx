@@ -8,6 +8,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+async function pickOption(combo: HTMLElement, name: string) {
+  await userEvent.click(combo);
+  await userEvent.click(await screen.findByRole('option', { name }));
+}
+
 const employee = { id: 'e1', name: 'Sari', is_active: true };
 const summary = {
   revenue: 1250000,
@@ -203,7 +208,7 @@ describe('Transaksi', () => {
     expect(await screen.findByRole('button', { name: /Detail JUS1/ })).toBeInTheDocument();
     expect(screen.getAllByText('Lunas').length).toBeGreaterThan(0);
 
-    await userEvent.selectOptions(screen.getByLabelText('Metode'), 'qris');
+    await pickOption(screen.getByLabelText('Metode'), 'QRIS');
     await vi.waitFor(() =>
       expect(
         calls.some(
@@ -235,7 +240,7 @@ describe('Transaksi', () => {
     expect(screen.queryByLabelText('Metode')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Filter/ }));
     const sheet = await screen.findByRole('dialog');
-    await userEvent.selectOptions(within(sheet).getByLabelText('Metode'), 'qris');
+    await pickOption(within(sheet).getByLabelText('Metode'), 'QRIS');
     await userEvent.click(within(sheet).getByRole('button', { name: 'Terapkan' }));
     await vi.waitFor(() =>
       expect(calls.some((c) => c.key.includes('payment_method=qris'))).toBe(true),
@@ -253,7 +258,7 @@ describe('Transaksi', () => {
       'GET /transactions': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/transaksi');
-    await userEvent.selectOptions(await screen.findByLabelText('Status'), 'voided');
+    await pickOption(await screen.findByLabelText('Status'), 'Dibatalkan');
     expect(await screen.findByText('Belum ada transaksi di rentang ini.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset filter' })).toBeInTheDocument();
   });
