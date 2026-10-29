@@ -138,7 +138,11 @@ export default function CloseShiftScreen() {
         title="Tutup shift"
         right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
       />
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+      >
         {!online || !fromServer ? (
           <Banner tone="warn">
             {pending > 0 ? `${pending} transaksi belum tersinkron. ` : ''}
@@ -175,6 +179,8 @@ export default function CloseShiftScreen() {
         />
         {error ? <Banner tone="error">{error}</Banner> : null}
         <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+      </ScrollView>
+      <View style={styles.footer}>
         <Button
           testID="close-submit"
           label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
@@ -183,7 +189,7 @@ export default function CloseShiftScreen() {
           disabled={!canSubmit}
           onPress={() => void submit()}
         />
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -219,7 +225,9 @@ function Summary({ totals, actual }: { totals: ShiftTotals; actual?: number }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  scroll: { flex: 1 },
   body: { padding: space.s4, gap: space.s3 },
+  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
   box: {
     padding: space.s3,
     gap: space.s2,

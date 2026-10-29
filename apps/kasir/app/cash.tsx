@@ -1,7 +1,7 @@
 import { cashChange, formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePrinter } from '../src/printing/PrinterProvider';
 import { quickCashAmounts, totalsOf } from '../src/sales/cart';
@@ -46,7 +46,11 @@ export default function CashScreen() {
         title="Bayar Cash"
         right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
       />
-      <View style={styles.body}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.label}>Total</Text>
         <Text testID="cash-total" style={styles.total}>
           {formatRupiah(total)}
@@ -87,9 +91,11 @@ export default function CashScreen() {
           </Text>
         </View>
         {error ? <Text style={styles.err}>{error}</Text> : null}
-        <View style={{ flex: 1 }} />
+        <View style={{ flexGrow: 1 }} />
         <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
         <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+      </ScrollView>
+      <View style={styles.footer}>
         <Button
           testID="cash-submit"
           label={busy ? 'Menyimpan…' : 'Selesai'}
@@ -97,7 +103,6 @@ export default function CashScreen() {
           large
           disabled={busy || !enough || !db}
           onPress={() => void pay(tendered)}
-          style={{ marginTop: space.s2 }}
         />
       </View>
     </SafeAreaView>
@@ -106,7 +111,9 @@ export default function CashScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  body: { flex: 1, padding: space.s4, gap: space.s2 },
+  scroll: { flex: 1 },
+  body: { flexGrow: 1, padding: space.s4, gap: space.s2 },
+  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
   label: { color: colors.muted, fontSize: 13, fontWeight: '600' },
   total: { color: colors.orange, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] },
   quick: { flexDirection: 'row', gap: space.s2, flexWrap: 'wrap' },
