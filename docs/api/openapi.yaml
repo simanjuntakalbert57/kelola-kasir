@@ -1328,6 +1328,34 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /media/{key}:
+    get:
+      tags: [uploads]
+      operationId: getMedia
+      summary: Stable image URL (private bucket)
+      description: >
+        No authentication (`<img>` cannot send a bearer token). Redirects (302) to a presigned GET that
+        expires in 10 minutes; `Cache-Control: private, max-age=300`. `key` is `<outletId>/<purpose>/<uuid>.<ext>`
+        as returned in `public_url` by `POST /uploads`; any other key is 404 (ADR-0015).
+      security: []
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string }, description: Object key (may contain slashes). }
+      responses:
+        '302':
+          description: Redirect to the presigned download URL.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+            Cache-Control: { schema: { type: string } }
+        '404':
+          description: Key is not a key issued by this API.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`UPLOADS_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /uploads:
     post:
       tags: [uploads]
@@ -1348,7 +1376,7 @@ paths:
                 size_bytes: { type: integer, maximum: 2097152 }
       responses:
         '201':
-          description: Presigned PUT URL; use `public_url` in the product/settings payload afterwards.
+          description: Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings payload afterwards.
           content:
             application/json:
               schema:

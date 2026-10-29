@@ -52,15 +52,15 @@ Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** mene
 
 ### 2. Cloudflare R2 (foto + backup)
 - [ ] Daftar Cloudflare. Buka R2. **Bila diminta metode pembayaran, berhenti, jangan tambahkan kartu**, lalu pakai Backblaze B2 (langkah 2b).
-- [ ] Buat bucket `kelola-kasir-media` (foto/logo). Settings → Public access → aktifkan **r2.dev subdomain**, lalu catat URL publiknya.
+- [ ] Buat bucket `kelola-kasir-media` (foto/logo). Biarkan **privat** (jangan aktifkan r2.dev / akses publik); gambar disajikan lewat API (ADR-0015).
 - [ ] Bucket `kelola-kasir-media` → Settings → CORS policy:
   ```json
-  [{ "AllowedOrigins": ["https://kelola-kasir.pages.dev"], "AllowedMethods": ["PUT", "GET"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
+  [{ "AllowedOrigins": ["https://kelola-kasir.pages.dev"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
   ```
 - [ ] Buat bucket `kelola-kasir-backup` (tanpa akses publik).
 - [ ] R2 → Manage API tokens: token **Object Read & Write** khusus `kelola-kasir-media` (untuk API), dan token kedua khusus `kelola-kasir-backup` (untuk backup). Catat Access Key ID, Secret Access Key, dan endpoint `https://<account-id>.r2.cloudflarestorage.com`.
 
-**2b. Alternatif Backblaze B2** (hanya bila R2 meminta kartu): buat dua bucket (media = Public, backup = Private), CORS media sama seperti di atas, dan satu Application Key per bucket. Endpoint `https://s3.<region>.backblazeb2.com`, URL publik `https://f00X.backblazeb2.com/file/kelola-kasir-media`.
+**2b. Alternatif Backblaze B2** (hanya bila R2 meminta kartu): buat dua bucket, **keduanya Private** (media dan backup), CORS media sama seperti di atas (cukup `PUT` dari origin dashboard; unduhan lewat redirect API tidak butuh CORS), dan satu Application Key per bucket. Endpoint `https://s3.<region>.backblazeb2.com`. Tidak ada URL publik bucket yang dipakai.
 
 ### 3. Secret dan kunci (dibuat di laptop Bapak)
 Simpan semua hasilnya di password manager.
@@ -96,8 +96,9 @@ nano .env
 | `ACME_EMAIL` | email owner (pemberitahuan sertifikat) |
 | `POSTGRES_PASSWORD`, `BACKUP_DB_PASSWORD` | dari langkah 3 (hex) |
 | `JWT_PRIVATE_KEY`, `PIN_FINGERPRINT_SECRET`, `PROXY_SHARED_SECRET` | dari langkah 3 |
-| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | endpoint, bucket `kelola-kasir-media`, dan token **media**. Isi kelimanya (dengan `STORAGE_PUBLIC_BASE_URL`) atau kosongkan kelimanya. Kalau hanya sebagian yang terisi, API menolak start. |
-| `STORAGE_PUBLIC_BASE_URL` | URL publik r2.dev / B2 bucket media |
+| `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | endpoint, bucket `kelola-kasir-media`, dan token **media**. Isi keempatnya bersama `API_PUBLIC_BASE_URL`, atau kosongkan semuanya. Kalau hanya sebagian yang terisi, API menolak start. |
+| `API_PUBLIC_BASE_URL` | alamat API yang dipakai klien: URL Pages (`https://kelola-kasir.pages.dev`, ADR-0014), tanpa path. URL gambar tersimpan sebagai `<nilai ini>/v1/media/<key>`, jadi tetapkan sebelum ada unggahan. |
+| `STORAGE_PUBLIC_BASE_URL` | **Opsional / legacy.** Kosongkan pada bucket privat (ADR-0015). |
 | `SENTRY_DSN` | DSN Sentry; `SENTRY_ENVIRONMENT=staging` selama UAT |
 | `AGE_RECIPIENT` | public key `age1...`. **Selama UAT boleh kosong**: backup belum aktif (keputusan owner 26 Okt 2026) dan timer hanya mencatat "backup skipped". Wajib diisi sebelum go-live. |
 | `BACKUP_S3_ENDPOINT`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | endpoint dan token **backup** |
