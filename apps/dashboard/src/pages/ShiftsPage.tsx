@@ -12,26 +12,29 @@ import {
   CheckboxField,
   Dialog,
   EmptyState,
+  ErrorState,
+  NoticeCard,
   PageHeader,
   SelectField,
   Skeleton,
 } from '../components/ui';
 import { api, qs } from '../lib/api';
-import { wibDate } from '../lib/dates';
+import { formatTime, wibDate } from '../lib/dates';
 import { errorMessage, formatDateTime } from '../lib/format';
 
 type Page = { data: Shift[]; next_cursor: string | null };
 
-/** Difference is conveyed by sign + icon + text, never by colour alone. */
+/** Difference is conveyed by icon + sign + text, never by colour alone. */
 export function Difference({ value }: { value: number | null | undefined }) {
   if (value == null) return <span className="text-muted">—</span>;
-  if (value === 0) return <b className="text-tint-ink">0 ✓ Pas</b>;
+  if (value === 0) return <Badge tone="ok">Pas</Badge>;
   const short = value < 0;
-  const text = `${short ? '−' : '+'}${formatRupiah(Math.abs(value))}`;
   return (
-    <b className={short ? 'text-danger' : 'text-warm-ink'}>
-      {text} {short ? '▼ Kurang' : '▲ Lebih'}
-    </b>
+    <span
+      className={`inline-flex min-h-[26px] items-center rounded-full px-2.5 text-xs font-extrabold ${short ? 'bg-need-bg text-need-ink' : 'bg-warm-bg text-warm-ink'}`}
+    >
+      {short ? '▼ Kurang' : '▲ Lebih'} {formatRupiah(Math.abs(value))}
+    </span>
   );
 }
 
@@ -76,10 +79,10 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
             <Row label="Selisih">
               <Difference value={data.cash_difference} />
             </Row>
-            <Row label="Void menunggu">
+            <Row label="Batal menunggu">
               {data.pending_void_count} ({formatRupiah(data.pending_void_amount)})
             </Row>
-            <Row label="Void disetujui">
+            <Row label="Batal disetujui">
               {data.voided_count} ({formatRupiah(data.voided_amount)})
             </Row>
             {data.late_transaction_count ? (
@@ -133,6 +136,11 @@ export function ShiftsPage() {
     queryKey: ['employees'],
     queryFn: () => api<{ data: Employee[] }>('/employees'),
   });
+  // Separate from the date-filtered list: a shift opened before `date_from` is still running.
+  const openShifts = useQuery({
+    queryKey: ['shifts', 'open'],
+    queryFn: () => api<Page>(`/shifts${qs({ status: 'open', limit: 5 })}`),
+  });
   const filters = { date_from: state.range.from, date_to: state.range.to, employee_id: employeeId };
   const list = useInfiniteQuery({
     queryKey: ['shifts', filters],
@@ -148,11 +156,21 @@ export function ShiftsPage() {
     if (onlyDiff && hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
   }, [onlyDiff, hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
   const scanning = onlyDiff && !!hasNextPage && !isError;
+  const running = openShifts.data?.data ?? [];
   const rows = onlyDiff ? all.filter((s) => (s.cash_difference ?? 0) !== 0) : all;
 
   return (
     <>
-      <PageHeader title="Shift & rekonsiliasi kas" />
+      <PageHeader title="Shift & Kas" />
+      <p className="-mt-3 mb-4 text-sm font-bold text-muted">Kas awal, kas akhir, dan selisih</p>
+      {running.map((r) => (
+        <NoticeCard key={r.id}>
+          <p>
+            {r.opened_by.name} lagi jaga sejak {formatTime(r.opened_at)} · Kas awal{' '}
+            {formatRupiah(r.opening_cash)}
+          </p>
+        </NoticeCard>
+      ))}
       <Card className="mb-4">
         <DateRangePicker value={state} onChange={setState} />
         <div className="mt-3 grid gap-x-3 sm:grid-cols-2">
@@ -178,12 +196,9 @@ export function ShiftsPage() {
 
       {list.isPending ? <Skeleton /> : null}
       {list.error ? (
-        <Alert>
-          Gagal memuat shift.{' '}
-          <button type="button" className="underline" onClick={() => void list.refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState title="Waduh, data shift belum kebuka." onRetry={() => void list.refetch()}>
+          Cek sinyal, lalu coba lagi ya.
+        </ErrorState>
       ) : null}
       {scanning ? (
         <p role="status" className="mb-2 text-sm text-muted">
@@ -192,7 +207,7 @@ export function ShiftsPage() {
       ) : null}
       {list.data && rows.length === 0 && !scanning ? (
         <Card>
-          <EmptyState icon="💵" title="Tidak ada shift untuk filter ini" />
+          <EmptyState icon="💵" title="Belum ada shift di rentang ini." />
         </Card>
       ) : null}
       {rows.length > 0 ? (

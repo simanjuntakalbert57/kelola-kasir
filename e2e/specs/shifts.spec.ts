@@ -14,7 +14,7 @@ test.describe('Shift & kas (TC-SHF-05/06/07/12, O-07)', () => {
     await expect(closed).toContainText(rp(100_000));
     await expect(closed).toContainText(rp(142_000));
     await expect(closed).toContainText(rp(137_000));
-    await expect(closed).toContainText(/-\s?Rp\s?5\.000|−\s?Rp\s?5\.000|Rp\s?-5\.000/);
+    await expect(closed).toContainText(/Kurang\s?Rp\s?5\.000/);
     const open = page.getByRole('listitem').filter({ hasText: 'Budi E2E' });
     await expect(open.getByText('Terbuka')).toBeVisible();
   });
@@ -29,7 +29,7 @@ test.describe('Shift & kas (TC-SHF-05/06/07/12, O-07)', () => {
     );
     await expect(dlg.getByText('Seharusnya di laci').locator('..')).toContainText(rp(142_000));
     await expect(dlg.getByText('Selisih', { exact: true }).locator('..')).toContainText(/5\.000/);
-    await expect(dlg.getByText('Void menunggu').locator('..')).toContainText('0 (');
+    await expect(dlg.getByText('Batal menunggu').locator('..')).toContainText('0 (');
   });
 
   test('ringkasan shift terbuka menghitung void_requested di cash & void menunggu', async ({
@@ -40,7 +40,7 @@ test.describe('Shift & kas (TC-SHF-05/06/07/12, O-07)', () => {
     const dlg = page.getByRole('dialog');
     // 45.000 + 24.000 + 12.000 (void_requested tetap dihitung sampai diputuskan)
     await expect(dlg.getByText('Penjualan cash').locator('..')).toContainText(rp(81_000));
-    await expect(dlg.getByText('Void menunggu').locator('..')).toContainText(/2 \(/);
+    await expect(dlg.getByText('Batal menunggu').locator('..')).toContainText(/2 \(/);
   });
 
   test('filter "Hanya yang selisih" menyisakan shift dengan selisih', async ({ page }) => {

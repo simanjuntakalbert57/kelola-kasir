@@ -16,7 +16,7 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
   test('TC-STM-05 setujui void → voided, keluar dari omzet dashboard', async ({ page }) => {
     const { v1, shop } = seed();
     await openAsOwner(page, '/');
-    const before = page.locator('div', { hasText: /^Omzet/ }).first();
+    const before = page.getByRole('region', { name: 'Omzet' });
     await expect(before).toContainText(rp(150_000));
 
     await page.goto('/void');
@@ -35,7 +35,7 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
     expect(tx.data.status).toBe('voided');
 
     await page.goto('/');
-    await expect(page.locator('div', { hasText: /^Omzet/ }).first()).toContainText(rp(126_000)); // 150.000 − 24.000
+    await expect(page.getByRole('region', { name: 'Omzet' })).toContainText(rp(126_000)); // 150.000 − 24.000
   });
 
   test('TC-STM-06 tolak void → transaksi kembali Lunas, omzet tidak berubah', async ({ page }) => {
@@ -78,7 +78,7 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
       expect: [409],
     });
     await openAsOwner(page, '/');
-    await expect(page.locator('div', { hasText: /^Omzet/ }).first()).toContainText(rp(126_000));
+    await expect(page.getByRole('region', { name: 'Omzet' })).toContainText(rp(126_000));
   });
 
   test('TC-SHF-13 void disetujui pada shift yang sudah ditutup: expected cash shift lama tidak berubah', async ({

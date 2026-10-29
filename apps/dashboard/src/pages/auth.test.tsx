@@ -15,7 +15,9 @@ describe('auth guard & login', () => {
   it('restores the session from the refresh cookie', async () => {
     mockApi({ 'POST /auth/refresh': () => json(session) });
     renderApp('/');
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText(/Jus Albert/).length).toBeGreaterThan(0);
   });
 
@@ -76,7 +78,9 @@ describe('auth guard & login', () => {
     await userEvent.type(await screen.findByLabelText('Email'), 'albert@contoh.com');
     await userEvent.type(screen.getByLabelText('Kata sandi'), 'rahasia123');
     await userEvent.click(screen.getByRole('button', { name: 'Masuk' }));
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
+    ).toBeInTheDocument();
     expect(calls.find((c) => c.key === 'POST /auth/login')?.body).toEqual({
       email: 'albert@contoh.com',
       password: 'rahasia123',
