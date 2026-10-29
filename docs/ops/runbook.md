@@ -15,12 +15,22 @@ Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md
 
 ## Deploy
 
-**API.** Merge PR ke `main`. Setelah CI hijau, workflow **Deploy API to VPS** membangun image `ghcr.io/simanjuntakalbert57/kelola-kasir-api:<sha>`, menyalin `ops/vps` ke server, lalu menjalankan `docker compose up --wait`. Container menjalankan migrasi lalu server.
+> **Produksi sudah berisi data asli toko sejak 29 Okt 2026.** Setiap deploy, migrasi, dan perintah SQL menyentuh data jualan sungguhan.
+
+**Aturan deploy API (berlaku sejak freeze dicabut, DEAR-86):**
+- Deploy API **hanya lewat CI**: merge PR ke `main` → CI hijau → workflow **Deploy API to VPS**. Tidak ada `docker`/`./compose.sh up` manual di VPS untuk deploy, kecuali rollback darurat.
+- Workflow selalu menjalankan **backup sebelum rollout** (`BACKUP_REQUIRED=1 ./backup-now.sh`). Kalau backup gagal, rollout tidak dijalankan dan job gagal. Nama objek backup tercatat di log dan ringkasan job (`Backup before rollout: s3://…`).
+- Migrasi DB hanya yang **aditif dan kompatibel mundur**: tambah tabel/kolom (nullable atau ber-default) boleh. **Dilarang** drop atau rename kolom/tabel yang masih dipakai APK di HP kasir. APK lama tetap jalan berhari-hari setelah API diperbarui. Penghapusan dilakukan bertahap (expand → semua HP sudah update → contract) di rilis terpisah.
+- Deploy **di luar jam jualan toko**. Setelah deploy: cek `curl https://<API_DOMAIN>/healthz` dan lakukan 1 login dashboard.
+- Rollback: lihat § Rollback (`workflow_dispatch` dengan SHA image sebelumnya). Restore backup hanya kalau data rusak.
+- Dashboard Cloudflare Pages tetap auto-deploy dari `main`, jadi perubahan dashboard juga wajib di-review sebelum merge.
+
+**API.** Merge PR ke `main`. Setelah CI hijau, workflow **Deploy API to VPS** membangun image `ghcr.io/simanjuntakalbert57/kelola-kasir-api:<sha>`, menyalin `ops/vps` ke server, menjalankan backup, lalu `docker compose up --wait`. Container menjalankan migrasi lalu server.
 - Bila versi baru tidak sehat dalam 4 menit (misalnya migrasi gagal), workflow otomatis mengembalikan versi sebelumnya dan job ditandai gagal (email ke owner).
-- Cek: ringkasan job menampilkan `deployed <sha>`, lalu `curl https://<API_DOMAIN>/healthz`.
+- Cek: ringkasan job menampilkan nama objek backup dan `deployed <sha>`, lalu `curl https://<API_DOMAIN>/healthz`.
 - Deploy manual: Actions → Deploy API to VPS → Run workflow (tag kosong = `main` terbaru).
-- Ada jeda beberapa detik saat container API diganti. Aplikasi kasir mencoba ulang otomatis. Deploy besar sebaiknya di luar jam buka.
-- Migrasi harus **kompatibel ke belakang** (expand → deploy → contract), karena rollback tidak membatalkan migrasi.
+- Ada jeda beberapa detik saat container API diganti. Aplikasi kasir mencoba ulang otomatis.
+- Rollback tidak membatalkan migrasi, karena itu migrasi wajib kompatibel mundur (aturan di atas).
 - Perubahan di `ops/vps/compose.yaml` atau `Caddyfile` ikut ter-deploy dengan cara yang sama. `.env` di server tidak pernah ditimpa.
 
 **Ganti nilai di `.env`** (secret, domain, Sentry): edit `/opt/kelola-kasir/.env`, lalu `./compose.sh up -d --wait`. Compose hanya membuat ulang container yang konfigurasinya berubah.
@@ -31,8 +41,9 @@ Ringkas dan praktis untuk owner dan Tech Lead. Setup awal: [deploy.md](deploy.md
 
 ## Rollback
 
-**API (cepat, < 5 menit).** Cari SHA commit terakhir yang sehat (GitHub → Actions → Deploy API to VPS → run sukses sebelumnya, baris `Image:`). Lalu Actions → Deploy API to VPS → Run workflow, isi `tag` = SHA lengkap (40 karakter). Setelah itu buat PR revert di `main`, supaya deploy berikutnya tidak membawa bug yang sama.
+**API (cepat, < 5 menit).** Cari SHA commit terakhir yang sehat (GitHub → Actions → Deploy API to VPS → run sukses sebelumnya, baris `Image:`). Lalu Actions → Deploy API to VPS → Run workflow, isi `tag` = SHA lengkap (40 karakter). Rollback juga didahului backup otomatis. Setelah itu buat PR revert di `main`, supaya deploy berikutnya tidak membawa bug yang sama.
 - Bila deploy membawa migrasi yang tidak kompatibel dengan kode lama: jangan rollback. Perbaiki maju (hotfix PR), atau restore DB (§ Restore) bila data rusak.
+- Restore backup **hanya kalau data rusak**. Titik restore = objek `Backup before rollout` di ringkasan job deploy yang bermasalah. Data yang masuk setelah backup itu ikut hilang, jadi catat rentang waktunya untuk owner.
 
 **Dashboard.** Cloudflare → Pages → `kelola-kasir` → Deployments → pilih deploy lama → **Rollback to this deployment**.
 
@@ -67,23 +78,42 @@ Ringkas (detail: [backup-restore.md](backup-restore.md)):
 
 Uji restore bulanan: checklist di backup-restore.md.
 
-## Reset data sebelum go-live
+## Hapus data uji per outlet (Reset)
 
-Setelah UAT lolos dan owner setuju:
-1. Pastikan semua HP kasir sudah sinkron, lalu tutup shift.
-2. Jalankan backup manual sebagai arsip UAT: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`.
-3. Kosongkan database:
+> ⚠️ **Produksi sudah berisi data asli toko (`JUS1`, sejak 29 Okt 2026).** Jangan pernah lagi menjalankan reset penuh
+> (`DROP SCHEMA public CASCADE` atau `TRUNCATE` semua tabel). Cara itu ikut menghapus akun owner, outlet asli, Pengaturan,
+> perangkat, dan seluruh transaksi. Data uji **wajib** dibuat di outlet terpisah, lalu dihapus per outlet dengan prosedur di bawah.
+
+Prosedur ini dipakai 29 Okt 2026 untuk menghapus outlet QA `QAUJI` tanpa menyentuh `JUS1` (DEAR-19). Skripnya
+`ops/vps/delete-outlet.sql` (ikut tersalin ke `/opt/kelola-kasir` saat deploy). Skrip menghapus satu outlet beserta semua isinya,
+dan opsional akun owner ujinya, dalam **satu transaksi**:
+- Trigger `transactions_no_delete`, `transaction_items_guard`, dan `audit_logs_append_only` dimatikan hanya di dalam transaksi itu, lalu diaktifkan lagi sebelum commit.
+- Sebelum menghapus, skrip mengambil sidik (jumlah baris + md5) semua baris yang **tidak** termasuk outlet/user target di 18 tabel. Setelah menghapus, sidik dibandingkan. Kalau ada satu saja yang berbeda, transaksi di-rollback.
+- Skrip menolak jalan bila kode outlet tidak ditemukan, atau bila user yang mau dihapus masih anggota outlet lain (misalnya akun owner asli).
+
+Langkah (pelaksana: Tech Lead, di luar jam jualan, setelah owner/CTO setuju di issue):
+1. Pastikan HP uji sudah tidak dipakai. HP kasir toko asli tidak perlu dihentikan.
+2. Backup manual dulu, lalu catat nama objeknya sebagai titik rollback:
    ```sh
-   cd /opt/kelola-kasir
-   ./compose.sh stop api
-   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
-     -c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public' -c 'DROP SCHEMA IF EXISTS drizzle CASCADE'
+   cd /opt/kelola-kasir && ./backup-now.sh   # log: "backup: uploaded s3://…/kelola-kasir-<UTC>.dump.age"
    ```
-   Role `backup_ro` tetap ada dan tetap bisa membaca tabel baru (`pg_read_all_data`).
-4. Ubah `SENTRY_ENVIRONMENT=production` di `.env`, lalu jalankan `./compose.sh up -d --wait`. Migrasi membuat skema baru saat start. Cek `/healthz`.
-5. Buat owner lagi (deploy.md langkah 8), lalu isi Pengaturan toko, pegawai, dan produk.
-6. Di setiap HP: uninstall APK staging, pasang APK rilis signed, lalu pairing ulang dengan kode baru dari dashboard (apk-release.md).
-7. Hapus foto uji di bucket media bila perlu.
+3. Cek target dan pembanding (jumlah transaksi/shift/perangkat dari QA):
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -c \
+     "select o.code, (select count(*) from transactions t where t.outlet_id=o.id) tx,
+             (select count(*) from shifts s where s.outlet_id=o.id) shifts,
+             (select count(*) from devices d where d.outlet_id=o.id) devices from outlets o order by o.code"
+   ```
+4. Hapus (ganti `QAUJI` dan email owner uji; `-v email=` kosong bila tidak ada user yang perlu dihapus):
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
+     -v code=QAUJI -v email=qa-uji-sementara@example.com < delete-outlet.sql
+   ```
+   Output berakhir dengan tabel `identical = t` untuk semua tabel, `COMMIT`, dan `deleted outlet QAUJI`. Kalau ada `ERROR`, tidak ada yang terhapus.
+5. Verifikasi: jalankan lagi langkah 3 (outlet target hilang, outlet asli tidak berubah), `curl https://<API_DOMAIN>/healthz`, dan 1 login dashboard owner.
+6. Hapus file kredensial uji di runtime, dan foto uji di bucket media bila ada. Tempel bukti (nama objek backup + output langkah 4–5) di issue.
+
+Untuk uji berikutnya di produksi: buat owner + outlet uji lewat `create-owner` (deploy.md langkah 8) dengan kode outlet khusus uji, jangan pernah memakai akun owner atau outlet asli.
 
 ## Perawatan server
 

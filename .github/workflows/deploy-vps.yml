@@ -2,6 +2,7 @@
 #  - Automatic: after CI succeeds on a push to main.
 #  - Manual: Actions → Deploy API to VPS → Run workflow. With `tag` (a full commit SHA that was deployed
 #    before) it skips the build and redeploys that image: this is the rollback.
+# Every rollout is preceded by a database backup; if the backup fails, nothing is rolled out (DEAR-86).
 # Needs: variables VPS_HOST, VPS_KNOWN_HOSTS, API_HEALTH_URL (+ optional VPS_USER), secret VPS_SSH_KEY.
 # Until VPS_HOST is set, only the image is built and pushed.
 name: Deploy API to VPS
@@ -16,10 +17,6 @@ on:
       tag:
         description: 'Rollback: full commit SHA of an image deployed before. Empty = build and deploy main.'
         required: false
-      run_backup:
-        description: 'After the rollout, run backup-now.sh once (proof that the nightly backup works).'
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy-vps
@@ -117,6 +114,18 @@ jobs:
           ops/vps/stage.sh "$RUNNER_TEMP/bundle"
           tar -C "$RUNNER_TEMP/bundle" -czf - . | ssh vps 'tar -xzf - -C /opt/kelola-kasir'
 
+      # Mandatory: BACKUP_REQUIRED turns "backups not configured" into a failure instead of a skip. The object
+      # name is the restore point if the new release damages data (docs/ops/runbook.md § Rollback).
+      - name: Back up the database before the rollout
+        if: env.VPS_HOST != ''
+        run: |
+          set -o pipefail
+          ssh vps 'cd /opt/kelola-kasir && BACKUP_REQUIRED=1 ./backup-now.sh' 2>&1 | tee "$RUNNER_TEMP/backup.log"
+          object="$(sed -nE 's/.* backup: (uploaded|stored) ([^ ]+) .*/\2/p' "$RUNNER_TEMP/backup.log" | tail -n 1)"
+          if [ -z "$object" ]; then echo "::error::backup did not report an object name; not rolling out"; exit 1; fi
+          echo "::notice::Backup before rollout: $object"
+          echo "Backup before rollout: \`$object\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Roll out (previous release is restored if the new one is unhealthy)
         if: env.VPS_HOST != ''
         env:
@@ -163,11 +172,6 @@ jobs:
               console.log(\"https://sentry.io/ ->\", r.status);
             })().catch((e) => { console.error(\"outbound check failed:\", e.message); process.exit(1); });
           "'
-
-      - name: Run the backup once
-        if: env.VPS_HOST != '' && inputs.run_backup
-        run: |
-          ssh vps 'cd /opt/kelola-kasir && ./backup-now.sh && systemctl list-timers kelola-kasir-backup.timer --no-pager'
 
       - name: Log out of GHCR on the VPS
         if: always() && env.VPS_HOST != ''
