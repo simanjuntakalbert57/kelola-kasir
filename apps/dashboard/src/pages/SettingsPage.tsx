@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OutletSettings } from '@kelola-kasir/contracts';
+import { Check } from 'lucide-react';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
@@ -11,13 +12,14 @@ import {
   Button,
   Card,
   CheckboxField,
+  ErrorState,
   Field,
+  NoticeCard,
   PageHeader,
   Skeleton,
   TextareaField,
 } from '../components/ui';
 import { ApiError, api, patch, post } from '../lib/api';
-import { errorMessage } from '../lib/format';
 
 const KEY = ['settings'] as const;
 
@@ -151,21 +153,15 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     <form
       onSubmit={(e) => void form.handleSubmit((v) => save.mutateAsync(v).catch(() => undefined))(e)}
       noValidate
-      className="grid gap-4 lg:grid-cols-[1fr_20rem]"
+      className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
     >
       <div className="space-y-4">
         {save.error ? (
           <Alert>
-            {badQris ? 'Kode QRIS tidak valid. Periksa kembali isinya.' : errorMessage(save.error)}
+            {badQris
+              ? 'Kode QRIS tidak valid. Periksa kembali isinya.'
+              : 'Gagal menyimpan. Coba lagi ya.'}
           </Alert>
-        ) : null}
-        {save.isSuccess && !form.formState.isDirty ? (
-          <p
-            role="status"
-            className="rounded-[12px] bg-tint px-3.5 py-2 text-sm font-semibold text-tint-ink"
-          >
-            Pengaturan tersimpan.
-          </p>
         ) : null}
         <Card>
           <h2 className="mb-3 text-lg">Toko</h2>
@@ -228,12 +224,9 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             )}
           />
           {decodeNote ? (
-            <p
-              role={decodeNote.ok ? 'status' : 'alert'}
-              className={`-mt-2 mb-3 text-[13px] ${decodeNote.ok ? 'text-tint-ink' : 'text-danger'}`}
-            >
-              {decodeNote.text}
-            </p>
+            <div role={decodeNote.ok ? 'status' : 'alert'} className="-mt-1">
+              <NoticeCard kind="info">{decodeNote.text}</NoticeCard>
+            </div>
           ) : null}
           <TextareaField
             label="Kode QRIS"
@@ -247,9 +240,22 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             {...form.register('qris_embed_amount')}
           />
         </Card>
-        <Button type="submit" variant="primary" disabled={save.isPending}>
-          Simpan perubahan
-        </Button>
+        <div className="sticky bottom-20 z-[5] flex items-center gap-3 rounded-3xl bg-surface p-3 shadow-up md:bottom-4">
+          <Button
+            type="submit"
+            variant="primary"
+            className="flex-1 sm:flex-none"
+            disabled={save.isPending}
+          >
+            Simpan pengaturan
+          </Button>
+          {save.isSuccess && !form.formState.isDirty ? (
+            <p role="status" className="flex items-center gap-1 text-sm font-extrabold text-ok-ink">
+              <Check size={18} aria-hidden="true" />
+              Tersimpan
+            </p>
+          ) : null}
+        </div>
       </div>
       <aside aria-label="Pratinjau struk" className="lg:sticky lg:top-4 lg:self-start">
         <h2 className="mb-2 text-lg">Pratinjau struk</h2>
@@ -272,15 +278,13 @@ export function SettingsPage() {
   });
   return (
     <>
-      <PageHeader title="Pengaturan toko" />
+      <PageHeader title="Pengaturan toko" subtitle="Tampil di struk dan aplikasi kasir" />
       {isPending ? <Skeleton /> : null}
       {error ? (
-        <Alert>
-          Gagal memuat pengaturan.{' '}
-          <button type="button" className="underline" onClick={() => void refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, pengaturannya belum kebuka. Coba lagi ya"
+          onRetry={() => void refetch()}
+        />
       ) : null}
       {data ? <SettingsForm settings={data} /> : null}
     </>

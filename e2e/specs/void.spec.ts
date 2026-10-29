@@ -7,8 +7,8 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
   test('daftar "Menunggu" memuat 2 permintaan lengkap dengan alasan @mobile', async ({ page }) => {
     const { v1, v2 } = seed();
     await openAsOwner(page, '/void');
-    await expect(page.getByText('Alasan: “Salah input pesanan”')).toBeVisible();
-    await expect(page.getByText('Alasan: “Pembeli batal”')).toBeVisible();
+    await expect(page.getByText('“Salah input pesanan”')).toBeVisible();
+    await expect(page.getByText('“Pembeli batal”')).toBeVisible();
     await expect(page.getByText(v1.number)).toBeVisible();
     await expect(page.getByText(v2.number)).toBeVisible();
   });
@@ -20,9 +20,9 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
     await expect(before).toContainText(rp(150_000));
 
     await page.goto('/void');
-    await page.getByRole('button', { name: `Setujui void ${v1.number}` }).click();
+    await page.getByRole('button', { name: `Setujui batal ${v1.number}` }).click();
     await page.getByLabel('Catatan (opsional)').fill('Sesuai laporan kasir');
-    await page.getByRole('dialog').getByRole('button', { name: 'Setujui void' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ya, setujui batal' }).click();
     await expect(page.getByText(v1.number)).toHaveCount(0);
 
     await page.getByRole('tab', { name: 'Disetujui' }).click();
@@ -41,8 +41,8 @@ test.describe('Void: persetujuan owner (TC-STM-04..09, O-08)', () => {
   test('TC-STM-06 tolak void → transaksi kembali Lunas, omzet tidak berubah', async ({ page }) => {
     const { v2, shop } = seed();
     await openAsOwner(page, '/void');
-    await page.getByRole('button', { name: `Tolak void ${v2.number}` }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Tolak void' }).click();
+    await page.getByRole('button', { name: `Tolak batal ${v2.number}` }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ya, tolak' }).click();
     await page.getByRole('tab', { name: 'Ditolak' }).click();
     await expect(page.getByText(v2.number)).toBeVisible();
     const tx = await call<{ status: string }>('GET', `/transactions/${v2.id}`, {
