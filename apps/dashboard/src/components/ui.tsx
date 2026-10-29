@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Clock, Info, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Clock, Info, X } from 'lucide-react';
 import { Children, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type {
   KeyboardEvent,
@@ -142,6 +142,26 @@ type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
   ref?: Ref<HTMLSelectElement>;
 };
 
+type ListPos = { left: number; width: number; top?: number; bottom?: number; maxHeight: number };
+
+const LIST_MAX = 240;
+const EDGE = 8;
+
+/** Fixed-position placement for the list: below the field, flipped above when there is no room, clamped to the viewport. */
+function placeList(rect: DOMRect): ListPos {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const spaceBelow = vh - rect.bottom - EDGE;
+  const spaceAbove = rect.top - EDGE;
+  const up = spaceBelow < Math.min(LIST_MAX, 160) && spaceAbove > spaceBelow;
+  const width = Math.min(rect.width, vw - EDGE * 2);
+  const left = Math.max(EDGE, Math.min(rect.left, vw - EDGE - width));
+  const maxHeight = Math.max(80, Math.min(LIST_MAX, up ? spaceAbove : spaceBelow));
+  return up
+    ? { left, width, bottom: vh - rect.top + 4, maxHeight }
+    : { left, width, top: rect.bottom + 4, maxHeight };
+}
+
 type SelectOption = { value: string; label: string; disabled: boolean };
 
 function readOptions(children: ReactNode): SelectOption[] {
@@ -187,6 +207,8 @@ export function SelectField({
   const nativeRef = useRef<HTMLSelectElement | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const typeahead = useRef({ text: '', timer: 0 });
+  const [pos, setPos] = useState<ListPos | null>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [current, setCurrent] = useState(String(value ?? defaultValue ?? options[0]?.value ?? ''));
@@ -200,10 +222,26 @@ export function SelectField({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (rootRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      // Browsers move focus after mousedown handlers run; only reclaim it when the
+      // click landed on something non-focusable, so clicking another field still works.
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (!a || a === document.body) buttonRef.current?.focus();
+      }, 0);
+    };
+    const reposition = () => {
+      if (buttonRef.current) setPos(placeList(buttonRef.current.getBoundingClientRect()));
     };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
   }, [open]);
 
   const selected = options.find((o) => o.value === current);
@@ -224,7 +262,31 @@ export function SelectField({
         options.findIndex((o) => o.value === current),
       ),
     );
+    if (buttonRef.current) setPos(placeList(buttonRef.current.getBoundingClientRect()));
     setOpen(true);
+  };
+
+  const jump = (from: number, dir: 1 | -1) => {
+    let i = from;
+    while (i >= 0 && i < options.length && options[i]?.disabled) i += dir;
+    if (i >= 0 && i < options.length) setActive(i);
+  };
+
+  const typeAhead = (key: string) => {
+    const t = typeahead.current;
+    window.clearTimeout(t.timer);
+    t.text += key.toLowerCase();
+    t.timer = window.setTimeout(() => (t.text = ''), 600);
+    const start = t.text.length > 1 ? active : active + 1;
+    for (let n = 0; n < options.length; n++) {
+      const i = (start + n) % options.length;
+      const o = options[i];
+      if (o && !o.disabled && o.label.toLowerCase().startsWith(t.text)) {
+        if (!open) openList();
+        setActive(i);
+        return;
+      }
+    }
   };
 
   const move = (dir: 1 | -1) => {
@@ -245,11 +307,19 @@ export function SelectField({
       e.preventDefault();
       if (!open) openList();
       else if (options[active]) pick(options[active]);
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      if (!open) openList();
+      if (e.key === 'Home') jump(0, 1);
+      else jump(options.length - 1, -1);
     } else if (e.key === 'Escape' && open) {
       e.preventDefault();
       setOpen(false);
+      buttonRef.current?.focus();
     } else if (e.key === 'Tab') {
       setOpen(false);
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== ' ') {
+      typeAhead(e.key);
     }
   };
 
@@ -284,16 +354,26 @@ export function SelectField({
           className={`${controlCls(error)} flex items-center justify-between gap-2 text-left`}
         >
           <span className="truncate">{selected?.label ?? ''}</span>
-          <span aria-hidden="true" className="text-muted">
-            ▾
-          </span>
+          <ChevronDown
+            size={18}
+            aria-hidden="true"
+            className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+          />
         </button>
-        {open ? (
+        {open && pos ? (
           <ul
             id={listId}
             role="listbox"
             aria-labelledby={labelId}
-            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-auto rounded-2xl bg-surface py-1 shadow-card ring-1 ring-line"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              width: pos.width,
+              top: pos.top,
+              bottom: pos.bottom,
+              maxHeight: pos.maxHeight,
+            }}
+            className="z-50 overflow-auto rounded-2xl bg-surface py-1 shadow-card ring-1 ring-line"
           >
             {options.map((o, i) => (
               <li
@@ -305,9 +385,12 @@ export function SelectField({
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(o)}
-                className={`min-h-11 cursor-pointer px-3 py-2.5 text-base ${i === active ? 'bg-brand-tint' : ''} ${o.value === current ? 'font-semibold text-brand-text' : 'text-ink'} ${o.disabled ? 'opacity-50' : ''}`}
+                className={`flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-base ${i === active ? 'bg-brand-tint' : ''} ${o.value === current ? 'font-semibold text-brand-text' : 'text-ink'} ${o.disabled ? 'opacity-50' : ''}`}
               >
-                {o.label}
+                <span className="truncate">{o.label}</span>
+                {o.value === current ? (
+                  <Check size={18} aria-hidden="true" className="shrink-0 text-pri" />
+                ) : null}
               </li>
             ))}
           </ul>
