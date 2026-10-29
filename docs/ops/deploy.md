@@ -37,7 +37,7 @@ flowchart LR
 | Error | `apps/api/src/lib/error-reporter.ts` (aktif bila `SENTRY_DSN` diisi) | Sentry Developer (free) |
 | APK | `.github/workflows/android-apk.yml` | GitHub Actions |
 
-Satu lingkungan: VPS ini dipakai sebagai **staging selama UAT** (DEAR-18). Sebelum go-live data direset ([runbook § Reset data sebelum go-live](runbook.md#reset-data-sebelum-go-live)), lalu VPS yang sama menjadi produksi. URL tidak berubah.
+Satu lingkungan: VPS ini dipakai sebagai **staging selama UAT** (DEAR-18). Data UAT direset sekali sebelum go-live (29 Okt 2026), lalu VPS yang sama menjadi produksi. URL tidak berubah. Sejak itu produksi berisi data asli: data uji hanya dihapus per outlet ([runbook § Hapus data uji per outlet](runbook.md#hapus-data-uji-per-outlet-reset)).
 
 ## Checklist owner (sekali)
 
