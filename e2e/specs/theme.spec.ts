@@ -1,8 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openAsOwner } from '../support/ui.js';
 
-const theme = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => document.documentElement.dataset['theme']);
+const theme = (page: Page) => page.locator('html').getAttribute('data-theme');
 
 test.describe('Mode gelap (DEAR-92)', () => {
   test('TC-THEME-01 pilihan Gelap tersimpan setelah reload dan tanpa kedip @mobile', async ({
