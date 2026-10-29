@@ -46,10 +46,9 @@ function DecisionDialog({ request, action, onClose }: Decision & { onClose: () =
   const conflict = mutation.error instanceof ApiError && mutation.error.status === 409;
   return (
     <Dialog
-      title={`${approve ? 'Setujui' : 'Tolak'} batal ${request.transaction_number ?? ''}?`.replace(
-        '  ',
-        ' ',
-      )}
+      title={`${[approve ? 'Setujui' : 'Tolak', 'batal', request.transaction_number]
+        .filter(Boolean)
+        .join(' ')}?`}
       onClose={onClose}
     >
       {mutation.error ? (

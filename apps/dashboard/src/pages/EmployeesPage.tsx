@@ -234,11 +234,7 @@ export function EmployeesPage() {
     <>
       <PageHeader
         title="Pegawai"
-        subtitle={
-          data
-            ? `${data.data.length} pegawai · PIN dipakai pegawai buat masuk ke aplikasi kasir`
-            : undefined
-        }
+        subtitle={data ? `${data.data.length} pegawai` : undefined}
         action={
           data && data.data.length > 0 ? (
             <Button variant="primary" onClick={() => setCreating(true)}>

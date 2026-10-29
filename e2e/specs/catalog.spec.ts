@@ -81,7 +81,7 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
     await expect(page.getByText('Nama kategori wajib diisi.')).toBeVisible();
     await page.getByLabel('Nama kategori').fill('Smoothie E2E');
     await page.getByRole('button', { name: 'Simpan' }).click();
-    await expect(page.getByText('Smoothie E2E').first()).toBeVisible();
+    await expect(page.getByRole('listitem').filter({ hasText: 'Smoothie E2E' })).toBeVisible();
   });
 
   test('TC-PRD-06 tidak ada UI/endpoint varian atau opsi', async ({ page }) => {
