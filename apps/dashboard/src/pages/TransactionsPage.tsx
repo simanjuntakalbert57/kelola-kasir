@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import type { Employee, Transaction, TransactionSummary } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
 import { useSearch } from '@tanstack/react-router';
+import { Banknote, ChevronRight, Download, QrCode, SlidersHorizontal, X } from 'lucide-react';
 import { useState } from 'react';
 import { DateRangePicker, initialRange, type RangeState } from '../components/DateRangePicker';
 import {
@@ -11,6 +12,7 @@ import {
   Card,
   Dialog,
   EmptyState,
+  ErrorState,
   Field,
   PageHeader,
   SelectField,
@@ -20,6 +22,8 @@ import { api, download, qs } from '../lib/api';
 import { formatDateTime, errorMessage } from '../lib/format';
 import { METHOD_LABEL, STATUS_LABEL } from '../lib/labels';
 import { useDebounced } from '../lib/useDebounced';
+import { useIsDesktop } from '../lib/useMediaQuery';
+import { formatTime } from '../lib/dates';
 
 type Page = { data: TransactionSummary[]; next_cursor: string | null };
 
@@ -28,13 +32,13 @@ function StatusBadge({ status }: { status: TransactionSummary['status'] }) {
   return <Badge tone={s.tone}>{s.label}</Badge>;
 }
 
-function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+function DetailBody({ id }: { id: string }) {
   const { data, error, isPending } = useQuery({
     queryKey: ['transaction', id],
     queryFn: () => api<Transaction>(`/transactions/${id}`),
   });
   return (
-    <Dialog title={data ? `Transaksi ${data.number}` : 'Detail transaksi'} onClose={onClose}>
+    <>
       {isPending ? <Skeleton rows={2} /> : null}
       {error ? <Alert>{errorMessage(error)}</Alert> : null}
       {data ? (
@@ -75,14 +79,56 @@ function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
             ) : null,
           )}
           {data.void_request ? (
-            <p className="mt-2 text-muted">Void: “{data.void_request.reason}”</p>
+            <p className="mt-2 text-muted">Alasan batal: “{data.void_request.reason}”</p>
           ) : null}
         </div>
       ) : null}
+    </>
+  );
+}
+
+/** Transaction number moves from the list row into the detail heading. */
+function useNumber(id: string): string | undefined {
+  return useQuery({
+    queryKey: ['transaction', id],
+    queryFn: () => api<Transaction>(`/transactions/${id}`),
+  }).data?.number;
+}
+
+function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const number = useNumber(id);
+  return (
+    <Dialog title={number ? `Transaksi ${number}` : 'Detail transaksi'} onClose={onClose}>
+      <DetailBody id={id} />
       <Button className="mt-4" onClick={onClose}>
         Tutup
       </Button>
     </Dialog>
+  );
+}
+
+/** Desktop detail panel beside the list. */
+function DetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
+  const number = useNumber(id);
+  return (
+    <aside aria-label="Detail transaksi" className="sticky top-6 self-start">
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-lg">
+            {number ? `Transaksi ${number}` : 'Detail transaksi'}
+          </h2>
+          <button
+            type="button"
+            aria-label="Tutup detail"
+            onClick={onClose}
+            className="grid size-11 shrink-0 place-items-center rounded-2xl text-muted hover:bg-bg"
+          >
+            <X size={20} aria-hidden="true" />
+          </button>
+        </div>
+        <DetailBody id={id} />
+      </Card>
+    </aside>
   );
 }
 
@@ -104,7 +150,7 @@ function ExportButtons({ query }: { query: string }) {
   });
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex min-h-11 items-center gap-2 text-sm font-bold">
         <input
           type="checkbox"
           className="size-5 accent-pri"
@@ -114,10 +160,12 @@ function ExportButtons({ query }: { query: string }) {
         Per item
       </label>
       <Button small disabled={exp.isPending} onClick={() => exp.mutate('csv')}>
-        ⬇ CSV
+        <Download size={18} aria-hidden="true" />
+        Ekspor CSV
       </Button>
       <Button small disabled={exp.isPending} onClick={() => exp.mutate('xlsx')}>
-        ⬇ Excel
+        <Download size={18} aria-hidden="true" />
+        Ekspor Excel
       </Button>
       {exp.error ? <span className="text-sm text-danger">{errorMessage(exp.error)}</span> : null}
     </div>
@@ -176,70 +224,113 @@ export function TransactionsPage() {
     setSearch('');
   };
 
+  const desktop = useIsDesktop();
+  const [sheet, setSheet] = useState(false);
+  const activeFilters = [employeeId, method, status].filter(Boolean).length;
+
+  const filterFields = (
+    <>
+      <SelectField
+        label="Pegawai"
+        value={employeeId}
+        onChange={(e) => setEmployeeId(e.target.value)}
+      >
+        <option value="">Semua pegawai</option>
+        {employees.data?.data.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField label="Metode" value={method} onChange={(e) => setMethod(e.target.value)}>
+        <option value="">Semua metode</option>
+        <option value="cash">Tunai</option>
+        <option value="qris">QRIS</option>
+      </SelectField>
+      <SelectField label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <option value="">Semua status</option>
+        {Object.entries(STATUS_LABEL).map(([k, v]) => (
+          <option key={k} value={k}>
+            {v.label}
+          </option>
+        ))}
+      </SelectField>
+    </>
+  );
+  const searchField = (
+    <Field
+      label="Cari"
+      placeholder="Nomor atau pegawai"
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+    />
+  );
+
   return (
     <>
       <PageHeader
         title="Transaksi"
         action={shiftId ? null : <ExportButtons query={qs(filters)} />}
       />
+      {shiftId ? (
+        <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <Badge tone="ok">Filter: satu shift</Badge>
+          <Button small onClick={() => setShiftId('')}>
+            Hapus filter shift
+          </Button>
+          <span className="text-muted">Ekspor dinonaktifkan selama filter shift aktif.</span>
+        </p>
+      ) : null}
       <Card className="mb-4">
-        {shiftId ? (
-          <p className="mb-2 flex items-center gap-2 text-sm">
-            <Badge tone="ok">Filter: satu shift</Badge>
-            <Button small onClick={() => setShiftId('')}>
-              Hapus filter shift
-            </Button>
-            <span className="text-muted">Ekspor dinonaktifkan selama filter shift aktif.</span>
-          </p>
-        ) : null}
         <DateRangePicker value={state} onChange={setState} />
-        <div className="mt-3 grid gap-x-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SelectField
-            label="Pegawai"
-            value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
-          >
-            <option value="">Semua pegawai</option>
-            {employees.data?.data.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </SelectField>
-          <SelectField label="Metode" value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option value="">Semua metode</option>
-            <option value="cash">Cash</option>
-            <option value="qris">QRIS</option>
-          </SelectField>
-          <SelectField label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Semua status</option>
-            {Object.entries(STATUS_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
-            ))}
-          </SelectField>
-          <Field
-            label="Cari"
-            placeholder="No. transaksi / pembeli"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        {desktop ? (
+          <div className="mt-3 grid gap-x-3 sm:grid-cols-2 lg:grid-cols-4">
+            {filterFields}
+            {searchField}
+          </div>
+        ) : (
+          <div className="mt-3 flex items-end gap-2">
+            <div className="min-w-0 flex-1 [&>div]:mb-0">{searchField}</div>
+            <Button className="shrink-0" onClick={() => setSheet(true)}>
+              <SlidersHorizontal size={18} aria-hidden="true" />
+              Filter{activeFilters ? ` (${activeFilters})` : ''}
+            </Button>
+          </div>
+        )}
       </Card>
+      {sheet && !desktop ? (
+        <Dialog title="Filter transaksi" onClose={() => setSheet(false)}>
+          {filterFields}
+          <div className="mt-2 flex gap-2">
+            <Button variant="primary" className="flex-1" onClick={() => setSheet(false)}>
+              Terapkan
+            </Button>
+            <Button
+              onClick={() => {
+                setEmployeeId('');
+                setMethod('');
+                setStatus('');
+              }}
+            >
+              Reset
+            </Button>
+          </div>
+        </Dialog>
+      ) : null}
 
       {list.isPending ? <Skeleton /> : null}
       {list.error ? (
-        <Alert>
-          Gagal memuat transaksi.{' '}
-          <button type="button" className="underline" onClick={() => void list.refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, daftar transaksinya belum kebuka."
+          onRetry={() => void list.refetch()}
+        >
+          Cek sinyal, lalu coba lagi ya.
+        </ErrorState>
       ) : null}
       {list.data && rows.length === 0 ? (
         <Card>
-          <EmptyState icon="🧾" title="Tidak ada transaksi untuk filter ini">
+          <EmptyState icon="🧾" title="Belum ada transaksi di rentang ini.">
+            <p>Coba ganti tanggalnya ya.</p>
             {filtered ? (
               <Button small onClick={reset}>
                 Reset filter
@@ -249,48 +340,65 @@ export function TransactionsPage() {
         </Card>
       ) : null}
       {rows.length > 0 ? (
-        <>
-          <ul className="space-y-2">
-            {rows.map((t) => (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenId(t.id)}
-                  aria-label={`Detail ${t.number}`}
-                  className="grid w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-[16px] bg-surface p-3 text-left shadow-card hover:bg-bg md:grid-cols-[1.5fr_1fr_1fr_1fr_8rem]"
+        <div className={desktop && openId ? 'grid grid-cols-[1fr_380px] items-start gap-4' : ''}>
+          <div className="min-w-0">
+            <ul className="space-y-2">
+              {rows.map((t) => {
+                const Icon = t.payment_method === 'qris' ? QrCode : Banknote;
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(t.id)}
+                      aria-label={`Detail ${t.number}`}
+                      aria-current={openId === t.id ? 'true' : undefined}
+                      className={`flex min-h-16 w-full items-center gap-3 rounded-3xl p-3 text-left shadow-card hover:bg-bg ${openId === t.id ? 'bg-tint' : 'bg-surface'}`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="grid size-[46px] shrink-0 place-items-center rounded-[14px] bg-tint text-tint-ink"
+                      >
+                        <Icon size={22} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15.5px] font-extrabold">
+                          {t.employee.name} · {formatTime(t.paid_at ?? t.client_created_at)}
+                        </span>
+                        <span className="block text-[13px] font-bold text-muted">
+                          {METHOD_LABEL[t.payment_method]}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="font-extrabold tabular-nums">{formatRupiah(t.total)}</span>
+                        <StatusBadge status={t.status} />
+                      </span>
+                      <ChevronRight
+                        size={18}
+                        aria-hidden="true"
+                        className="shrink-0 text-muted md:hidden"
+                      />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-3 flex items-center justify-between text-sm text-muted">
+              <span>Menampilkan {rows.length} transaksi</span>
+              {list.hasNextPage ? (
+                <Button
+                  small
+                  disabled={list.isFetchingNextPage}
+                  onClick={() => void list.fetchNextPage()}
                 >
-                  <span className="min-w-0 truncate font-bold">{t.number}</span>
-                  <span className="text-right font-bold md:order-4 md:text-right">
-                    {formatRupiah(t.total)}
-                  </span>
-                  <span className="text-[13px] text-muted">
-                    {formatDateTime(t.paid_at ?? t.client_created_at)}
-                  </span>
-                  <span className="text-[13px] text-muted md:order-3">
-                    {t.employee.name} · {METHOD_LABEL[t.payment_method]}
-                  </span>
-                  <span className="justify-self-end md:order-5">
-                    <StatusBadge status={t.status} />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3 flex items-center justify-between text-sm text-muted">
-            <span>Menampilkan {rows.length} transaksi</span>
-            {list.hasNextPage ? (
-              <Button
-                small
-                disabled={list.isFetchingNextPage}
-                onClick={() => void list.fetchNextPage()}
-              >
-                Muat lebih banyak
-              </Button>
-            ) : null}
+                  Muat lebih banyak
+                </Button>
+              ) : null}
+            </div>
           </div>
-        </>
+          {desktop && openId ? <DetailPanel id={openId} onClose={() => setOpenId(null)} /> : null}
+        </div>
       ) : null}
-      {openId ? <DetailDialog id={openId} onClose={() => setOpenId(null)} /> : null}
+      {openId && !desktop ? <DetailDialog id={openId} onClose={() => setOpenId(null)} /> : null}
     </>
   );
 }

@@ -41,7 +41,7 @@ const voidReq = {
 };
 
 describe('Dashboard', () => {
-  it('shows KPIs, top products and the open shift / pending void banner', async () => {
+  it('shows greeting, hero revenue, top products and the shift info / pending cancel cards', async () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
       'GET /dashboard/summary': () => json(summary),
@@ -61,13 +61,80 @@ describe('Dashboard', () => {
     });
     renderApp('/');
     expect(await screen.findByText(/^Rp\s?1\.250\.000$/)).toBeInTheDocument();
-    expect(screen.getByText('74')).toBeInTheDocument();
-    expect(screen.getByText('62% / 38%')).toBeInTheDocument();
-    expect(screen.getByText(/▲ 12% vs periode lalu/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Gelas terjual')).toBeInTheDocument();
+    expect(screen.getByText(/74 gelas terjual hari ini\./)).toBeInTheDocument();
+    expect(screen.getByText(/Tunai 62%/)).toBeInTheDocument();
+    expect(screen.getByText(/QRIS 38%/)).toBeInTheDocument();
+    expect(screen.getByText(/▲ 12% dari kemarin/)).toBeInTheDocument();
     expect(await screen.findByText(/1\. Jus Alpukat/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Penjualan per jam, puncak 13/ })).toBeInTheDocument();
-    expect(await screen.findByText(/Shift terbuka \(Sari\)/)).toBeInTheDocument();
-    expect(screen.getByText(/1 permintaan void menunggu persetujuan/)).toBeInTheDocument();
+    expect(await screen.findByText(/Sari lagi jaga kasir/)).toBeInTheDocument();
+    expect(screen.getByText('1 permintaan batal nunggu Bapak')).toBeInTheDocument();
+  });
+
+  it('says the day is rame when revenue is ≥15% above the previous seven days', async () => {
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /dashboard/summary': () => json(summary),
+      'GET /dashboard/sales-series': () => json({ data: [] }),
+      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /shifts': () => json({ data: [], next_cursor: null }),
+    });
+    const base = globalThis.fetch as unknown as (
+      i: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    vi.stubGlobal('fetch', async (i: string, init?: RequestInit) => {
+      if (String(i).includes('granularity=day')) {
+        return json({
+          data: Array.from({ length: 7 }, (_, n) => ({
+            bucket_start: `2026-10-${19 + n}T17:00:00Z`,
+            revenue: 500000,
+            transaction_count: 20,
+          })),
+        });
+      }
+      return base(i, init);
+    });
+    renderApp('/');
+    expect(await screen.findByText(/Hari ini rame, Pak!/)).toBeInTheDocument();
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it('hides the rame/sepi sentence without a week of history and for other ranges', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /dashboard/summary': () => json(summary),
+      'GET /dashboard/sales-series': () => json({ data: [] }),
+      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /shifts': () => json({ data: [], next_cursor: null }),
+    });
+    renderApp('/');
+    expect(await screen.findByText(/74 gelas terjual hari ini\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Hari ini (rame|lagi sepi|normal)/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '7 hari' }));
+    expect(await screen.findByText(/▲ 12% dari periode lalu/)).toBeInTheDocument();
+    expect(screen.queryByText(/dari kemarin/)).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state and a retryable error state', async () => {
+    let fail = true;
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /dashboard/summary': () =>
+        fail ? problem(500, 'INTERNAL') : json({ ...summary, transaction_count: 0, revenue: 0 }),
+      'GET /dashboard/sales-series': () => json({ data: [] }),
+      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /shifts': () => json({ data: [], next_cursor: null }),
+    });
+    renderApp('/');
+    expect(await screen.findByText('Waduh, ringkasannya belum kebuka.')).toBeInTheDocument();
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Coba lagi' }));
+    expect((await screen.findAllByText('Belum ada yang beli.')).length).toBeGreaterThan(0);
   });
 
   it('switches to a daily chart for a multi-day range', async () => {
@@ -109,7 +176,7 @@ describe('Transaksi', () => {
         }),
     });
     renderApp('/transaksi');
-    expect(await screen.findByText('JUS1-K01-261026-0042')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Detail JUS1/ })).toBeInTheDocument();
     expect(screen.getAllByText('Lunas').length).toBeGreaterThan(0);
 
     await userEvent.selectOptions(screen.getByLabelText('Metode'), 'qris');
@@ -122,9 +189,37 @@ describe('Transaksi', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: /Detail JUS1/ }));
-    const dialog = await screen.findByRole('dialog');
-    expect(await within(dialog).findByText(/2× Jus Alpukat/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/kembalian Rp\s?8\.000/)).toBeInTheDocument();
+    const panel = await screen.findByRole('complementary', { name: 'Detail transaksi' });
+    expect(await within(panel).findByText(/2× Jus Alpukat/)).toBeInTheDocument();
+    expect(within(panel).getByText(/kembalian Rp\s?8\.000/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Transaksi JUS1-K01-261026-0042/)).toBeInTheDocument();
+  });
+
+  it('hides filters behind a Filter sheet on a phone', async () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /transactions': () => json({ data: [tx()], next_cursor: null }),
+    });
+    renderApp('/transaksi');
+    expect(await screen.findByRole('button', { name: /Detail JUS1/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Metode')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Filter/ }));
+    const sheet = await screen.findByRole('dialog');
+    await userEvent.selectOptions(within(sheet).getByLabelText('Metode'), 'qris');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Terapkan' }));
+    await vi.waitFor(() =>
+      expect(calls.some((c) => c.key.includes('payment_method=qris'))).toBe(true),
+    );
+    expect(screen.getByRole('button', { name: 'Filter (1)' })).toBeInTheDocument();
+    // Detail opens as a sheet, not a side panel.
+    await userEvent.click(screen.getByRole('button', { name: /Detail JUS1/ }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('shows the empty state with a reset action', async () => {
@@ -135,7 +230,7 @@ describe('Transaksi', () => {
     });
     renderApp('/transaksi');
     await userEvent.selectOptions(await screen.findByLabelText('Status'), 'voided');
-    expect(await screen.findByText('Tidak ada transaksi untuk filter ini')).toBeInTheDocument();
+    expect(await screen.findByText('Belum ada transaksi di rentang ini.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset filter' })).toBeInTheDocument();
   });
 
@@ -157,7 +252,7 @@ describe('Transaksi', () => {
           c.key.includes('date_to=2026-10-26'),
       ),
     ).toBe(true);
-    expect(screen.queryByRole('button', { name: '⬇ CSV' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ekspor CSV' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Hapus filter shift' }));
     await vi.waitFor(() =>
       expect(
@@ -188,7 +283,7 @@ describe('Transaksi', () => {
       return base(i, init);
     });
     renderApp('/transaksi');
-    await userEvent.click(await screen.findByRole('button', { name: '⬇ CSV' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Ekspor CSV' }));
     await vi.waitFor(() => expect(create).toHaveBeenCalled());
     expect(
       calls.some((c) => c.key.includes('/transactions/export') && c.key.includes('format=csv')),
@@ -217,13 +312,13 @@ describe('Shift & kas', () => {
         json({ data: [shift('s1', -5000), shift('s2', 0), shift('s3', 5000)], next_cursor: null }),
     });
     renderApp('/shift');
-    expect(await screen.findByText(/−Rp\s?5\.000 ▼ Kurang/)).toBeInTheDocument();
-    expect(screen.getByText('0 ✓ Pas')).toBeInTheDocument();
-    expect(screen.getByText(/\+Rp\s?5\.000 ▲ Lebih/)).toBeInTheDocument();
+    expect(await screen.findByText(/▼ Kurang Rp\s?5\.000/)).toBeInTheDocument();
+    expect(screen.getByText('Pas')).toBeInTheDocument();
+    expect(screen.getByText(/▲ Lebih Rp\s?5\.000/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText('Hanya yang selisih'));
-    expect(screen.queryByText('0 ✓ Pas')).not.toBeInTheDocument();
-    expect(screen.getByText(/−Rp\s?5\.000/)).toBeInTheDocument();
+    expect(screen.queryByText('Pas')).not.toBeInTheDocument();
+    expect(screen.getByText(/▼ Kurang Rp\s?5\.000/)).toBeInTheDocument();
   });
 
   it('"Hanya yang selisih" loads every page so older differences are not hidden', async () => {
@@ -237,10 +332,26 @@ describe('Shift & kas', () => {
           : json({ data: [shift('new', 0)], next_cursor: 'c2' }),
     });
     renderApp('/shift');
-    expect(await screen.findByText('0 ✓ Pas')).toBeInTheDocument();
+    expect(await screen.findByText('Pas')).toBeInTheDocument();
     await userEvent.click(screen.getByLabelText('Hanya yang selisih'));
-    expect(await screen.findByText(/−Rp\s?5\.000 ▼ Kurang/)).toBeInTheDocument();
-    expect(screen.queryByText('0 ✓ Pas')).not.toBeInTheDocument();
+    expect(await screen.findByText(/▼ Kurang Rp\s?5\.000/)).toBeInTheDocument();
+    expect(screen.queryByText('Pas')).not.toBeInTheDocument();
+  });
+
+  it('shows the running shift as an info card', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts': () =>
+        json({
+          data: [shift('s1', null, { status: 'open', opened_at: '2026-10-26T00:30:00Z' })],
+          next_cursor: null,
+        }),
+    });
+    renderApp('/shift');
+    expect(
+      await screen.findByText(/Sari lagi jaga sejak 07\.30 · Kas awal Rp\s?200\.000/),
+    ).toBeInTheDocument();
   });
 
   it('opens the shift summary with per-cashier breakdown', async () => {
