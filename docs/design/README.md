@@ -53,3 +53,7 @@ Spesifikasi lengkap ada di `owner.html` (DEAR-63). Implementasi bertahap di bran
 **Komponen bersama yang ditambah:** `ConfirmDialog` (konfirmasi aksi merusak, sheet di HP), `Field` prop `trailing`, `PageHeader` prop `subtitle` (`apps/dashboard/src/components/ui.tsx`). Token `--gradient-hero` di `styles.css`.
 
 **Selisih dari spesifikasi:** di HP, aksi baris Produk/Pegawai tampil langsung sebagai tombol (bukan bottom sheet setelah mengetuk baris), dan kelola kategori tampil sebagai kartu di bawah daftar (bukan ikon sliders + sheet). Fungsi sama; bisa dirapikan jika desainer menghendaki sheet.
+
+## Notifikasi laptop / Web Push (DEAR-100)
+
+Spesifikasi di `notifikasi-laptop.html` (+ `notifikasi-laptop.png`): teks notifikasi sistem final (transaksi tunggal Cash/QRIS, offline, batch offline, void diajukan/disetujui, uji, "notifikasi aktif") dengan variabel, ikon/tag/tujuan klik untuk Backend/Service Worker; serta layar dashboard Pengaturan → Notifikasi (belum aktif, menunggu izin, aktif + daftar perangkat + Cabut, diblokir + panduan Chrome/Edge/macOS/Windows, tidak didukung, dialog Cabut), terang + gelap, desktop + HP. Memakai token Jus Hangat yang ada; tanpa token baru. Menggantikan draf versi Telegram.
