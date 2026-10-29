@@ -10,13 +10,20 @@ export function ImageUpload({
   value,
   onChange,
   onUploaded,
+  hint,
+  notice,
 }: {
   label: string;
   purpose: UploadPurpose;
   value: string | null | undefined;
-  onChange: (url: string | null) => void;
+  /** May persist the change; a rejection is shown under the picker. */
+  onChange: (url: string | null) => void | Promise<void>;
   /** Called with the picked file after it was uploaded, e.g. to read data out of the image. */
-  onUploaded?: (file: File) => void | Promise<void>;
+  onUploaded?: (file: File, url: string) => void | Promise<void>;
+  /** Shown under the preview, e.g. to tell that the image is not saved yet. */
+  hint?: string | undefined;
+  /** Confirmation shown after the image was saved. */
+  notice?: string | null | undefined;
 }) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,10 +35,23 @@ export function ImageUpload({
     setBusy(true);
     setError(null);
     try {
-      onChange(await uploadImage(file, purpose));
-      await onUploaded?.(file);
+      const url = await uploadImage(file, purpose);
+      await onChange(url);
+      await onUploaded?.(file, url);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal mengunggah gambar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      await onChange(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal menghapus gambar.');
     } finally {
       setBusy(false);
     }
@@ -75,7 +95,12 @@ export function ImageUpload({
             {value ? 'Ganti gambar' : 'Pilih gambar'}
           </Button>
           {value ? (
-            <Button small onClick={() => onChange(null)} aria-label={`Hapus ${label}`}>
+            <Button
+              small
+              disabled={busy}
+              onClick={() => void remove()}
+              aria-label={`Hapus ${label}`}
+            >
               <Trash2 size={16} aria-hidden="true" />
               Hapus
             </Button>
@@ -85,6 +110,12 @@ export function ImageUpload({
         </div>
       </div>
       <p className="mt-1 text-[13px] text-muted">JPG, PNG, atau WebP, maksimal 2 MB.</p>
+      {hint ? <p className="mt-1 text-[13px] font-bold text-muted">{hint}</p> : null}
+      {notice && !busy && !error ? (
+        <p role="status" className="mt-1 text-[13px] font-bold text-ok-ink">
+          {notice}
+        </p>
+      ) : null}
       {busy ? (
         <p role="status" className="mt-1 text-[13px] text-muted">
           Mengunggah…
