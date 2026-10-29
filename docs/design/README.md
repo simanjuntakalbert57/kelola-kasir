@@ -53,3 +53,7 @@ Spesifikasi lengkap ada di `owner.html` (DEAR-63). Implementasi bertahap di bran
 **Komponen bersama yang ditambah:** `ConfirmDialog` (konfirmasi aksi merusak, sheet di HP), `Field` prop `trailing`, `PageHeader` prop `subtitle` (`apps/dashboard/src/components/ui.tsx`). Token `--gradient-hero` di `styles.css`.
 
 **Selisih dari spesifikasi:** di HP, aksi baris Produk/Pegawai tampil langsung sebagai tombol (bukan bottom sheet setelah mengetuk baris), dan kelola kategori tampil sebagai kartu di bawah daftar (bukan ikon sliders + sheet). Fungsi sama; bisa dirapikan jika desainer menghendaki sheet.
+
+## Notifikasi Telegram (DEAR-100)
+
+Spesifikasi di `notifikasi-telegram.html` (+ `notifikasi-telegram.png`): teks pesan Telegram final (transaksi tunggal Cash/QRIS, batch offline, void diajukan/disetujui, terhubung, dimatikan, uji) dengan variabel untuk Backend, serta layar dashboard Pengaturan → Notifikasi (belum terhubung, menunggu/QR, terhubung, kedaluwarsa, dialog Putuskan) terang + gelap, desktop + HP. Memakai token Jus Hangat yang ada; tanpa token baru.
