@@ -131,6 +131,7 @@ export function SelectField({
   value,
   defaultValue,
   disabled,
+  onBlur,
   ...props
 }: SelectFieldProps) {
   const id = useId();
@@ -139,6 +140,7 @@ export function SelectField({
   const options = readOptions(children);
   const nativeRef = useRef<HTMLSelectElement | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [current, setCurrent] = useState(String(value ?? defaultValue ?? options[0]?.value ?? ''));
@@ -212,6 +214,7 @@ export function SelectField({
       </span>
       <div ref={rootRef} className="relative">
         <button
+          ref={buttonRef}
           type="button"
           role="combobox"
           aria-haspopup="listbox"
@@ -224,6 +227,14 @@ export function SelectField({
           disabled={disabled}
           onClick={() => (open ? setOpen(false) : openList())}
           onKeyDown={onKeyDown}
+          onBlur={(e) => {
+            if (rootRef.current?.contains(e.relatedTarget as Node | null)) return;
+            // The hidden native select never takes focus, so forward blur for
+            // react-hook-form's touched / onBlur validation.
+            const el = nativeRef.current;
+            if (el && onBlur)
+              onBlur({ ...e, target: el, currentTarget: el, type: 'blur' } as never);
+          }}
           className={`${controlCls(error)} flex items-center justify-between gap-2 text-left`}
         >
           <span className="truncate">{selected?.label ?? ''}</span>
@@ -259,6 +270,8 @@ export function SelectField({
       <select
         aria-hidden="true"
         tabIndex={-1}
+        // react-hook-form focuses the first invalid field's ref: send it to the visible control.
+        onFocus={() => buttonRef.current?.focus()}
         className="sr-only"
         disabled={disabled}
         {...(value !== undefined ? { value } : {})}
