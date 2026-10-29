@@ -1,7 +1,16 @@
 import { formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Keyboard,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/client';
 import { useSession } from '../src/auth/SessionProvider';
@@ -41,6 +50,17 @@ export default function CloseShiftScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CloseOutcome | null>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // The keypad would crowd out the note field while the system keyboard is up.
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // Show the server's figures when reachable (all devices); otherwise this device's own.
   useEffect(() => {
@@ -150,6 +170,18 @@ export default function CloseShiftScreen() {
           </Banner>
         ) : null}
         {totals ? <Summary totals={totals} /> : null}
+        <TextInput
+          testID="closing-note"
+          value={note}
+          onChangeText={setNote}
+          placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
+          placeholderTextColor={colors.muted}
+          maxLength={500}
+          style={styles.input}
+        />
+        {error ? <Banner tone="error">{error}</Banner> : null}
+      </ScrollView>
+      <View style={styles.footer}>
         <View style={styles.box}>
           <Text style={styles.label}>Uang kas aktual di laci</Text>
           <Text testID="actual-cash" style={styles.amount}>
@@ -168,19 +200,7 @@ export default function CloseShiftScreen() {
             <Text style={styles.label}>Hitung uang di laci lalu masukkan jumlahnya</Text>
           )}
         </View>
-        <TextInput
-          testID="closing-note"
-          value={note}
-          onChangeText={setNote}
-          placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
-          placeholderTextColor={colors.muted}
-          maxLength={500}
-          style={styles.input}
-        />
-        {error ? <Banner tone="error">{error}</Banner> : null}
-      </ScrollView>
-      <View style={styles.footer}>
-        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+        {keyboardOpen ? null : <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />}
         <Button
           testID="close-submit"
           label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}

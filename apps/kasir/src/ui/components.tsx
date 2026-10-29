@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { colors, radius, space, touch } from '../theme';
+import { keyHeightFor } from './layout';
 
 type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost';
 
@@ -109,10 +110,6 @@ export function TopBar({ title, right }: { title: ReactNode; right?: ReactNode }
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 const KEYS_WITH_000 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', '⌫'] as const;
 
-/** Below this window height the keypad uses compact keys so it fits next to the pinned footer. */
-const COMPACT_HEIGHT = 700;
-const COMPACT_KEY = 48;
-
 /** Numeric keypad, 60px keys (48px on short screens). Blank key (login) or `000` (cash). */
 export function Keypad({
   onKey,
@@ -124,7 +121,7 @@ export function Keypad({
   triple?: boolean;
 }) {
   const { height } = useWindowDimensions();
-  const keyHeight = height < COMPACT_HEIGHT ? COMPACT_KEY : touch.key;
+  const keyHeight = keyHeightFor(height);
   const keys = triple ? KEYS_WITH_000 : KEYS;
   const rows = [keys.slice(0, 3), keys.slice(3, 6), keys.slice(6, 9), keys.slice(9, 12)];
   return (
