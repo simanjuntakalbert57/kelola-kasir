@@ -23,7 +23,7 @@ test.describe('Login owner (TC-AUTH-01/02)', () => {
   test('halaman owner tanpa login diarahkan ke /login', async ({ page }) => {
     await page.goto('/transaksi');
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole('heading', { name: 'Masuk Owner' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Selamat datang, Pak/ })).toBeVisible();
   });
 
   test('password salah menampilkan pesan, tetap di login', async ({ page }) => {
