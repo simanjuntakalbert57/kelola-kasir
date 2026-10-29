@@ -1,3 +1,4 @@
+import { AlertTriangle, Check, Clock, Info, X } from 'lucide-react';
 import { Children, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type {
   KeyboardEvent,
@@ -12,9 +13,9 @@ import type {
 type Variant = 'primary' | 'secondary' | 'danger';
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-brand text-white shadow-card hover:bg-brand-600',
-  secondary: 'bg-surface text-brand-text ring-1 ring-line hover:bg-brand-50',
-  danger: 'bg-surface text-danger ring-1 ring-danger/40 hover:bg-danger-bg',
+  primary: 'bg-pri text-white hover:bg-pri-hover active:bg-pri-press',
+  secondary: 'bg-surface text-ink ring-2 ring-line-strong ring-inset hover:bg-bg',
+  danger: 'bg-surface text-danger ring-2 ring-danger ring-inset hover:bg-need-bg',
 };
 
 export function Button({
@@ -23,30 +24,67 @@ export function Button({
   className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; small?: boolean }) {
-  const size = small ? 'min-h-9 px-3 text-sm' : 'min-h-12 px-4 text-base';
+  const size = small ? 'min-h-11 px-4 text-sm' : 'min-h-12 px-5 text-[15px]';
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-[14px] font-bold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${size} ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-full font-extrabold whitespace-nowrap transition duration-150 ease-out disabled:cursor-not-allowed disabled:bg-dis-bg disabled:text-dis-ink disabled:ring-0 ${size} ${variants[variant]} ${className}`}
       {...props}
     />
   );
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-[20px] bg-surface p-4 shadow-card ${className}`}>{children}</div>;
+  return <div className={`rounded-3xl bg-surface p-4 shadow-card ${className}`}>{children}</div>;
 }
 
-export function Badge({ tone, children }: { tone: 'ok' | 'off' | 'warn'; children: ReactNode }) {
-  const tones = {
-    ok: 'bg-brand-tint text-brand-text',
-    off: 'bg-danger-bg text-danger',
-    warn: 'bg-warn-bg text-warn',
-  };
+type BadgeTone = 'ok' | 'off' | 'warn' | 'info';
+
+const badgeTones: Record<BadgeTone, { cls: string; Icon: typeof Check }> = {
+  ok: { cls: 'bg-ok-bg text-ok-ink', Icon: Check },
+  off: { cls: 'bg-need-bg text-need-ink', Icon: X },
+  warn: { cls: 'bg-warm-bg text-warm-ink', Icon: AlertTriangle },
+  info: { cls: 'bg-info-bg text-info-ink', Icon: Clock },
+};
+
+export function Badge({ tone, children }: { tone: BadgeTone; children: ReactNode }) {
+  const { cls, Icon } = badgeTones[tone];
   return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${tones[tone]}`}>
+    <span
+      className={`inline-flex min-h-[26px] items-center gap-1 rounded-full px-2.5 text-xs font-extrabold ${cls}`}
+    >
+      <Icon size={14} aria-hidden="true" />
       {children}
     </span>
+  );
+}
+
+/** Info card (warm, calm) vs action-needed card (red tint, solid icon, one call to action). */
+export function NoticeCard({
+  kind = 'info',
+  title,
+  children,
+}: {
+  kind?: 'info' | 'action';
+  title?: string;
+  children?: ReactNode;
+}) {
+  const action = kind === 'action';
+  return (
+    <div
+      className={`mb-3 flex items-start gap-3 rounded-2xl border p-3.5 ${action ? 'border-need-line bg-need-bg text-need-ink' : 'border-warm-line bg-warm-bg text-warm-ink'}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`grid size-9 shrink-0 place-items-center rounded-xl ${action ? 'bg-need-ink text-white' : 'bg-white/70'}`}
+      >
+        {action ? <AlertTriangle size={20} /> : <Info size={20} />}
+      </span>
+      <div className="min-w-0 text-sm font-semibold">
+        {title ? <p className="font-extrabold">{title}</p> : null}
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -54,26 +92,34 @@ export function Field({
   label,
   error,
   hint,
+  trailing,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   error?: string | undefined;
   hint?: string;
+  /** Control placed inside the input's right edge, e.g. a show/hide password button. */
+  trailing?: ReactNode;
 }) {
   const id = useId();
   const describedBy = error ? `${id}-err` : hint ? `${id}-hint` : undefined;
   return (
     <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+      <label htmlFor={id} className="mb-1 block text-sm font-extrabold">
         {label}
       </label>
-      <input
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={`min-h-12 w-full rounded-[12px] bg-surface px-3 py-2.5 text-base text-ink ring-1 ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-line'}`}
-        {...props}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          className={`min-h-12 w-full rounded-2xl bg-surface px-3.5 py-2.5 text-base text-ink ring-inset placeholder:text-muted ${trailing ? 'pr-12' : ''} ${error ? 'ring-2 ring-danger' : 'ring-1 ring-line-strong'}`}
+          {...props}
+        />
+        {trailing ? (
+          <div className="absolute inset-y-0 right-1 grid place-items-center">{trailing}</div>
+        ) : null}
+      </div>
       {error ? (
         <p id={`${id}-err`} role="alert" className="mt-1 text-[13px] text-danger">
           {error}
@@ -88,7 +134,7 @@ export function Field({
 }
 
 const controlCls = (error?: string) =>
-  `min-h-12 w-full rounded-[12px] bg-surface px-3 py-2.5 text-base text-ink ring-1 ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-line'}`;
+  `min-h-12 w-full rounded-2xl bg-surface px-3.5 py-2.5 text-base text-ink ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-1 ring-line-strong'}`;
 
 type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
   label: string;
@@ -209,7 +255,7 @@ export function SelectField({
 
   return (
     <div className="mb-3.5">
-      <span id={labelId} className="mb-1 block text-sm font-semibold">
+      <span id={labelId} className="mb-1 block text-sm font-extrabold">
         {label}
       </span>
       <div ref={rootRef} className="relative">
@@ -247,7 +293,7 @@ export function SelectField({
             id={listId}
             role="listbox"
             aria-labelledby={labelId}
-            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-auto rounded-[12px] bg-surface py-1 shadow-card ring-1 ring-line"
+            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-auto rounded-2xl bg-surface py-1 shadow-card ring-1 ring-line"
           >
             {options.map((o, i) => (
               <li
@@ -307,7 +353,7 @@ export function TextareaField({
   const id = useId();
   return (
     <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+      <label htmlFor={id} className="mb-1 block text-sm font-extrabold">
         {label}
       </label>
       <textarea
@@ -338,8 +384,8 @@ export function CheckboxField({
   const id = useId();
   return (
     <div className="mb-3.5 flex min-h-12 items-center gap-3">
-      <input id={id} type="checkbox" className="size-5 accent-brand-600" {...props} />
-      <label htmlFor={id} className="text-sm font-semibold">
+      <input id={id} type="checkbox" className="size-5 accent-pri" {...props} />
+      <label htmlFor={id} className="text-sm font-extrabold">
         {label}
       </label>
     </div>
@@ -353,9 +399,12 @@ export function Alert({
   tone?: 'error' | 'warn';
   children: ReactNode;
 }) {
-  const cls = tone === 'error' ? 'bg-danger-bg text-danger' : 'bg-warn-bg text-warn';
+  const cls =
+    tone === 'error'
+      ? 'border-2 border-danger bg-surface text-danger'
+      : 'border border-warm-line bg-warm-bg text-warm-ink';
   return (
-    <div role="alert" className={`mb-3 rounded-[12px] px-3.5 py-2 text-sm font-semibold ${cls}`}>
+    <div role="alert" className={`mb-3 rounded-2xl px-3.5 py-2.5 text-sm font-bold ${cls}`}>
       {children}
     </div>
   );
@@ -366,7 +415,7 @@ export function EmptyState({
   title,
   children,
 }: {
-  icon: string;
+  icon: ReactNode;
   title: string;
   children?: ReactNode;
 }) {
@@ -375,8 +424,34 @@ export function EmptyState({
       <div className="text-5xl" aria-hidden="true">
         {icon}
       </div>
-      <p className="font-bold text-ink">{title}</p>
+      <p className="text-lg font-extrabold text-ink">{title}</p>
       {children}
+    </div>
+  );
+}
+
+export function ErrorState({
+  title = 'Ada yang tidak beres',
+  onRetry,
+  children,
+}: {
+  title?: string;
+  onRetry?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center gap-2.5 rounded-3xl border-2 border-danger bg-surface p-6 text-center"
+    >
+      <AlertTriangle size={44} className="text-danger" aria-hidden="true" />
+      <p className="text-lg font-extrabold text-ink">{title}</p>
+      {children ? <p className="text-muted">{children}</p> : null}
+      {onRetry ? (
+        <Button variant="primary" onClick={onRetry}>
+          Coba lagi
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -385,7 +460,7 @@ export function Skeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div role="status" aria-label="Memuat" className="space-y-2">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="h-14 animate-pulse rounded-[16px] bg-brand-50" />
+        <div key={i} className="h-14 animate-pulse rounded-2xl bg-tint" />
       ))}
     </div>
   );
@@ -414,7 +489,7 @@ export function Dialog({
       onClick={(e) => {
         if (e.target === ref.current) onClose();
       }}
-      className="m-auto w-[min(92vw,26rem)] rounded-[24px] bg-surface p-5 text-ink shadow-card backdrop:bg-black/60 max-sm:mb-0 max-sm:max-w-none max-sm:w-full max-sm:rounded-b-none"
+      className="m-auto w-[min(92vw,26rem)] rounded-3xl bg-surface p-5 text-ink shadow-modal backdrop:bg-ink/40 max-sm:mb-0 max-sm:max-w-none max-sm:w-full max-sm:rounded-b-none max-sm:rounded-t-[28px]"
     >
       <h2 id={titleId} className="mb-3 text-xl">
         {title}
@@ -424,11 +499,56 @@ export function Dialog({
   );
 }
 
-export function PageHeader({ title, action }: { title: string; action?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string | undefined;
+  action?: ReactNode;
+}) {
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <h1 className="text-xl">{title}</h1>
+      <div className="min-w-0">
+        <h1 className="text-xl">{title}</h1>
+        {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
+      </div>
       {action}
     </div>
+  );
+}
+
+/** Confirmation dialog for destructive or irreversible actions (sheet on phones). */
+export function ConfirmDialog({
+  title,
+  confirmLabel,
+  tone = 'danger',
+  pending = false,
+  error,
+  onConfirm,
+  onClose,
+  children,
+}: {
+  title: string;
+  confirmLabel: string;
+  tone?: 'danger' | 'primary';
+  pending?: boolean;
+  error?: string | undefined;
+  onConfirm: () => void;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Dialog title={title} onClose={onClose}>
+      {error ? <Alert>{error}</Alert> : null}
+      {children ? <div className="text-sm text-muted">{children}</div> : null}
+      <div className="mt-4 flex gap-2">
+        <Button variant={tone} disabled={pending} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+        <Button onClick={onClose}>Batal</Button>
+      </div>
+    </Dialog>
   );
 }

@@ -9,13 +9,15 @@ describe('auth guard & login', () => {
   it('redirects anonymous users to the login page', async () => {
     mockApi({ 'POST /auth/refresh': () => problem(401, 'UNAUTHORIZED') });
     renderApp('/pegawai');
-    expect(await screen.findByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Selamat datang, Pak/ })).toBeInTheDocument();
   });
 
   it('restores the session from the refresh cookie', async () => {
     mockApi({ 'POST /auth/refresh': () => json(session) });
     renderApp('/');
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText(/Jus Albert/).length).toBeGreaterThan(0);
   });
 
@@ -36,7 +38,35 @@ describe('auth guard & login', () => {
     await userEvent.type(await screen.findByLabelText('Email'), 'albert@contoh.com');
     await userEvent.type(screen.getByLabelText('Kata sandi'), 'salahsalah');
     await userEvent.click(screen.getByRole('button', { name: 'Masuk' }));
-    expect(await screen.findByText('Email atau kata sandi salah.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Email atau kata sandi salah. Coba cek lagi ya.'),
+    ).toBeInTheDocument();
+  });
+
+  it('toggles password visibility with an accessible button', async () => {
+    mockApi({ 'POST /auth/refresh': () => problem(401, 'UNAUTHORIZED') });
+    renderApp('/login');
+    const input = await screen.findByLabelText('Kata sandi');
+    expect(input).toHaveAttribute('type', 'password');
+    await userEvent.click(screen.getByRole('button', { name: 'Tampilkan kata sandi' }));
+    expect(input).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Sembunyikan kata sandi' })).toBeInTheDocument();
+  });
+
+  it('shows a plain network error message', async () => {
+    mockApi({
+      'POST /auth/refresh': () => problem(401, 'UNAUTHORIZED'),
+      'POST /auth/login': () => {
+        throw new TypeError('network');
+      },
+    });
+    renderApp('/login');
+    await userEvent.type(await screen.findByLabelText('Email'), 'albert@contoh.com');
+    await userEvent.type(screen.getByLabelText('Kata sandi'), 'rahasia123');
+    await userEvent.click(screen.getByRole('button', { name: 'Masuk' }));
+    expect(
+      await screen.findByText('Belum bisa masuk. Cek sinyal lalu coba lagi.'),
+    ).toBeInTheDocument();
   });
 
   it('logs in and lands on the dashboard', async () => {
@@ -48,7 +78,9 @@ describe('auth guard & login', () => {
     await userEvent.type(await screen.findByLabelText('Email'), 'albert@contoh.com');
     await userEvent.type(screen.getByLabelText('Kata sandi'), 'rahasia123');
     await userEvent.click(screen.getByRole('button', { name: 'Masuk' }));
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
+    ).toBeInTheDocument();
     expect(calls.find((c) => c.key === 'POST /auth/login')?.body).toEqual({
       email: 'albert@contoh.com',
       password: 'rahasia123',
@@ -63,7 +95,7 @@ describe('auth guard & login', () => {
     renderApp('/');
     await userEvent.click(await screen.findByRole('button', { name: 'Keluar' }));
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument(),
+      expect(screen.getByRole('heading', { name: /Selamat datang, Pak/ })).toBeInTheDocument(),
     );
   });
 });
@@ -79,7 +111,7 @@ describe('logout with an expired access token', () => {
     renderApp('/');
     await userEvent.click(await screen.findByRole('button', { name: 'Keluar' }));
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Masuk Owner' })).toBeInTheDocument(),
+      expect(screen.getByRole('heading', { name: /Selamat datang, Pak/ })).toBeInTheDocument(),
     );
     expect(logoutCalls).toBe(2);
     expect(calls.filter((c) => c.key === 'POST /auth/refresh')).toHaveLength(2);

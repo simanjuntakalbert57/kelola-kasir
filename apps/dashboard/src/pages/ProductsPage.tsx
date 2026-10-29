@@ -12,8 +12,10 @@ import {
   Button,
   Card,
   CheckboxField,
+  ConfirmDialog,
   Dialog,
   EmptyState,
+  ErrorState,
   Field,
   PageHeader,
   SelectField,
@@ -77,15 +79,19 @@ function CategoryDialog({ category, onClose }: { category: Category | null; onCl
 
 function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Category) => void }) {
   const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
     mutationFn: () => del(`/categories/${category.id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: CATEGORIES }),
+    onSuccess: async () => {
+      setConfirming(false);
+      await qc.invalidateQueries({ queryKey: CATEGORIES });
+    },
   });
   const notEmpty = remove.error instanceof ApiError && remove.error.code === 'CATEGORY_NOT_EMPTY';
   return (
-    <li className="rounded-[14px] bg-brand-50 p-2.5">
+    <li className="rounded-2xl bg-bg p-2.5">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-semibold">{category.name}</span>
+        <span className="min-w-0 flex-1 truncate font-extrabold">{category.name}</span>
         <Button
           small
           onClick={() => onEdit(category)}
@@ -96,21 +102,30 @@ function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Cat
         <Button
           small
           variant="danger"
-          disabled={remove.isPending}
           onClick={() => {
-            if (window.confirm(`Hapus kategori "${category.name}"?`)) remove.mutate();
+            remove.reset();
+            setConfirming(true);
           }}
           aria-label={`Hapus kategori ${category.name}`}
         >
           Hapus
         </Button>
       </div>
-      {remove.error ? (
-        <p role="alert" className="mt-1 text-[13px] text-danger">
-          {notEmpty
-            ? 'Kategori masih berisi produk. Pindahkan atau hapus produknya dulu.'
-            : errorMessage(remove.error)}
-        </p>
+      {confirming ? (
+        <ConfirmDialog
+          title={`Hapus kategori ${category.name}?`}
+          confirmLabel="Ya, hapus"
+          pending={remove.isPending}
+          error={
+            remove.error
+              ? notEmpty
+                ? 'Kategori masih berisi produk. Pindahkan atau hapus produknya dulu.'
+                : errorMessage(remove.error)
+              : undefined
+          }
+          onConfirm={() => remove.mutate()}
+          onClose={() => setConfirming(false)}
+        />
       ) : null}
     </li>
   );
@@ -119,7 +134,7 @@ function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Cat
 function CategoriesCard({ categories }: { categories: Category[] }) {
   const [editing, setEditing] = useState<Category | 'new' | null>(null);
   return (
-    <Card className="mb-4">
+    <Card className="mt-4 lg:mt-0">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-lg">Kategori</h2>
         <Button small onClick={() => setEditing('new')}>
@@ -248,10 +263,10 @@ function ProductDialog({
             />
           )}
         />
-        <CheckboxField label="Aktif (tampil di aplikasi kasir)" {...form.register('is_active')} />
+        <CheckboxField label="Tampil di aplikasi kasir" {...form.register('is_active')} />
         <div className="mt-3 flex gap-2">
           <Button type="submit" variant="primary" disabled={save.isPending}>
-            Simpan
+            Simpan produk
           </Button>
           <Button onClick={onClose}>Batal</Button>
         </div>
@@ -270,6 +285,7 @@ function ProductRow({
   onEdit: (p: Product) => void;
 }) {
   const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
   const invalidate = () => qc.invalidateQueries({ queryKey: PRODUCTS });
   const soldOut = useMutation({
     mutationFn: () =>
@@ -278,64 +294,86 @@ function ProductRow({
   });
   const remove = useMutation({
     mutationFn: () => del(`/products/${product.id}`),
-    onSuccess: invalidate,
+    onSuccess: async () => {
+      setConfirming(false);
+      await invalidate();
+    },
   });
-  const error = soldOut.error ?? remove.error;
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-[16px] bg-surface p-3 shadow-card">
+    <li className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface p-3 shadow-card">
       {product.image_url ? (
-        <img src={product.image_url} alt="" className="size-12 rounded-[10px] object-cover" />
+        <img src={product.image_url} alt="" className="size-14 rounded-xl object-cover" />
       ) : (
         <div
           aria-hidden="true"
-          className="grid size-12 place-items-center rounded-[10px] bg-brand-50 text-xl"
+          className="grid size-14 place-items-center rounded-xl bg-tint text-2xl"
         >
           🍹
         </div>
       )}
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-bold">{product.name}</p>
+      <div className="min-w-40 flex-1">
+        <p className="truncate font-extrabold">{product.name}</p>
         <p className="text-sm text-muted">
           {categoryName} ·{' '}
-          <span className="font-semibold text-ink">{formatRupiah(product.price)}</span>
+          <span className="font-extrabold text-ink tabular-nums">
+            {formatRupiah(product.price)}
+          </span>
         </p>
-        <div className="mt-1 flex gap-1.5">
+        <div className="mt-1 flex flex-wrap gap-1.5">
           <Badge tone={product.is_active ? 'ok' : 'off'}>
             {product.is_active ? 'Aktif' : 'Nonaktif'}
           </Badge>
           {product.is_sold_out ? <Badge tone="warn">Habis</Badge> : null}
         </div>
-        {error ? (
+        {soldOut.error ? (
           <p role="alert" className="mt-1 text-[13px] text-danger">
-            {errorMessage(error)}
+            {errorMessage(soldOut.error)}
           </p>
         ) : null}
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex w-full gap-2 sm:w-auto">
         <Button
           small
+          className="flex-1 sm:flex-none"
           disabled={soldOut.isPending}
           onClick={() => soldOut.mutate()}
           aria-label={`${product.is_sold_out ? 'Tandai tersedia' : 'Tandai habis'} ${product.name}`}
         >
-          {product.is_sold_out ? 'Tersedia' : 'Habis'}
+          {product.is_sold_out ? 'Tandai tersedia' : 'Tandai habis'}
         </Button>
-        <Button small onClick={() => onEdit(product)} aria-label={`Ubah ${product.name}`}>
+        <Button
+          small
+          className="flex-1 sm:flex-none"
+          onClick={() => onEdit(product)}
+          aria-label={`Ubah ${product.name}`}
+        >
           Ubah
         </Button>
         <Button
           small
           variant="danger"
-          disabled={remove.isPending}
+          className="flex-1 sm:flex-none"
           onClick={() => {
-            if (window.confirm(`Hapus produk "${product.name}"? Riwayat transaksi tidak berubah.`))
-              remove.mutate();
+            remove.reset();
+            setConfirming(true);
           }}
           aria-label={`Hapus ${product.name}`}
         >
           Hapus
         </Button>
       </div>
+      {confirming ? (
+        <ConfirmDialog
+          title={`Hapus ${product.name}?`}
+          confirmLabel="Ya, hapus"
+          pending={remove.isPending}
+          error={remove.error ? errorMessage(remove.error) : undefined}
+          onConfirm={() => remove.mutate()}
+          onClose={() => setConfirming(false)}
+        >
+          Riwayat transaksi tidak berubah.
+        </ConfirmDialog>
+      ) : null}
     </li>
   );
 }
@@ -362,71 +400,99 @@ export function ProductsPage() {
   const categories = cats.data?.data ?? [];
   const names = new Map(categories.map((c) => [c.id, c.name]));
 
+  const productList = products.data?.data;
+  const filtering = categoryId !== '' || debouncedSearch.trim() !== '';
+  // The empty state carries its own call to action, so the header one is hidden to avoid two identical buttons.
+  const emptyWithCta = productList?.length === 0 && !filtering && categories.length > 0;
+
   return (
     <>
       <PageHeader
-        title="Produk"
+        title="Produk & Kategori"
+        subtitle={
+          productList && !filtering
+            ? `${productList.length} produk · ${categories.length} kategori`
+            : undefined
+        }
         action={
-          <Button
-            variant="primary"
-            disabled={categories.length === 0}
-            onClick={() => setEditing('new')}
-          >
-            ＋ Tambah produk
-          </Button>
+          productList && !emptyWithCta ? (
+            <Button
+              variant="primary"
+              disabled={categories.length === 0}
+              onClick={() => setEditing('new')}
+            >
+              ＋ Tambah produk
+            </Button>
+          ) : undefined
         }
       />
-      {cats.error ? <Alert>Gagal memuat kategori.</Alert> : null}
-      {cats.data ? <CategoriesCard categories={categories} /> : null}
-      <div className="mb-3 grid gap-x-3 sm:grid-cols-2">
-        <Field
-          label="Cari produk"
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          autoComplete="off"
+      {cats.error ? (
+        <ErrorState
+          title="Waduh, daftar kategorinya belum kebuka. Coba lagi ya"
+          onRetry={() => void cats.refetch()}
         />
-        <SelectField
-          label="Filter kategori"
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-        >
-          <option value="">Semua kategori</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </SelectField>
-      </div>
-      {products.isPending ? <Skeleton /> : null}
-      {products.error ? (
-        <Alert>
-          Gagal memuat produk.{' '}
-          <button type="button" className="underline" onClick={() => void products.refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
       ) : null}
-      {products.data && products.data.data.length === 0 ? (
-        <Card>
-          <EmptyState icon="🍹" title="Belum ada produk">
-            <p>Tambahkan produk; akan muncul di aplikasi kasir setelah sinkron.</p>
-          </EmptyState>
-        </Card>
-      ) : null}
-      {products.data && products.data.data.length > 0 ? (
-        <ul className="space-y-2">
-          {products.data.data.map((p) => (
-            <ProductRow
-              key={p.id}
-              product={p}
-              categoryName={names.get(p.category_id) ?? '—'}
-              onEdit={setEditing}
+      <div className="lg:grid lg:grid-cols-[1fr_20rem] lg:items-start lg:gap-4">
+        <div className="min-w-0">
+          <div className="mb-3 grid gap-x-3 sm:grid-cols-2">
+            <Field
+              label="Cari produk"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoComplete="off"
             />
-          ))}
-        </ul>
-      ) : null}
+            <SelectField
+              label="Filter kategori"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+            >
+              <option value="">Semua kategori</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+          {products.isPending ? <Skeleton /> : null}
+          {products.error ? (
+            <ErrorState
+              title="Waduh, daftar produknya belum kebuka. Coba lagi ya"
+              onRetry={() => void products.refetch()}
+            />
+          ) : null}
+          {productList && productList.length === 0 ? (
+            <Card>
+              <EmptyState icon="🍹" title={filtering ? 'Produk tidak ketemu' : 'Belum ada produk'}>
+                <p>
+                  {filtering
+                    ? 'Coba kata kunci atau kategori lain.'
+                    : 'Yuk tambah yang pertama. Akan muncul di aplikasi kasir setelah sinkron.'}
+                </p>
+                {emptyWithCta ? (
+                  <Button variant="primary" onClick={() => setEditing('new')}>
+                    Tambah produk
+                  </Button>
+                ) : null}
+              </EmptyState>
+            </Card>
+          ) : null}
+          {productList && productList.length > 0 ? (
+            <ul className="space-y-2">
+              {productList.map((p) => (
+                <ProductRow
+                  key={p.id}
+                  product={p}
+                  categoryName={names.get(p.category_id) ?? '—'}
+                  onEdit={setEditing}
+                />
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        {cats.data ? <CategoriesCard categories={categories} /> : null}
+      </div>
       {editing ? (
         <ProductDialog
           product={editing === 'new' ? null : editing}

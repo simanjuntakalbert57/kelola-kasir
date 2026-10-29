@@ -37,7 +37,7 @@ export function ImageUpload({
 
   return (
     <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+      <label htmlFor={id} className="mb-1 block text-sm font-extrabold">
         {label}
       </label>
       <div className="flex items-center gap-3">
@@ -45,17 +45,17 @@ export function ImageUpload({
           <img
             src={value}
             alt={`Pratinjau ${label}`}
-            className="size-16 rounded-[12px] object-cover"
+            className="size-16 shrink-0 rounded-xl object-cover"
           />
         ) : (
           <div
             aria-hidden="true"
-            className="grid size-16 place-items-center rounded-[12px] bg-brand-50 text-2xl"
+            className="grid size-16 shrink-0 place-items-center rounded-xl bg-tint text-2xl"
           >
             🖼️
           </div>
         )}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col gap-1.5">
           <input
             id={id}
             type="file"

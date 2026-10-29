@@ -9,6 +9,7 @@ import {
   Card,
   Dialog,
   EmptyState,
+  ErrorState,
   PageHeader,
   Skeleton,
   TextareaField,
@@ -45,20 +46,22 @@ function DecisionDialog({ request, action, onClose }: Decision & { onClose: () =
   const conflict = mutation.error instanceof ApiError && mutation.error.status === 409;
   return (
     <Dialog
-      title={`${approve ? 'Setujui' : 'Tolak'} void ${request.transaction_number ?? ''}`.trim()}
+      title={`${[approve ? 'Setujui' : 'Tolak', 'batal', request.transaction_number]
+        .filter(Boolean)
+        .join(' ')}?`}
       onClose={onClose}
     >
       {mutation.error ? (
         <Alert>
           {conflict
-            ? 'Permintaan ini sudah diproses atau transaksi tidak bisa di-void lagi.'
+            ? 'Permintaan ini sudah diproses atau transaksinya tidak bisa dibatalkan lagi.'
             : errorMessage(mutation.error)}
         </Alert>
       ) : null}
       <p className="mb-3 text-sm text-muted">
         {approve
-          ? 'Transaksi akan dibatalkan dan keluar dari omzet. Tindakan ini tercatat di audit log.'
-          : 'Transaksi kembali berstatus lunas.'}
+          ? 'Transaksi akan dibatalkan dan keluar dari omzet. Tindakan ini tercatat.'
+          : 'Transaksi tetap lunas.'}
       </p>
       <TextareaField
         label="Catatan (opsional)"
@@ -68,11 +71,11 @@ function DecisionDialog({ request, action, onClose }: Decision & { onClose: () =
       />
       <div className="mt-2 flex gap-2">
         <Button
-          variant={approve ? 'primary' : 'danger'}
+          variant={approve ? 'danger' : 'primary'}
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          {approve ? 'Setujui void' : 'Tolak void'}
+          {approve ? 'Ya, setujui batal' : 'Ya, tolak'}
         </Button>
         <Button onClick={onClose}>Batal</Button>
       </div>
@@ -95,8 +98,15 @@ export function VoidPage() {
 
   return (
     <>
-      <PageHeader title="Persetujuan void" />
-      <div role="tablist" aria-label="Status void" className="mb-4 flex gap-2">
+      <PageHeader
+        title="Persetujuan batal"
+        subtitle={
+          tab === 'pending' && rows.length > 0
+            ? `${rows.length}${hasNextPage ? '+' : ''} permintaan nunggu Bapak`
+            : undefined
+        }
+      />
+      <div role="tablist" aria-label="Status batal" className="mb-4 flex gap-2">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -104,7 +114,7 @@ export function VoidPage() {
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={`min-h-10 rounded-full px-3.5 text-sm font-bold ring-1 ring-line ${tab === t.id ? 'bg-brand text-white' : 'bg-surface text-muted'}`}
+            className={`min-h-11 rounded-full px-4 text-sm font-extrabold ring-1 ring-line ${tab === t.id ? 'bg-pri text-white' : 'bg-surface text-muted'}`}
           >
             {t.label}
           </button>
@@ -112,33 +122,36 @@ export function VoidPage() {
       </div>
       {isPending ? <Skeleton /> : null}
       {error ? (
-        <Alert>
-          Gagal memuat permintaan void.{' '}
-          <button type="button" className="underline" onClick={() => void refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, permintaannya belum kebuka. Coba lagi ya"
+          onRetry={() => void refetch()}
+        />
       ) : null}
       {data && rows.length === 0 ? (
         <Card>
-          <EmptyState icon="✅" title="Tidak ada permintaan void" />
+          {tab === 'pending' ? (
+            <EmptyState icon="✅" title="Semua beres, Pak.">
+              <p>Belum ada permintaan batal yang nunggu persetujuan.</p>
+            </EmptyState>
+          ) : (
+            <EmptyState icon="✅" title="Belum ada permintaan">
+              <p>Belum ada permintaan batal yang {tab === 'approved' ? 'disetujui' : 'ditolak'}.</p>
+            </EmptyState>
+          )}
         </Card>
       ) : null}
       {data && rows.length > 0 ? (
-        <ul className="space-y-3">
+        <ul className="grid gap-3 lg:grid-cols-2">
           {rows.map((r) => (
             <li key={r.id}>
               <Card>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <b className="min-w-0 break-all">
-                    {r.transaction_number ?? 'Transaksi'}
-                    {r.transaction_total != null ? ` · ${formatRupiah(r.transaction_total)}` : ''}
-                  </b>
+                  <b className="min-w-0 break-all">{r.transaction_number ?? 'Transaksi'}</b>
                   <Badge
-                    tone={r.status === 'pending' ? 'warn' : r.status === 'approved' ? 'ok' : 'off'}
+                    tone={r.status === 'pending' ? 'info' : r.status === 'approved' ? 'ok' : 'off'}
                   >
                     {r.status === 'pending'
-                      ? 'Menunggu void'
+                      ? 'Nunggu Bapak'
                       : r.status === 'approved'
                         ? 'Disetujui'
                         : 'Ditolak'}
@@ -147,7 +160,15 @@ export function VoidPage() {
                 <p className="mt-1 text-sm text-muted">
                   Diajukan {r.requested_by.name} · {formatDateTime(r.requested_at)}
                 </p>
-                <p className="mt-1 text-sm">Alasan: “{r.reason}”</p>
+                <p className="mt-2 text-sm">
+                  <span className="text-muted">Alasan</span> “{r.reason}”
+                </p>
+                {r.transaction_total != null ? (
+                  <p className="mt-1 text-sm">
+                    <span className="text-muted">Total</span>{' '}
+                    <b className="tabular-nums">{formatRupiah(r.transaction_total)}</b>
+                  </p>
+                ) : null}
                 {r.decision_note ? (
                   <p className="mt-1 text-sm text-muted">Catatan: {r.decision_note}</p>
                 ) : null}
@@ -155,14 +176,15 @@ export function VoidPage() {
                   <div className="mt-3 flex gap-2">
                     <Button
                       variant="primary"
-                      aria-label={`Setujui void ${r.transaction_number ?? ''}`}
+                      className="flex-1"
+                      aria-label={`Setujui batal ${r.transaction_number ?? ''}`}
                       onClick={() => setDecision({ request: r, action: 'approve' })}
                     >
                       Setujui
                     </Button>
                     <Button
-                      variant="danger"
-                      aria-label={`Tolak void ${r.transaction_number ?? ''}`}
+                      className="flex-1"
+                      aria-label={`Tolak batal ${r.transaction_number ?? ''}`}
                       onClick={() => setDecision({ request: r, action: 'reject' })}
                     >
                       Tolak

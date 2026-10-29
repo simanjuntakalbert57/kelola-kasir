@@ -12,7 +12,7 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
       .getByRole('list')
       .filter({ has: page.getByRole('button', { name: /^Detail / }) });
     await expect(list.getByText('Lunas', { exact: true })).toHaveCount(5);
-    await expect(list.getByText('Menunggu void', { exact: true })).toHaveCount(2);
+    await expect(list.getByText('Nunggu persetujuan batal', { exact: true })).toHaveCount(2);
     await expect(list.getByText('Batal', { exact: true })).toHaveCount(1);
   });
 
@@ -25,17 +25,17 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
     await pickOption(page, 'Status', 'Batal');
     await expect(page.getByText('Menampilkan 1 transaksi')).toBeVisible();
     await pickOption(page, 'Status', 'Semua status');
-    await pickOption(page, 'Metode', 'Cash');
+    await pickOption(page, 'Metode', 'Tunai');
     await pickOption(page, 'Pegawai', 'Budi E2E');
     await expect(page.getByText('Menampilkan 3 transaksi')).toBeVisible();
-    await pickOption(page, 'Status', 'Menunggu void');
+    await pickOption(page, 'Status', 'Nunggu persetujuan batal');
     await expect(page.getByText('Menampilkan 2 transaksi')).toBeVisible();
   });
 
   test('filter tanpa hasil menampilkan empty state dan reset filter', async ({ page }) => {
     await openAsOwner(page, '/transaksi');
     await pickOption(page, 'Status', 'Dibatalkan');
-    await expect(page.getByText('Tidak ada transaksi untuk filter ini')).toBeVisible();
+    await expect(page.getByText('Belum ada transaksi di rentang ini.')).toBeVisible();
     await page.getByRole('button', { name: 'Reset filter' }).click();
     await expect(page.getByText('Menampilkan 8 transaksi')).toBeVisible();
   });
@@ -46,7 +46,7 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
     await expect(page.getByText('Menampilkan 1 transaksi')).toBeVisible();
     await page.getByLabel('Cari').fill('x'.repeat(80));
     // Diharapkan: daftar kosong atau input dibatasi; bukan pesan error mentah.
-    await expect(page.getByText(/Tidak ada transaksi untuk filter ini|Menampilkan/)).toBeVisible();
+    await expect(page.getByText(/Belum ada transaksi di rentang ini\.|Menampilkan/)).toBeVisible();
     await expect(page.getByText(/400|validation|Bad Request/i)).toHaveCount(0);
   });
 
@@ -54,7 +54,10 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
     const { s1Cash } = seed();
     await openAsOwner(page, '/transaksi');
     await page.getByRole('button', { name: `Detail ${s1Cash.number}` }).click();
-    const dlg = page.getByRole('dialog');
+    // Desktop: side panel; mobile: dialog.
+    const dlg = page
+      .getByRole('complementary', { name: 'Detail transaksi' })
+      .or(page.getByRole('dialog'));
     await expect(dlg).toContainText('2× Jus Alpukat');
     await expect(dlg).toContainText(rp(30_000));
     await expect(dlg).toContainText(/Tunai Rp\s?50\.000 · kembalian Rp\s?20\.000/);
