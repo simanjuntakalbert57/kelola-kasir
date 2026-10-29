@@ -1,41 +1,60 @@
 @import 'tailwindcss';
 
-/* Tokens from docs/design/design.css (dark theme v3, DEAR-5). */
+/* Arah A · Jus Hangat (DEAR-63, docs/design/owner.html §1). */
 @theme {
-  --color-bg: #0e1512;
-  --color-surface: #18221d;
-  --color-line: #2a3831;
-  --color-ink: #eaf2ed;
-  --color-muted: #9db0a5;
-  --color-brand: #0f4d36;
-  --color-brand-600: #17714f;
-  --color-brand-text: #6fd3a0;
-  --color-brand-tint: #1e3a2d;
-  --color-brand-50: #1f2d26;
-  --color-gold: #e9b44c;
-  --color-accent: #c75f12;
-  --color-accent-tint: #3a2616;
-  --color-danger: #ff8a80;
-  --color-danger-bg: #3b1e1c;
-  --color-warn: #f2c26b;
-  --color-warn-bg: #3a2e14;
-  --color-info: #8fb2ff;
-  --color-info-bg: #1b2a4a;
-  --color-side: #0a2e21;
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --font-sans: 'Plus Jakarta Sans', Inter, 'Segoe UI', system-ui, sans-serif;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  --color-bg: #fff7ea;
+  --color-surface: #ffffff;
+  --color-ink: #2b2118;
+  --color-muted: #6b5846;
+  --color-line: #f0e1c8;
+  --color-line-strong: #8c6f55;
+
+  --color-pri: #c2410c;
+  --color-pri-hover: #9a3412;
+  --color-pri-press: #7c2d12;
+  --color-tint: #ffebd2;
+  --color-tint-ink: #7c2d12;
+  --color-tint-hover: #ffddb5;
+
+  --color-focus: #1d4ed8;
+  --color-dis-bg: #efe4d0;
+  --color-dis-ink: #7a6552;
+
+  --color-danger: #b91c1c;
+  --color-danger-hover: #991b1b;
+  --color-need-bg: #ffe2dc;
+  --color-need-ink: #8a1c0f;
+  --color-need-line: #f8bfb4;
+  --color-warm-bg: #fff1cc;
+  --color-warm-ink: #6b4300;
+  --color-warm-line: #f6dd95;
+  --color-ok: #15803d;
+  --color-ok-bg: #dcf5e3;
+  --color-ok-ink: #14532d;
+  --color-info-bg: #dbeafe;
+  --color-info-ink: #1e3a8a;
+
+  --color-bar: #fdba74;
+  --color-cash: #fde3c0;
+
+  --font-sans: 'Nunito', system-ui, 'Segoe UI', sans-serif;
+
+  --radius-ctl: 16px;
+  --radius-card: 24px;
+  --radius-sheet: 28px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 2px 0 #f0e1c8, 0 10px 24px rgb(124 45 18 / 0.07);
+  --shadow-up: 0 -4px 20px rgb(124 45 18 / 0.1);
+  --shadow-modal: 0 24px 60px rgb(43 33 24 / 0.28);
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
-    @apply bg-bg font-sans text-base leading-snug text-ink antialiased;
-    letter-spacing: -0.005em;
+    @apply bg-bg font-sans text-[15px] leading-snug font-semibold text-ink antialiased;
   }
   h1,
   h2,
@@ -44,7 +63,16 @@
     letter-spacing: -0.02em;
   }
   :focus-visible {
-    outline: 3px solid var(--color-info);
+    outline: 3px solid var(--color-focus);
     outline-offset: 2px;
+  }
+  button:not(:disabled):active {
+    transform: scale(0.98);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 }
