@@ -21,6 +21,7 @@ import {
 } from '../components/ui';
 import { ThemeCard } from '../components/ThemeToggle';
 import { ApiError, api, patch, post } from '../lib/api';
+import { useUnsavedWarning } from '../lib/useUnsavedWarning';
 
 const KEY = ['settings'] as const;
 
@@ -79,6 +80,15 @@ interface DecodedQris {
   is_static: boolean;
 }
 
+const FIELD_LABELS: Partial<Record<keyof Form, string>> = {
+  display_name: 'Nama toko',
+  address: 'Alamat',
+  phone: 'Telepon',
+  receipt_header: 'Header struk',
+  receipt_footer: 'Footer struk',
+  qris_static_payload: 'Kode QRIS',
+};
+
 const blankToNull = (v: string) => (v.trim() === '' ? null : v.trim());
 
 function SettingsForm({ settings }: { settings: OutletSettings }) {
@@ -103,10 +113,50 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     },
   });
   const [decodeNote, setDecodeNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [logoNotice, setLogoNotice] = useState<string | null>(null);
+  const [invalidLabels, setInvalidLabels] = useState<string[]>([]);
   const errors = form.formState.errors;
+  useUnsavedWarning(form.formState.isDirty);
+
+  /** Saves just these fields right away and marks them as clean, so an upload survives a refresh. */
+  async function persist(body: Partial<Record<keyof Form, string | boolean | null>>) {
+    const updated = await patch<OutletSettings>('/settings', body);
+    qc.setQueryData(KEY, updated);
+    const saved = toForm(updated);
+    for (const key of Object.keys(body) as (keyof Form)[]) {
+      form.resetField(key, { defaultValue: saved[key] });
+    }
+  }
+
+  async function changeLogo(url: string | null) {
+    setLogoNotice(null);
+    await persist({ logo_url: url });
+    setLogoNotice(url ? 'Logo tersimpan.' : 'Logo dihapus.');
+  }
+
+  async function changeQrisImage(url: string | null) {
+    setDecodeNote(null);
+    if (url) {
+      // Not saved yet: the API rejects an image without a QRIS code, so decodeQris saves it once it has one.
+      form.setValue('qris_static_image_url', url, { shouldDirty: true });
+      return;
+    }
+    const noCode = form.getValues('qris_static_payload').trim() === '';
+    await persist({
+      qris_static_image_url: null,
+      ...(noCode ? { qris_embed_amount: false } : {}),
+    });
+    setDecodeNote({ ok: true, text: 'Gambar QRIS dihapus.' });
+  }
+
+  function onInvalid(errs: typeof errors) {
+    const keys = Object.keys(errs) as (keyof Form)[];
+    setInvalidLabels(keys.map((k) => FIELD_LABELS[k] ?? k));
+    if (keys[0]) form.setFocus(keys[0]);
+  }
 
   /** Fills "Kode QRIS" from the uploaded image; on failure the owner is asked to type it. */
-  async function decodeQris(file: File) {
+  async function decodeQris(file: File, imageUrl: string) {
     setDecodeNote(null);
     try {
       const res = await post<DecodedQris>('/settings/qris/decode', {
@@ -115,7 +165,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
       if (!res.is_static) {
         setDecodeNote({
           ok: false,
-          text: 'QRIS pada gambar ini sudah berisi nominal (dinamis). Gunakan QRIS statis toko, atau isi kode QRIS secara manual.',
+          text: 'QRIS pada gambar ini sudah berisi nominal (dinamis). Gambar QRIS belum tersimpan. Gunakan QRIS statis toko, atau isi kode QRIS secara manual lalu tekan Simpan pengaturan.',
         });
         return;
       }
@@ -123,17 +173,21 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
         shouldDirty: true,
         shouldValidate: true,
       });
+      await persist({
+        qris_static_image_url: imageUrl,
+        qris_static_payload: res.qris_static_payload,
+      });
       setDecodeNote({
         ok: true,
-        text: `Kode QRIS terisi otomatis dari gambar (${res.qris_merchant_name}).`,
+        text: `Gambar & kode QRIS tersimpan (${res.qris_merchant_name}).`,
       });
     } catch (e) {
       const unreadable = e instanceof ApiError && e.code === 'INVALID_QRIS_PAYLOAD';
       setDecodeNote({
         ok: false,
         text: unreadable
-          ? 'Kode QRIS tidak terbaca dari gambar. Isi kode QRIS secara manual, atau unggah gambar yang lebih jelas (PNG/JPG).'
-          : 'Gambar tersimpan, tetapi kode QRIS belum bisa dibaca otomatis. Isi kode QRIS secara manual.',
+          ? 'Kode QRIS tidak terbaca dari gambar. Gambar QRIS belum tersimpan. Isi kode QRIS secara manual, lalu tekan Simpan pengaturan.'
+          : 'Gambar QRIS belum tersimpan. Isi kode QRIS, lalu tekan Simpan pengaturan.',
       });
     }
   }
@@ -152,7 +206,10 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
 
   return (
     <form
-      onSubmit={(e) => void form.handleSubmit((v) => save.mutateAsync(v).catch(() => undefined))(e)}
+      onSubmit={(e) => {
+        setInvalidLabels([]);
+        void form.handleSubmit((v) => save.mutateAsync(v).catch(() => undefined), onInvalid)(e);
+      }}
       noValidate
       className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
     >
@@ -186,7 +243,8 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 label="Logo"
                 purpose="logo"
                 value={field.value}
-                onChange={field.onChange}
+                onChange={changeLogo}
+                notice={logoNotice}
               />
             )}
           />
@@ -219,8 +277,13 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 label="Gambar QRIS"
                 purpose="qris_image"
                 value={field.value}
-                onChange={field.onChange}
+                onChange={changeQrisImage}
                 onUploaded={decodeQris}
+                hint={
+                  form.formState.dirtyFields.qris_static_image_url
+                    ? 'Belum tersimpan. Isi kode QRIS lalu tekan Simpan pengaturan.'
+                    : undefined
+                }
               />
             )}
           />
@@ -241,21 +304,29 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             {...form.register('qris_embed_amount')}
           />
         </Card>
-        <div className="sticky bottom-20 z-[5] flex items-center gap-3 rounded-3xl bg-surface p-3 shadow-up md:bottom-4">
-          <Button
-            type="submit"
-            variant="primary"
-            className="flex-1 sm:flex-none"
-            disabled={save.isPending}
-          >
-            Simpan pengaturan
-          </Button>
-          {save.isSuccess && !form.formState.isDirty ? (
-            <p role="status" className="flex items-center gap-1 text-sm font-extrabold text-ok-ink">
-              <Check size={18} aria-hidden="true" />
-              Tersimpan
-            </p>
+        <div className="sticky bottom-20 z-[5] rounded-3xl bg-surface p-3 shadow-up md:bottom-4">
+          {invalidLabels.length > 0 ? (
+            <Alert>Ada isian yang perlu diperbaiki: {invalidLabels.join(', ')}.</Alert>
           ) : null}
+          <div className="flex items-center gap-3">
+            <Button
+              type="submit"
+              variant="primary"
+              className="flex-1 sm:flex-none"
+              disabled={save.isPending}
+            >
+              Simpan pengaturan
+            </Button>
+            {save.isSuccess && !form.formState.isDirty ? (
+              <p
+                role="status"
+                className="flex items-center gap-1 text-sm font-extrabold text-ok-ink"
+              >
+                <Check size={18} aria-hidden="true" />
+                Tersimpan
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
       <aside aria-label="Pratinjau struk" className="lg:sticky lg:top-4 lg:self-start">

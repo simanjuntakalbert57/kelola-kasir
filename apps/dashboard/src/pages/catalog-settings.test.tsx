@@ -181,18 +181,84 @@ describe('Pengaturan toko', () => {
     renderApp('/pengaturan');
     const file = new File(['png'], 'qris.png', { type: 'image/png' });
     await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
-    expect(await screen.findByText(/Kode QRIS terisi otomatis/)).toBeInTheDocument();
+    expect(await screen.findByText(/Gambar & kode QRIS tersimpan/)).toBeInTheDocument();
     expect(screen.getByLabelText('Kode QRIS')).toHaveValue('QRIS-PAYLOAD');
     expect(calls.find((c) => c.key === 'POST /settings/qris/decode')?.body).toEqual({
       image_base64: 'cG5n',
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Simpan pengaturan' }));
-    await vi.waitFor(() =>
-      expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toMatchObject({
-        qris_static_image_url: 'https://cdn.test/qris.png',
-        qris_static_payload: 'QRIS-PAYLOAD',
-      }),
+    // Persisted right after decoding, without pressing "Simpan pengaturan".
+    expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toEqual({
+      qris_static_image_url: 'https://cdn.test/qris.png',
+      qris_static_payload: 'QRIS-PAYLOAD',
+    });
+  });
+
+  it('saves the logo right after upload and keeps it after a remount', async () => {
+    let stored = { ...settings } as Record<string, unknown>;
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(stored),
+      'PATCH /settings': (b) => {
+        stored = { ...stored, ...(b as object) };
+        return json(stored);
+      },
+    });
+    const first = renderApp('/pengaturan');
+    const file = new File(['png'], 'logo.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Logo'), file);
+    expect(await screen.findByText('Logo tersimpan.')).toBeInTheDocument();
+    expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toEqual({
+      logo_url: 'https://cdn.test/qris.png',
+    });
+    first.unmount();
+    renderApp('/pengaturan');
+    expect(await screen.findByAltText('Pratinjau Logo')).toHaveAttribute(
+      'src',
+      'https://cdn.test/qris.png',
     );
+  });
+
+  it('does not save the QRIS image when it cannot be read', async () => {
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+      'POST /settings/qris/decode': () => problem(422, 'INVALID_QRIS_PAYLOAD'),
+      'PATCH /settings': () => json(settings),
+    });
+    renderApp('/pengaturan');
+    const file = new File(['png'], 'qris.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
+    expect(await screen.findByText(/Gambar QRIS belum tersimpan/)).toBeInTheDocument();
+    expect(calls.find((c) => c.key === 'PATCH /settings')).toBeUndefined();
+    expect(screen.queryByText(/Gambar tersimpan/)).toBeNull();
+  });
+
+  it('warns before leaving with unsaved changes', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+    });
+    renderApp('/pengaturan');
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    await userEvent.type(await screen.findByLabelText('Alamat'), 'x');
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+  });
+
+  it('shows an alert above the save button listing invalid fields', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json({ ...settings, qris_static_image_url: 'https://x.test/q.png' }),
+    });
+    renderApp('/pengaturan');
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan pengaturan' }));
+    expect(
+      await screen.findByText(/Ada isian yang perlu diperbaiki: Kode QRIS/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Kode QRIS')).toHaveFocus();
   });
 
   it('asks for a manual code when the image cannot be read', async () => {
@@ -205,6 +271,7 @@ describe('Pengaturan toko', () => {
     const file = new File(['png'], 'qris.png', { type: 'image/png' });
     await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
     expect(await screen.findByText(/isi kode QRIS secara manual/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Gambar tersimpan/)).toBeNull();
     expect(screen.getByLabelText('Kode QRIS')).toHaveValue('');
   });
 

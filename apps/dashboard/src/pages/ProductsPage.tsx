@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { ImageUpload } from '../components/ImageUpload';
+import { useUnsavedWarning } from '../lib/useUnsavedWarning';
 import {
   Alert,
   Badge,
@@ -217,6 +218,7 @@ function ProductDialog({
   });
   const price = toRupiah(useWatch({ control: form.control, name: 'price' }));
   const errors = form.formState.errors;
+  useUnsavedWarning(form.formState.isDirty);
   return (
     <Dialog title={product ? 'Ubah produk' : 'Tambah produk'} onClose={onClose}>
       <form
@@ -260,6 +262,11 @@ function ProductDialog({
               purpose="product_image"
               value={field.value}
               onChange={field.onChange}
+              hint={
+                form.formState.dirtyFields.image_url
+                  ? 'Tekan Simpan produk agar foto tersimpan.'
+                  : undefined
+              }
             />
           )}
         />
