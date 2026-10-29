@@ -47,6 +47,7 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
     const { shop } = seed();
     await openAsOwner(page, '/pegawai');
     await page.getByRole('button', { name: 'Nonaktifkan Rina E2E' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ya, nonaktifkan' }).click();
     await expect(page.getByRole('listitem').filter({ hasText: 'Rina E2E' })).toContainText(
       'Nonaktif',
     );
@@ -94,7 +95,7 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
     });
     await openAsOwner(page, '/perangkat');
     await page.getByRole('button', { name: 'Cabut Kasir Cabut E2E' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Cabut perangkat' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ya, cabut' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const after = await call('GET', '/devices/me/employees', {
       headers: { 'x-device-token': paired.data.device_token },
@@ -108,8 +109,8 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
     await page.getByLabel('Nama toko').fill('Jus Segar E2E');
     await page.getByLabel('Alamat').fill('Jl. Mawar No. 1, Medan');
     await page.getByLabel('Footer struk').fill('Terima kasih, datang lagi!');
-    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
-    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
+    await page.getByRole('button', { name: 'Simpan pengaturan' }).click();
+    await expect(page.getByText('Tersimpan')).toBeVisible();
     const preview = page.getByRole('complementary', { name: 'Pratinjau struk' });
     await expect(preview).toContainText('Jus Segar E2E');
     await expect(preview).toContainText('Terima kasih, datang lagi!');
@@ -120,7 +121,7 @@ test.describe('Pegawai, perangkat, pengaturan (TC-EMP-01, TC-DEV-01, TC-SET-01)'
   test('QRIS: kode tidak valid ditolak dengan pesan jelas', async ({ page }) => {
     await openAsOwner(page, '/pengaturan');
     await page.getByLabel('Kode QRIS', { exact: true }).fill('000201-bukan-qris');
-    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await page.getByRole('button', { name: 'Simpan pengaturan' }).click();
     await expect(page.getByText('Kode QRIS tidak valid. Periksa kembali isinya.')).toBeVisible();
   });
 });

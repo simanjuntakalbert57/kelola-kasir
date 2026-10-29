@@ -9,7 +9,7 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
     await page.getByRole('button', { name: /Tambah produk/ }).click();
     await page.getByLabel('Nama produk').fill('Jus Mangga E2E');
     await page.getByLabel('Harga (Rp)').fill('18000');
-    await page.getByRole('button', { name: 'Simpan' }).click();
+    await page.getByRole('button', { name: 'Simpan produk' }).click();
     const row = page.getByRole('listitem').filter({ hasText: 'Jus Mangga E2E' });
     await expect(row).toContainText(/Rp\s?18\.000/);
     await expect(row.getByText('Aktif')).toBeVisible();
@@ -22,12 +22,12 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
   test('TC-PRD-01 validasi: nama kosong, harga nol/desimal/negatif ditolak', async ({ page }) => {
     await openAsOwner(page, '/produk');
     await page.getByRole('button', { name: /Tambah produk/ }).click();
-    await page.getByRole('button', { name: 'Simpan' }).click();
+    await page.getByRole('button', { name: 'Simpan produk' }).click();
     await expect(page.getByText('Nama produk wajib diisi.')).toBeVisible();
     for (const bad of ['0', '15000.5', '-5000', 'abc']) {
       await page.getByLabel('Nama produk').fill('Uji Harga');
       await page.getByLabel('Harga (Rp)').fill(bad);
-      await page.getByRole('button', { name: 'Simpan' }).click();
+      await page.getByRole('button', { name: 'Simpan produk' }).click();
       await expect(page.getByText(/Harga harus/)).toBeVisible();
     }
     await expect(page.getByRole('listitem').filter({ hasText: 'Uji Harga' })).toHaveCount(0);
@@ -41,7 +41,7 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
     const row = page.getByRole('listitem').filter({ hasText: 'Jus Jeruk' });
     await row.getByRole('button', { name: 'Ubah Jus Jeruk' }).click();
     await page.getByLabel('Harga (Rp)').fill('13000');
-    await page.getByRole('button', { name: 'Simpan' }).click();
+    await page.getByRole('button', { name: 'Simpan produk' }).click();
     await expect(row).toContainText(/Rp\s?13\.000/);
     const tx = await call<{ items: { unit_price: number }[] }>(
       'GET',
@@ -54,7 +54,7 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
     // kembalikan harga agar data seed tetap konsisten untuk spec lain
     await row.getByRole('button', { name: 'Ubah Jus Jeruk' }).click();
     await page.getByLabel('Harga (Rp)').fill('12000');
-    await page.getByRole('button', { name: 'Simpan' }).click();
+    await page.getByRole('button', { name: 'Simpan produk' }).click();
     await expect(row).toContainText(/Rp\s?12\.000/);
   });
 
@@ -69,8 +69,8 @@ test.describe('Produk & kategori (TC-PRD-01/05/06)', () => {
 
   test('hapus produk meminta konfirmasi dan menyembunyikan dari daftar', async ({ page }) => {
     await openAsOwner(page, '/produk');
-    page.once('dialog', (d) => void d.accept());
     await page.getByRole('button', { name: 'Hapus Jus Mangga E2E' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Ya, hapus' }).click();
     await expect(page.getByRole('listitem').filter({ hasText: 'Jus Mangga E2E' })).toHaveCount(0);
   });
 

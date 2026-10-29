@@ -402,6 +402,8 @@ export function ProductsPage() {
 
   const productList = products.data?.data;
   const filtering = categoryId !== '' || debouncedSearch.trim() !== '';
+  // The empty state carries its own call to action, so the header one is hidden to avoid two identical buttons.
+  const emptyWithCta = productList?.length === 0 && !filtering && categories.length > 0;
 
   return (
     <>
@@ -413,13 +415,15 @@ export function ProductsPage() {
             : undefined
         }
         action={
-          <Button
-            variant="primary"
-            disabled={categories.length === 0}
-            onClick={() => setEditing('new')}
-          >
-            ＋ Tambah produk
-          </Button>
+          productList && !emptyWithCta ? (
+            <Button
+              variant="primary"
+              disabled={categories.length === 0}
+              onClick={() => setEditing('new')}
+            >
+              ＋ Tambah produk
+            </Button>
+          ) : undefined
         }
       />
       {cats.error ? (
@@ -466,7 +470,7 @@ export function ProductsPage() {
                     ? 'Coba kata kunci atau kategori lain.'
                     : 'Yuk tambah yang pertama. Akan muncul di aplikasi kasir setelah sinkron.'}
                 </p>
-                {!filtering && categories.length > 0 ? (
+                {emptyWithCta ? (
                   <Button variant="primary" onClick={() => setEditing('new')}>
                     Tambah produk
                   </Button>

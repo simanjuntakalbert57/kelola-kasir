@@ -130,9 +130,11 @@ export function DevicesPage() {
         title="Perangkat"
         subtitle="Tablet/HP yang boleh dipakai sebagai kasir"
         action={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            ＋ Tambah perangkat
-          </Button>
+          data && data.data.length > 0 ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              ＋ Tambah perangkat
+            </Button>
+          ) : undefined
         }
       />
       {isPending ? <Skeleton /> : null}

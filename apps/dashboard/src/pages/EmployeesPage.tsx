@@ -240,9 +240,11 @@ export function EmployeesPage() {
             : undefined
         }
         action={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            ＋ Tambah pegawai
-          </Button>
+          data && data.data.length > 0 ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              ＋ Tambah pegawai
+            </Button>
+          ) : undefined
         }
       />
       {isPending ? <Skeleton /> : null}
