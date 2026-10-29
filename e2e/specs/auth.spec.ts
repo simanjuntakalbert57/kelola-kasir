@@ -8,7 +8,9 @@ test.describe('Login owner (TC-AUTH-01/02)', () => {
     context,
   }) => {
     await loginUi(page);
-    await expect(page.getByRole('heading', { name: /^(Selamat (pagi|siang|sore|malam), Pak |Halo!)/ })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /^(Selamat (pagi|siang|sore|malam), Pak |Halo!)/ }),
+    ).toBeVisible();
     const refresh = (await context.cookies()).find((c) => c.name === 'kk_refresh');
     expect(refresh?.httpOnly).toBe(true);
     expect(refresh?.sameSite).toBe('Strict');
@@ -17,7 +19,9 @@ test.describe('Login owner (TC-AUTH-01/02)', () => {
   test('sesi bertahan setelah reload (refresh token)', async ({ page }) => {
     await openAsOwner(page, '/');
     await page.reload();
-    await expect(page.getByRole('heading', { name: /^(Selamat (pagi|siang|sore|malam), Pak |Halo!)/ })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /^(Selamat (pagi|siang|sore|malam), Pak |Halo!)/ }),
+    ).toBeVisible();
   });
 
   test('halaman owner tanpa login diarahkan ke /login', async ({ page }) => {
