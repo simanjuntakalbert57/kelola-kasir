@@ -9,9 +9,12 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   Dialog,
   EmptyState,
+  ErrorState,
   Field,
+  NoticeCard,
   PageHeader,
   Skeleton,
 } from '../components/ui';
@@ -25,6 +28,12 @@ const createSchema = z.object({
   pin: pinSchema,
 });
 const resetSchema = z.object({ pin: pinSchema });
+
+const shortDate = new Intl.DateTimeFormat('id-ID', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'Asia/Jakarta',
+});
 
 function pinError(e: unknown): string {
   if (e instanceof ApiError && e.code === 'PIN_NOT_UNIQUE') {
@@ -64,7 +73,7 @@ function CreateEmployeeDialog({ onClose }: { onClose: () => void }) {
           inputMode="numeric"
           maxLength={6}
           autoComplete="new-password"
-          hint="PIN tidak pernah ditampilkan kembali."
+          hint="PIN tidak bisa dilihat lagi setelah disimpan."
           error={form.formState.errors.pin?.message}
           {...form.register('pin')}
         />
@@ -86,7 +95,7 @@ function ResetPinDialog({ employee, onClose }: { employee: Employee; onClose: ()
     onSuccess: onClose,
   });
   return (
-    <Dialog title={`Atur PIN — ${employee.name}`} onClose={onClose}>
+    <Dialog title={`Atur ulang PIN ${employee.name}`} onClose={onClose}>
       <form
         onSubmit={(e) =>
           void form.handleSubmit((v) => reset.mutateAsync(v).catch(() => undefined))(e)
@@ -100,7 +109,7 @@ function ResetPinDialog({ employee, onClose }: { employee: Employee; onClose: ()
           inputMode="numeric"
           maxLength={6}
           autoComplete="new-password"
-          hint="PIN tidak pernah ditampilkan kembali."
+          hint="PIN tidak bisa dilihat lagi setelah disimpan."
           error={form.formState.errors.pin?.message}
           {...form.register('pin')}
         />
@@ -118,54 +127,67 @@ function ResetPinDialog({ employee, onClose }: { employee: Employee; onClose: ()
 function EmployeeRow({
   employee,
   onReset,
+  onDeactivate,
 }: {
   employee: Employee;
   onReset: (e: Employee) => void;
+  onDeactivate: (e: Employee) => void;
 }) {
   const qc = useQueryClient();
-  const toggle = useMutation({
-    mutationFn: () =>
-      patch<Employee>(`/employees/${employee.id}`, { is_active: !employee.is_active }),
+  const activate = useMutation({
+    mutationFn: () => patch<Employee>(`/employees/${employee.id}`, { is_active: true }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-[16px] bg-surface p-3 shadow-card">
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-bold">{employee.name}</p>
-        <Badge tone={employee.is_active ? 'ok' : 'off'}>
-          {employee.is_active ? 'Aktif' : 'Nonaktif'}
-        </Badge>
-        {toggle.error ? (
+    <li className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface p-3 shadow-card">
+      <div
+        aria-hidden="true"
+        className="grid size-11 shrink-0 place-items-center rounded-full bg-tint text-lg font-black text-tint-ink"
+      >
+        {employee.name.slice(0, 1).toUpperCase()}
+      </div>
+      <div className="min-w-40 flex-1">
+        <p className="truncate font-extrabold">{employee.name}</p>
+        <p className="text-sm text-muted">
+          Kasir
+          {employee.created_at
+            ? ` · dibuat ${shortDate.format(new Date(employee.created_at))}`
+            : ''}
+        </p>
+        {activate.error ? (
           <p role="alert" className="mt-1 text-[13px] text-danger">
-            {errorMessage(toggle.error)}
+            {errorMessage(activate.error)}
           </p>
         ) : null}
       </div>
-      <div className="flex gap-2">
+      <Badge tone={employee.is_active ? 'ok' : 'off'}>
+        {employee.is_active ? 'Aktif' : 'Nonaktif'}
+      </Badge>
+      <div className="flex w-full gap-2 sm:w-auto">
+        <Button
+          small
+          className="flex-1 sm:flex-none"
+          onClick={() => onReset(employee)}
+          aria-label={`Atur ulang PIN ${employee.name}`}
+        >
+          Atur ulang PIN
+        </Button>
         {employee.is_active ? (
-          <>
-            <Button
-              small
-              onClick={() => onReset(employee)}
-              aria-label={`Atur ulang PIN ${employee.name}`}
-            >
-              Atur ulang PIN
-            </Button>
-            <Button
-              small
-              variant="danger"
-              disabled={toggle.isPending}
-              onClick={() => toggle.mutate()}
-              aria-label={`Nonaktifkan ${employee.name}`}
-            >
-              Nonaktifkan
-            </Button>
-          </>
+          <Button
+            small
+            variant="danger"
+            className="flex-1 sm:flex-none"
+            onClick={() => onDeactivate(employee)}
+            aria-label={`Nonaktifkan ${employee.name}`}
+          >
+            Nonaktifkan
+          </Button>
         ) : (
           <Button
             small
-            disabled={toggle.isPending}
-            onClick={() => toggle.mutate()}
+            className="flex-1 sm:flex-none"
+            disabled={activate.isPending}
+            onClick={() => activate.mutate()}
             aria-label={`Aktifkan ${employee.name}`}
           >
             Aktifkan
@@ -176,9 +198,33 @@ function EmployeeRow({
   );
 }
 
+function DeactivateDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  const qc = useQueryClient();
+  const deactivate = useMutation({
+    mutationFn: () => patch<Employee>(`/employees/${employee.id}`, { is_active: false }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: KEY });
+      onClose();
+    },
+  });
+  return (
+    <ConfirmDialog
+      title={`Nonaktifkan ${employee.name}?`}
+      confirmLabel="Ya, nonaktifkan"
+      pending={deactivate.isPending}
+      error={deactivate.error ? errorMessage(deactivate.error) : undefined}
+      onConfirm={() => deactivate.mutate()}
+      onClose={onClose}
+    >
+      {employee.name} tidak bisa masuk ke aplikasi kasir lagi.
+    </ConfirmDialog>
+  );
+}
+
 export function EmployeesPage() {
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<Employee | null>(null);
+  const [deactivating, setDeactivating] = useState<Employee | null>(null);
   const { data, isPending, error, refetch } = useQuery({
     queryKey: KEY,
     queryFn: () => api<{ data: Employee[] }>('/employees'),
@@ -188,6 +234,11 @@ export function EmployeesPage() {
     <>
       <PageHeader
         title="Pegawai"
+        subtitle={
+          data
+            ? `${data.data.length} pegawai · PIN dipakai pegawai buat masuk ke aplikasi kasir`
+            : undefined
+        }
         action={
           <Button variant="primary" onClick={() => setCreating(true)}>
             ＋ Tambah pegawai
@@ -196,30 +247,46 @@ export function EmployeesPage() {
       />
       {isPending ? <Skeleton /> : null}
       {error ? (
-        <Alert>
-          Gagal memuat pegawai.{' '}
-          <button type="button" className="underline" onClick={() => void refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, daftar pegawainya belum kebuka. Coba lagi ya"
+          onRetry={() => void refetch()}
+        />
       ) : null}
       {data && data.data.length === 0 ? (
         <Card>
           <EmptyState icon="🧑‍🍳" title="Belum ada pegawai">
-            <p>Tambahkan pegawai agar bisa masuk dengan PIN di kasir.</p>
+            <p>Tambah pegawai supaya kasir bisa dipakai.</p>
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              Tambah pegawai
+            </Button>
           </EmptyState>
         </Card>
       ) : null}
       {data && data.data.length > 0 ? (
-        <ul className="space-y-2">
-          {data.data.map((e) => (
-            <EmployeeRow key={e.id} employee={e} onReset={setResetting} />
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {data.data.map((e) => (
+              <EmployeeRow
+                key={e.id}
+                employee={e}
+                onReset={setResetting}
+                onDeactivate={setDeactivating}
+              />
+            ))}
+          </ul>
+          <div className="mt-4">
+            <NoticeCard>
+              PIN tidak bisa dilihat lagi. Kalau pegawai lupa, atur ulang PIN-nya.
+            </NoticeCard>
+          </div>
+        </>
       ) : null}
       {creating ? <CreateEmployeeDialog onClose={() => setCreating(false)} /> : null}
       {resetting ? (
         <ResetPinDialog employee={resetting} onClose={() => setResetting(null)} />
+      ) : null}
+      {deactivating ? (
+        <DeactivateDialog employee={deactivating} onClose={() => setDeactivating(null)} />
       ) : null}
     </>
   );

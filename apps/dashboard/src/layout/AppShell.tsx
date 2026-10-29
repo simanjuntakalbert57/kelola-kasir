@@ -40,7 +40,7 @@ export function usePendingVoidCount(): number {
   const { data } = useQuery({
     queryKey: ['void-requests', 'pending-count'],
     queryFn: () =>
-      api<{ data: VoidRequest[] }>(`/void-requests${qs({ status: 'pending' })}`).then(
+      api<{ data: VoidRequest[] }>(`/void-requests${qs({ status: 'pending', limit: 10 })}`).then(
         (r) => r.data.length,
       ),
     retry: false,
