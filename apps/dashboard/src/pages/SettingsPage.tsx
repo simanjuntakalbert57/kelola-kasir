@@ -19,6 +19,7 @@ import {
   Skeleton,
   TextareaField,
 } from '../components/ui';
+import { ThemeCard } from '../components/ThemeToggle';
 import { ApiError, api, patch, post } from '../lib/api';
 
 const KEY = ['settings'] as const;
@@ -286,6 +287,9 @@ export function SettingsPage() {
           onRetry={() => void refetch()}
         />
       ) : null}
+      <div className="mb-4">
+        <ThemeCard />
+      </div>
       {data ? <SettingsForm settings={data} /> : null}
     </>
   );

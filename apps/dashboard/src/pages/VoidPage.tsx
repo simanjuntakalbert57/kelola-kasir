@@ -114,7 +114,7 @@ export function VoidPage() {
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={`min-h-11 rounded-full px-4 text-sm font-extrabold ring-1 ring-line ${tab === t.id ? 'bg-pri text-white' : 'bg-surface text-muted'}`}
+            className={`min-h-11 rounded-full px-4 text-sm font-extrabold ring-1 ring-line ${tab === t.id ? 'bg-pri text-pri-ink' : 'bg-surface text-muted'}`}
           >
             {t.label}
           </button>

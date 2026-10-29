@@ -10,7 +10,7 @@ export interface RangeState {
 export const initialRange = (): RangeState => ({ preset: 'today', range: presetRange('today') });
 
 const chip = (on: boolean) =>
-  `min-h-10 rounded-full px-3.5 text-sm font-bold ring-1 ring-line ${on ? 'bg-pri text-white' : 'bg-surface text-muted hover:bg-bg'}`;
+  `min-h-10 rounded-full px-3.5 text-sm font-bold ring-1 ring-line ${on ? 'bg-pri text-pri-ink' : 'bg-surface text-muted hover:bg-bg'}`;
 
 /** Preset chips (Hari ini / 7 hari / Bulan ini) plus a custom from–to range. */
 export function DateRangePicker({

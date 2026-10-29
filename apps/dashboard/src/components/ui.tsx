@@ -13,7 +13,7 @@ import type {
 type Variant = 'primary' | 'secondary' | 'danger';
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-pri text-white hover:bg-pri-hover active:bg-pri-press',
+  primary: 'bg-pri text-pri-ink hover:bg-pri-hover active:bg-pri-press',
   secondary: 'bg-surface text-ink ring-2 ring-line-strong ring-inset hover:bg-bg',
   danger: 'bg-surface text-danger ring-2 ring-danger ring-inset hover:bg-need-bg',
 };
@@ -76,7 +76,7 @@ export function NoticeCard({
     >
       <span
         aria-hidden="true"
-        className={`grid size-9 shrink-0 place-items-center rounded-xl ${action ? 'bg-need-ink text-white' : 'bg-white/70'}`}
+        className={`grid size-9 shrink-0 place-items-center rounded-xl ${action ? 'bg-need-ink text-need-bg' : 'bg-surface/70'}`}
       >
         {action ? <AlertTriangle size={20} /> : <Info size={20} />}
       </span>

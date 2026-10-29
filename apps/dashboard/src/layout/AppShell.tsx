@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { api, qs } from '../lib/api';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export const NAV: readonly {
   to: string;
@@ -54,7 +55,7 @@ export function CountBadge({ count, className = '' }: { count: number; className
   return (
     <span
       aria-label={`${count} permintaan batal menunggu`}
-      className={`rounded-full bg-danger px-2.5 text-[12.5px] font-extrabold text-white ${className}`}
+      className={`rounded-full bg-danger px-2.5 text-[12.5px] font-extrabold text-on-danger ${className}`}
     >
       {count > 9 ? '9+' : count}
     </span>
@@ -74,7 +75,7 @@ export function AppShell() {
   const pending = usePendingVoidCount();
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      <aside className="hidden w-62 shrink-0 flex-col gap-1 border-r border-line bg-surface px-2.5 py-5 md:flex">
+      <aside className="hidden w-62 shrink-0 flex-col gap-1 border-r border-line bg-side px-2.5 py-5 md:flex">
         <div className="flex items-center gap-3 px-2 pb-4">
           <div
             aria-hidden="true"
@@ -127,6 +128,9 @@ export function AppShell() {
       </aside>
 
       <main className="mx-auto w-full max-w-[1264px] min-w-0 flex-1 p-4 pb-28 md:px-8 md:py-6 md:pb-6">
+        <div className="-mb-1 flex justify-end">
+          <ThemeToggle />
+        </div>
         <Outlet />
       </main>
 
