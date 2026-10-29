@@ -112,7 +112,8 @@ describe('Transaksi', () => {
     expect(await screen.findByText('JUS1-K01-261026-0042')).toBeInTheDocument();
     expect(screen.getAllByText('Lunas').length).toBeGreaterThan(0);
 
-    await userEvent.selectOptions(screen.getByLabelText('Metode'), 'qris');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Metode' }));
+    await userEvent.click(screen.getByRole('option', { name: 'QRIS' }));
     await vi.waitFor(() =>
       expect(
         calls.some(
@@ -134,7 +135,10 @@ describe('Transaksi', () => {
       'GET /transactions': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/transaksi');
-    await userEvent.selectOptions(await screen.findByLabelText('Status'), 'voided');
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Status' }));
+    await userEvent.click(
+      within(screen.getByRole('listbox')).getByRole('option', { name: 'Dibatalkan' }),
+    );
     expect(await screen.findByText('Tidak ada transaksi untuk filter ini')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset filter' })).toBeInTheDocument();
   });

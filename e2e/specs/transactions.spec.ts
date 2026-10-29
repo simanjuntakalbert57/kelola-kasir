@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { seed } from '../support/state.js';
-import { openAsOwner, rp } from '../support/ui.js';
+import { openAsOwner, pickOption, rp } from '../support/ui.js';
 
 /** Seed hari ini: 9 transaksi (lihat global-setup). */
 test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
@@ -18,23 +18,23 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
 
   test('TC-LST-01 filter metode, status, pegawai bisa dikombinasikan', async ({ page }) => {
     await openAsOwner(page, '/transaksi');
-    await page.getByLabel('Metode').selectOption('qris');
+    await pickOption(page, 'Metode', 'QRIS');
     await expect(page.getByText(/^Menampilkan \d+ transaksi$/)).toHaveText(
       'Menampilkan 3 transaksi',
     );
-    await page.getByLabel('Status').selectOption('cancelled');
+    await pickOption(page, 'Status', 'Batal');
     await expect(page.getByText('Menampilkan 1 transaksi')).toBeVisible();
-    await page.getByLabel('Status').selectOption('');
-    await page.getByLabel('Metode').selectOption('cash');
-    await page.getByLabel('Pegawai').selectOption({ label: 'Budi E2E' });
+    await pickOption(page, 'Status', 'Semua status');
+    await pickOption(page, 'Metode', 'Cash');
+    await pickOption(page, 'Pegawai', 'Budi E2E');
     await expect(page.getByText('Menampilkan 3 transaksi')).toBeVisible();
-    await page.getByLabel('Status').selectOption('void_requested');
+    await pickOption(page, 'Status', 'Menunggu void');
     await expect(page.getByText('Menampilkan 2 transaksi')).toBeVisible();
   });
 
   test('filter tanpa hasil menampilkan empty state dan reset filter', async ({ page }) => {
     await openAsOwner(page, '/transaksi');
-    await page.getByLabel('Status').selectOption('voided');
+    await pickOption(page, 'Status', 'Dibatalkan');
     await expect(page.getByText('Tidak ada transaksi untuk filter ini')).toBeVisible();
     await page.getByRole('button', { name: 'Reset filter' }).click();
     await expect(page.getByText('Menampilkan 8 transaksi')).toBeVisible();

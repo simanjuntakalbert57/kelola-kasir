@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openAsOwner, rp } from '../support/ui.js';
+import { openAsOwner, pickOption, rp } from '../support/ui.js';
 
 /**
  * Shift 1 (Siti, tutup): modal 100.000 + cash 42.000 = 142.000 seharusnya; aktual 137.000; selisih -5.000
@@ -52,7 +52,7 @@ test.describe('Shift & kas (TC-SHF-05/06/07/12, O-07)', () => {
 
   test('filter pegawai', async ({ page }) => {
     await openAsOwner(page, '/shift');
-    await page.getByLabel('Pegawai').selectOption({ label: 'Budi E2E' });
+    await pickOption(page, 'Pegawai', 'Budi E2E');
     await expect(page.getByRole('listitem').filter({ hasText: 'Siti E2E' })).toHaveCount(0);
     await expect(page.getByRole('listitem').filter({ hasText: 'Budi E2E' })).toBeVisible();
   });
