@@ -178,9 +178,9 @@ export default function CloseShiftScreen() {
           style={styles.input}
         />
         {error ? <Banner tone="error">{error}</Banner> : null}
-        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
       </ScrollView>
       <View style={styles.footer}>
+        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
         <Button
           testID="close-submit"
           label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
   body: { padding: space.s4, gap: space.s3 },
-  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
+  footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
   box: {
     padding: space.s3,
     gap: space.s2,

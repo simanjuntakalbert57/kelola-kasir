@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { colors, radius, space, touch } from '../theme';
 
 type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost';
@@ -101,7 +109,11 @@ export function TopBar({ title, right }: { title: ReactNode; right?: ReactNode }
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 const KEYS_WITH_000 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', '⌫'] as const;
 
-/** Numeric keypad, 60px keys (thumb zone). Blank key (login) or `000` (cash). */
+/** Below this window height the keypad uses compact keys so it fits next to the pinned footer. */
+const COMPACT_HEIGHT = 700;
+const COMPACT_KEY = 48;
+
+/** Numeric keypad, 60px keys (48px on short screens). Blank key (login) or `000` (cash). */
 export function Keypad({
   onKey,
   disabled,
@@ -111,6 +123,8 @@ export function Keypad({
   disabled?: boolean;
   triple?: boolean;
 }) {
+  const { height } = useWindowDimensions();
+  const keyHeight = height < COMPACT_HEIGHT ? COMPACT_KEY : touch.key;
   const keys = triple ? KEYS_WITH_000 : KEYS;
   const rows = [keys.slice(0, 3), keys.slice(3, 6), keys.slice(6, 9), keys.slice(9, 12)];
   return (
@@ -119,7 +133,7 @@ export function Keypad({
         <View key={r} style={styles.keyRow}>
           {row.map((k, i) =>
             k === '' ? (
-              <View key={i} style={styles.keySlot} />
+              <View key={i} style={[styles.keySlot, { minHeight: keyHeight }]} />
             ) : (
               <Pressable
                 key={i}
@@ -131,7 +145,7 @@ export function Keypad({
                 style={({ pressed }) => [
                   styles.keySlot,
                   styles.key,
-                  { opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
+                  { minHeight: keyHeight, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
                 ]}
               >
                 <Text style={styles.keyText}>{k}</Text>

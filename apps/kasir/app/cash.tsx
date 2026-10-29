@@ -93,9 +93,9 @@ export default function CashScreen() {
         {error ? <Text style={styles.err}>{error}</Text> : null}
         <View style={{ flexGrow: 1 }} />
         <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
-        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
       </ScrollView>
       <View style={styles.footer}>
+        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
         <Button
           testID="cash-submit"
           label={busy ? 'Menyimpan…' : 'Selesai'}
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
   body: { flexGrow: 1, padding: space.s4, gap: space.s2 },
-  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
+  footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
   label: { color: colors.muted, fontSize: 13, fontWeight: '600' },
   total: { color: colors.orange, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] },
   quick: { flexDirection: 'row', gap: space.s2, flexWrap: 'wrap' },
