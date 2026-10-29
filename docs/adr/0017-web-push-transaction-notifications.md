@@ -24,7 +24,7 @@ Batasan:
 | `void.requested` | `void.requested` | Void diajukan kasir (`created = true`), online atau dari outbox | `requestVoid` (route + `sync/push`) |
 | `void.approved` | `void.approved` | Void **disetujui**: owner dari dashboard, PIN owner di HP kasir (`device_pin`), atau void langsung owner | `decideVoid` (hanya `approved`), `voidDirectly` |
 
-- **Void ditolak tidak dikirim** (desain §A.3). Persetujuan oleh owner sendiri tetap dikirim ke semua browsernya (desain §E; sederhana, bisa disaring nanti).
+- **Void ditolak tidak dikirim** (desain §A.3). `void.approved` yang diputuskan owner **dari dashboard** (`decideVoid`/`voidDirectly` dengan principal user) **tidak** dikirim ke langganan milik user yang memutuskan itu sendiri; owner lain di gerai yang sama tetap menerima. Persetujuan lewat PIN owner di HP kasir (`device_pin`) **selalu** dikirim ke semua owner, karena siapa pun yang tahu PIN bisa melakukannya (dipertahankan dari ADR-0016; desain §E menyebut ini sebagai penyaringan opsional).
 - QRIS `pending`, `cancelled`, dan kedaluwarsa **tidak** dikirim.
 - Replay (`created = false`, `duplicate`, `markPaid` pada payment yang sudah `paid`) tidak memicu apa pun.
 - `entity_id` = `transactions.id` untuk `transaction.paid`, `void_requests.id` untuk `void.*`, dan **id transaksi terkecil** dalam batch untuk `transaction.batch`.
@@ -169,7 +169,7 @@ Semua endpoint: `ownerAuth` dan **role `owner`** di gerai token (manager → `40
 **Cloudflare Pages:**
 - `_headers`: tambah blok `/sw.js` dengan `Cache-Control: no-cache` (browser memeriksa versi SW baru setiap navigasi) dan `Content-Type: text/javascript; charset=utf-8`. Tidak perlu `Service-Worker-Allowed` karena file di root.
 - Dashboard saat ini **tidak** memasang CSP. Bila CSP ditambahkan kelak, wajib menyertakan `worker-src 'self'`; push tidak butuh `connect-src` tambahan karena pengiriman dari VPS, bukan dari browser.
-- Proxy `/v1/*` (ADR-0014) tidak berubah: endpoint baru biasa memakai `Authorization`. Tidak ada webhook masuk.
+- Proxy `/v1/*` (ADR-0014) tidak berubah: endpoint baru biasa memakai `Authorization`. Tidak ada webhook masuk, dan header `x-telegram-bot-api-secret-token` dari rencana ADR-0016 **tidak** ditambahkan ke `FORWARDED_HEADERS` (belum pernah diimplementasikan).
 - Ikon `notif-192.png` dan `notif-badge-96.png` di `apps/dashboard/public/icons/` (desain §A.4).
 
 ### 9. Konfigurasi & secret
@@ -225,7 +225,7 @@ Kriteria penerimaan:
 - [ ] `POST /transactions` cash → tepat 1 baris `transaction.paid` per langganan aktif owner. Respons tidak menunggu enqueue (test: klien push palsu yang lambat tidak memperlambat respons).
 - [ ] QRIS `pending` → tidak ada. `confirm`/poll → 1. `confirm` ulang dan poll yang berpacu → tetap 1.
 - [ ] `sync/push` dengan 3 transaksi `applied` → 3 notifikasi `trx.offline`. Dengan 4 → 1 `trx.batch` dengan total/rincian/kasir benar. Push yang sama diulang → 0 baru.
-- [ ] `void.requested` (online + sync) dan `void.approved` (dashboard, `device_pin`, void langsung). Void ditolak → tidak ada.
+- [ ] `void.requested` (online + sync) dan `void.approved` (dashboard, `device_pin`, void langsung). Void ditolak → tidak ada. Persetujuan/void langsung dari dashboard tidak dikirim ke langganan user yang memutuskan; `device_pin` dikirim ke semua owner.
 - [ ] Prefs `transaction: false` / `void: false` dihormati untuk semua browser user itu. Langganan dicabut/`expired` dan user manager tidak menerima.
 - [ ] Push service `404`/`410` → langganan `expired` (`revoked_reason = 'gone'`), baris pending lainnya `failed`. `429` menghormati `Retry-After`. Timeout/`5xx` → backoff, terkirim setelah pulih. Lewat TTL → `expired`.
 - [ ] Payload sesuai teks A.3 desain (unit test per `kind`, termasuk varian 0 Cash/QRIS, > 2 kasir, zona WITA), ≤ 1 KB, tanpa `customer_label`/PIN/alasan void. Opsi kirim: TTL 14400/60, urgency `high`/`normal`.
@@ -255,7 +255,7 @@ Kriteria penerimaan:
 - Aktifkan di Chrome dan Edge (Windows dan/atau macOS), cek daftar perangkat, notifikasi uji, cabut.
 - 1 Cash + 1 QRIS online → notifikasi ≤ 30 detik, **tab dashboard ditutup**; klik membuka/memfokus dashboard di halaman yang benar.
 - Batch offline 2 dan 5 transaksi (mode pesawat lalu online).
-- Void diajukan + disetujui PIN; void ditolak tidak memunculkan notifikasi.
+- Void diajukan + disetujui PIN; void disetujui dari dashboard tidak muncul di browser owner yang menyetujui; void ditolak tidak memunculkan notifikasi.
 - Sync ulang tidak dobel; toggle prefs mati dihormati.
 - Blokir izin di browser → layar Diblokir; reset data situs → "Daftarkan ulang".
 - Notifikasi tanpa data pelanggan / alasan void.
