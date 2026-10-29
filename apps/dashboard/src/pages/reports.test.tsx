@@ -330,18 +330,28 @@ describe('Void', () => {
       'GET /dashboard/summary': () => json(summary),
     });
     renderApp('/void');
-    expect(await screen.findByText(/Alasan: “Salah pesan menu”/)).toBeInTheDocument();
+    expect(await screen.findByText(/Salah pesan menu/)).toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole('button', { name: /Setujui void JUS1-K01-261026-0040/ }),
+      screen.getByRole('button', { name: /Setujui batal JUS1-K01-261026-0040/ }),
     );
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText('Catatan (opsional)'), 'Sesuai laporan');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Setujui void' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ya, setujui batal' }));
     await vi.waitFor(() =>
       expect(calls.find((c) => c.key === 'POST /void-requests/vr9/approve')?.body).toEqual({
         note: 'Sesuai laporan',
       }),
     );
+  });
+
+  it('shows the friendly empty state when nothing is pending', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /void-requests': () => json({ data: [], next_cursor: null }),
+    });
+    renderApp('/void');
+    expect(await screen.findByText('Semua beres, Pak.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Persetujuan batal' })).toBeInTheDocument();
   });
 
   it('rejects a request and explains a conflict', async () => {
@@ -351,9 +361,9 @@ describe('Void', () => {
       'POST /void-requests/vr9/reject': () => problem(409, 'TRANSACTION_NOT_VOIDABLE'),
     });
     renderApp('/void');
-    await userEvent.click(await screen.findByRole('button', { name: /Tolak void/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Tolak batal/ }));
     const dialog = await screen.findByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Tolak void' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ya, tolak' }));
     expect(await within(dialog).findByText(/sudah diproses/)).toBeInTheDocument();
   });
 
@@ -369,7 +379,7 @@ describe('Void', () => {
     renderApp('/void');
     expect(await screen.findByText(/Menampilkan 1 permintaan/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Muat lebih banyak' }));
-    expect(await screen.findByRole('button', { name: /Setujui void TRX-52/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Setujui batal TRX-52/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Muat lebih banyak' })).not.toBeInTheDocument();
   });
 });

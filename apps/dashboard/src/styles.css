@@ -36,6 +36,7 @@
 
   --color-bar: #fdba74;
   --color-cash: #fde3c0;
+  --gradient-hero: linear-gradient(135deg, #c2410c, #9a3412);
 
   --font-sans: 'Nunito', system-ui, 'Segoe UI', sans-serif;
 

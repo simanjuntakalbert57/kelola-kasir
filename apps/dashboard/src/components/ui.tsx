@@ -90,11 +90,14 @@ export function Field({
   label,
   error,
   hint,
+  trailing,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   error?: string | undefined;
   hint?: string;
+  /** Control placed inside the input's right edge, e.g. a show/hide password button. */
+  trailing?: ReactNode;
 }) {
   const id = useId();
   const describedBy = error ? `${id}-err` : hint ? `${id}-hint` : undefined;
@@ -103,13 +106,18 @@ export function Field({
       <label htmlFor={id} className="mb-1 block text-sm font-extrabold">
         {label}
       </label>
-      <input
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={`min-h-12 w-full rounded-2xl bg-surface px-3.5 py-2.5 text-base text-ink ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-1 ring-line-strong'}`}
-        {...props}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
+          className={`min-h-12 w-full rounded-2xl bg-surface px-3.5 py-2.5 text-base text-ink ring-inset placeholder:text-muted ${trailing ? 'pr-12' : ''} ${error ? 'ring-2 ring-danger' : 'ring-1 ring-line-strong'}`}
+          {...props}
+        />
+        {trailing ? (
+          <div className="absolute inset-y-0 right-1 grid place-items-center">{trailing}</div>
+        ) : null}
+      </div>
       {error ? (
         <p id={`${id}-err`} role="alert" className="mt-1 text-[13px] text-danger">
           {error}
@@ -315,11 +323,56 @@ export function Dialog({
   );
 }
 
-export function PageHeader({ title, action }: { title: string; action?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string | undefined;
+  action?: ReactNode;
+}) {
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <h1 className="text-xl">{title}</h1>
+      <div className="min-w-0">
+        <h1 className="text-xl">{title}</h1>
+        {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
+      </div>
       {action}
     </div>
+  );
+}
+
+/** Confirmation dialog for destructive or irreversible actions (sheet on phones). */
+export function ConfirmDialog({
+  title,
+  confirmLabel,
+  tone = 'danger',
+  pending = false,
+  error,
+  onConfirm,
+  onClose,
+  children,
+}: {
+  title: string;
+  confirmLabel: string;
+  tone?: 'danger' | 'primary';
+  pending?: boolean;
+  error?: string | undefined;
+  onConfirm: () => void;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Dialog title={title} onClose={onClose}>
+      {error ? <Alert>{error}</Alert> : null}
+      {children ? <div className="text-sm text-muted">{children}</div> : null}
+      <div className="mt-4 flex gap-2">
+        <Button variant={tone} disabled={pending} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+        <Button onClick={onClose}>Batal</Button>
+      </div>
+    </Dialog>
   );
 }
