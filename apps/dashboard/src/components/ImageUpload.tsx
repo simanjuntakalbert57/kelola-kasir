@@ -50,7 +50,7 @@ export function ImageUpload({
         ) : (
           <div
             aria-hidden="true"
-            className="grid size-16 place-items-center rounded-[12px] bg-brand-50 text-2xl"
+            className="grid size-16 place-items-center rounded-[12px] bg-bg text-2xl"
           >
             🖼️
           </div>

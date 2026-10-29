@@ -83,7 +83,7 @@ function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Cat
   });
   const notEmpty = remove.error instanceof ApiError && remove.error.code === 'CATEGORY_NOT_EMPTY';
   return (
-    <li className="rounded-[14px] bg-brand-50 p-2.5">
+    <li className="rounded-[14px] bg-bg p-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-semibold">{category.name}</span>
         <Button
@@ -288,12 +288,12 @@ function ProductRow({
       ) : (
         <div
           aria-hidden="true"
-          className="grid size-12 place-items-center rounded-[10px] bg-brand-50 text-xl"
+          className="grid size-12 place-items-center rounded-[10px] bg-bg text-xl"
         >
           🍹
         </div>
       )}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-40 flex-1">
         <p className="truncate font-bold">{product.name}</p>
         <p className="text-sm text-muted">
           {categoryName} ·{' '}
