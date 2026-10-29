@@ -10,7 +10,9 @@ export async function loginUi(page: Page, email = OWNER_EMAIL, password = OWNER_
 
 export async function openAsOwner(page: Page, path: string, email = OWNER_EMAIL) {
   await loginUi(page, email);
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: /^(Selamat (pagi|siang|sore|malam), Pak |Halo!)/ }),
+  ).toBeVisible();
   if (path !== '/') await page.goto(path);
 }
 
