@@ -114,12 +114,10 @@
     color-scheme: light;
   }
   body {
+    @apply bg-bg font-sans text-[15px] leading-snug font-semibold text-ink antialiased;
     transition:
       background-color 150ms,
       color 150ms;
-  }
-  body {
-    @apply bg-bg font-sans text-[15px] leading-snug font-semibold text-ink antialiased;
   }
   h1,
   h2,

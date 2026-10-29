@@ -385,7 +385,7 @@ export function SelectField({
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(o)}
-                className={`flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-base ${i === active ? 'bg-brand-tint' : ''} ${o.value === current ? 'font-semibold text-brand-text' : 'text-ink'} ${o.disabled ? 'opacity-50' : ''}`}
+                className={`flex min-h-11 cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-base ${i === active ? 'bg-tint' : ''} ${o.value === current ? 'font-semibold text-tint-ink' : 'text-ink'} ${o.disabled ? 'opacity-50' : ''}`}
               >
                 <span className="truncate">{o.label}</span>
                 {o.value === current ? (

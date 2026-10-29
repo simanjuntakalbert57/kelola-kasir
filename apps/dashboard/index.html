@@ -7,7 +7,10 @@
     <meta name="theme-color" content="#fff7ea" />
     <script>
       (function () {
-        var p = localStorage.getItem('kk-theme') || 'system';
+        var p = 'system';
+        try {
+          p = localStorage.getItem('kk-theme') || 'system';
+        } catch (e) {}
         var d =
           p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = d ? 'dark' : 'light';
