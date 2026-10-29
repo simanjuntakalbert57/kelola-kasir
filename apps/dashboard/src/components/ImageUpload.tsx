@@ -1,4 +1,5 @@
-import { useId, useState } from 'react';
+import { ImagePlus, Trash2, Upload } from 'lucide-react';
+import { useId, useRef, useState } from 'react';
 import { uploadImage, type UploadPurpose } from '../lib/upload';
 import { Button } from './ui';
 
@@ -18,6 +19,7 @@ export function ImageUpload({
   onUploaded?: (file: File) => void | Promise<void>;
 }) {
   const id = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,33 +47,41 @@ export function ImageUpload({
           <img
             src={value}
             alt={`Pratinjau ${label}`}
-            className="size-16 shrink-0 rounded-xl object-cover"
+            className="size-20 shrink-0 rounded-2xl border border-line object-cover"
           />
         ) : (
           <div
             aria-hidden="true"
-            className="grid size-16 shrink-0 place-items-center rounded-xl bg-tint text-2xl"
+            className="grid size-20 shrink-0 place-items-center rounded-2xl border-2 border-dashed border-line bg-tint text-muted"
           >
-            🖼️
+            <ImagePlus size={28} />
           </div>
         )}
-        <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col items-start gap-1.5">
           <input
+            ref={inputRef}
             id={id}
             type="file"
             accept="image/jpeg,image/png,image/webp"
             disabled={busy}
-            className="text-sm"
+            className="sr-only"
             onChange={(e) => {
               void pick(e.target.files?.[0]);
               e.target.value = '';
             }}
           />
+          <Button small variant="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Upload size={16} aria-hidden="true" />
+            {value ? 'Ganti gambar' : 'Pilih gambar'}
+          </Button>
           {value ? (
             <Button small onClick={() => onChange(null)} aria-label={`Hapus ${label}`}>
+              <Trash2 size={16} aria-hidden="true" />
               Hapus
             </Button>
-          ) : null}
+          ) : (
+            <p className="text-[13px] text-muted">Belum ada gambar dipilih.</p>
+          )}
         </div>
       </div>
       <p className="mt-1 text-[13px] text-muted">JPG, PNG, atau WebP, maksimal 2 MB.</p>
