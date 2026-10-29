@@ -233,10 +233,11 @@ describe('Transaksi', () => {
     });
     renderApp('/transaksi');
     expect(await screen.findByRole('button', { name: /Detail JUS1/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Metode')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Metode' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Filter/ }));
     const sheet = await screen.findByRole('dialog');
-    await userEvent.selectOptions(within(sheet).getByLabelText('Metode'), 'qris');
+    await userEvent.click(within(sheet).getByRole('combobox', { name: 'Metode' }));
+    await userEvent.click(within(sheet).getByRole('option', { name: 'QRIS' }));
     await userEvent.click(within(sheet).getByRole('button', { name: 'Terapkan' }));
     await vi.waitFor(() =>
       expect(calls.some((c) => c.key.includes('payment_method=qris'))).toBe(true),
