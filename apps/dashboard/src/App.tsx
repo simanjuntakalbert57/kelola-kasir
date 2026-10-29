@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useState } from 'react';
 import { AuthProvider } from './auth/AuthProvider';
+import { ThemeProvider } from './lib/theme';
 import { createAppRouter } from './router';
 
 export function App({ history }: { history?: Parameters<typeof createAppRouter>[0] }) {
@@ -10,10 +11,12 @@ export function App({ history }: { history?: Parameters<typeof createAppRouter>[
   );
   const [router] = useState(() => createAppRouter(history));
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

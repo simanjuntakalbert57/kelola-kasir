@@ -3,7 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fff7ea" />
+    <script>
+      (function () {
+        var p = 'system';
+        try {
+          p = localStorage.getItem('kk-theme') || 'system';
+        } catch (e) {}
+        var d =
+          p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = d ? 'dark' : 'light';
+        var m = document.querySelector('meta[name=theme-color]');
+        if (m) m.content = d ? '#1a130d' : '#fff7ea';
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

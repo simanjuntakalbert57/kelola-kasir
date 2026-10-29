@@ -34,8 +34,11 @@
   --color-info-bg: #dbeafe;
   --color-info-ink: #1e3a8a;
 
+  --color-side: #ffffff;
   --color-bar: #fdba74;
   --color-cash: #fde3c0;
+  --color-on-danger: #ffffff;
+  --color-hero-ink: #ffffff;
   --gradient-hero: linear-gradient(135deg, #c2410c, #9a3412);
 
   --font-sans: 'Nunito', system-ui, 'Segoe UI', sans-serif;
@@ -50,12 +53,71 @@
   --shadow-modal: 0 24px 60px rgb(43 33 24 / 0.28);
 }
 
+/* Mode gelap "Jus Hangat Malam" (DEAR-90 / DEAR-92). Hanya nilai token yang berganti. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg: #1a130d;
+  --color-surface: #261c14;
+  --color-ink: #f7ebdd;
+  --color-muted: #c4ae98;
+  --color-line: #3a2b1f;
+  --color-line-strong: #9a8068;
+  --color-pri: #fb923c;
+  --color-pri-ink: #2b1100;
+  --color-pri-hover: #fdba74;
+  --color-pri-press: #fed7aa;
+  --color-tint: #3d2412;
+  --color-tint-ink: #ffd3a8;
+  --color-tint-hover: #4d2e18;
+  --color-focus: #93b4ff;
+  --color-dis-bg: #33271d;
+  --color-dis-ink: #a8927d;
+  --color-danger: #ff8a7a;
+  --color-danger-hover: #ffb0a4;
+  --color-on-danger: #2b0a05;
+  --color-need-bg: #44201a;
+  --color-need-ink: #ffc2b7;
+  --color-need-line: #7a3a30;
+  --color-warm-bg: #3f3012;
+  --color-warm-ink: #fadb8a;
+  --color-warm-line: #6b5521;
+  --color-ok: #4ade80;
+  --color-ok-bg: #17361f;
+  --color-ok-ink: #a7f0bf;
+  --color-info-bg: #1b2b52;
+  --color-info-ink: #bfd3ff;
+  --color-bar: #9a5a2c;
+  --color-cash: #a0784c;
+  --color-side: #211810;
+  --color-hero-ink: #fb923c;
+  --gradient-hero: linear-gradient(#261c14, #261c14);
+  --shadow-card: 0 0 0 1px #3a2b1f, 0 10px 24px rgb(0 0 0 / 0.45);
+  --shadow-up: 0 -4px 20px rgb(0 0 0 / 0.5);
+  --shadow-modal: 0 24px 60px rgb(0 0 0 / 0.6);
+}
+
+/* Tailwind inlines shadow tokens into its utilities, so the dark values are applied on the utilities. */
+[data-theme='dark'] .shadow-card {
+  --tw-shadow: 0 0 0 1px #3a2b1f, 0 10px 24px rgb(0 0 0 / 0.45);
+}
+[data-theme='dark'] .shadow-up {
+  --tw-shadow: 0 -4px 20px rgb(0 0 0 / 0.5);
+}
+[data-theme='dark'] .shadow-modal {
+  --tw-shadow: 0 24px 60px rgb(0 0 0 / 0.6);
+}
+
 @layer base {
   html {
     color-scheme: light;
   }
   body {
     @apply bg-bg font-sans text-[15px] leading-snug font-semibold text-ink antialiased;
+    transition:
+      background-color 150ms,
+      color 150ms;
   }
   h1,
   h2,

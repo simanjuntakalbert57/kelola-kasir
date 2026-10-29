@@ -193,7 +193,7 @@ export function DashboardPage() {
           <>
             <section
               aria-label="Omzet"
-              className="rounded-3xl bg-gradient-to-br from-pri to-pri-hover p-5 text-white shadow-card"
+              className="rounded-3xl bg-[image:var(--gradient-hero)] p-5 text-hero-ink shadow-card"
             >
               <p className="text-sm font-bold">Omzet {rangeWord}</p>
               <p className="mt-1 text-5xl leading-[52px] font-extrabold tracking-tight tabular-nums">

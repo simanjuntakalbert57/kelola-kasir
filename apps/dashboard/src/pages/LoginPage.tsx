@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useAuth } from '../auth/AuthProvider';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { Button, Card, Field, NoticeCard } from '../components/ui';
 import { ApiError } from '../lib/api';
 
@@ -41,14 +42,17 @@ export function LoginPage() {
   });
 
   return (
-    <div className="grid min-h-dvh lg:grid-cols-2">
+    <div className="relative grid min-h-dvh lg:grid-cols-2">
+      <div className="absolute top-3 right-3 z-10">
+        <ThemeToggle />
+      </div>
       <section
         aria-hidden="true"
-        className="hidden flex-col justify-center gap-4 bg-[image:var(--gradient-hero)] p-16 text-white lg:flex"
+        className="hidden flex-col justify-center gap-4 bg-[image:var(--gradient-hero)] p-16 text-hero-ink lg:flex"
       >
         <div className="text-7xl">🍹</div>
         <p className="max-w-md text-4xl leading-tight font-black">Jualan hari ini, sekali buka.</p>
-        <p className="max-w-md text-lg font-semibold text-white/90">
+        <p className="max-w-md text-lg font-semibold opacity-90">
           Omzet, shift, dan persetujuan batal. Semua ada di sini, dari HP maupun laptop.
         </p>
       </section>
