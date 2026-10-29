@@ -8,7 +8,8 @@
     <script>
       (function () {
         var p = localStorage.getItem('kk-theme') || 'system';
-        var d = p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        var d =
+          p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = d ? 'dark' : 'light';
         var m = document.querySelector('meta[name=theme-color]');
         if (m) m.content = d ? '#1a130d' : '#fff7ea';
