@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef } from 'react';
+import { Children, isValidElement, useEffect, useId, useRef, useState } from 'react';
 import type {
+  KeyboardEvent,
+  Ref,
   ButtonHTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
@@ -88,24 +90,185 @@ export function Field({
 const controlCls = (error?: string) =>
   `min-h-12 w-full rounded-[12px] bg-surface px-3 py-2.5 text-base text-ink ring-1 ring-inset placeholder:text-muted ${error ? 'ring-2 ring-danger' : 'ring-line'}`;
 
+type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  error?: string | undefined;
+  ref?: Ref<HTMLSelectElement>;
+};
+
+type SelectOption = { value: string; label: string; disabled: boolean };
+
+function readOptions(children: ReactNode): SelectOption[] {
+  const out: SelectOption[] = [];
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as {
+      value?: string | number;
+      children?: ReactNode;
+      disabled?: boolean;
+    };
+    const text = Children.toArray(props.children).join('');
+    out.push({
+      value: String(props.value ?? text),
+      label: text,
+      disabled: Boolean(props.disabled),
+    });
+  });
+  return out;
+}
+
+/**
+ * Custom listbox instead of a native <select>: the OS-drawn popup of a native
+ * select covers the control itself, so the list always opens below the field here.
+ * A hidden native <select> stays in the DOM so react-hook-form `register` and
+ * controlled `value`/`onChange` keep working unchanged.
+ */
 export function SelectField({
   label,
   error,
   children,
+  ref,
+  value,
+  defaultValue,
+  disabled,
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; error?: string | undefined }) {
+}: SelectFieldProps) {
   const id = useId();
+  const labelId = `${id}-label`;
+  const listId = `${id}-list`;
+  const options = readOptions(children);
+  const nativeRef = useRef<HTMLSelectElement | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [current, setCurrent] = useState(String(value ?? defaultValue ?? options[0]?.value ?? ''));
+
+  // Uncontrolled (react-hook-form) selects get their value through the ref.
+  useEffect(() => {
+    const v = nativeRef.current?.value;
+    if (v !== undefined && v !== current) setCurrent(v);
+  }, [current, value, children]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const selected = options.find((o) => o.value === current);
+
+  const pick = (opt: SelectOption) => {
+    const el = nativeRef.current;
+    if (!el || opt.disabled) return;
+    el.value = opt.value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    setCurrent(opt.value);
+    setOpen(false);
+  };
+
+  const openList = () => {
+    setActive(
+      Math.max(
+        0,
+        options.findIndex((o) => o.value === current),
+      ),
+    );
+    setOpen(true);
+  };
+
+  const move = (dir: 1 | -1) => {
+    let i = active;
+    for (let n = 0; n < options.length; n++) {
+      i = (i + dir + options.length) % options.length;
+      if (!options[i]?.disabled) break;
+    }
+    setActive(i);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) openList();
+      else move(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (!open) openList();
+      else if (options[active]) pick(options[active]);
+    } else if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      setOpen(false);
+    } else if (e.key === 'Tab') {
+      setOpen(false);
+    }
+  };
+
   return (
     <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+      <span id={labelId} className="mb-1 block text-sm font-semibold">
         {label}
-      </label>
+      </span>
+      <div ref={rootRef} className="relative">
+        <button
+          type="button"
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-labelledby={labelId}
+          aria-activedescendant={open ? `${id}-opt-${active}` : undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-err` : undefined}
+          disabled={disabled}
+          onClick={() => (open ? setOpen(false) : openList())}
+          onKeyDown={onKeyDown}
+          className={`${controlCls(error)} flex items-center justify-between gap-2 text-left`}
+        >
+          <span className="truncate">{selected?.label ?? ''}</span>
+          <span aria-hidden="true" className="text-muted">
+            ▾
+          </span>
+        </button>
+        {open ? (
+          <ul
+            id={listId}
+            role="listbox"
+            aria-labelledby={labelId}
+            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-auto rounded-[12px] bg-surface py-1 shadow-card ring-1 ring-line"
+          >
+            {options.map((o, i) => (
+              <li
+                key={o.value}
+                id={`${id}-opt-${i}`}
+                role="option"
+                aria-selected={o.value === current}
+                aria-disabled={o.disabled || undefined}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(o)}
+                className={`min-h-11 cursor-pointer px-3 py-2.5 text-base ${i === active ? 'bg-brand-tint' : ''} ${o.value === current ? 'font-semibold text-brand-text' : 'text-ink'} ${o.disabled ? 'opacity-50' : ''}`}
+              >
+                {o.label}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       <select
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-err` : undefined}
-        className={controlCls(error)}
+        aria-hidden="true"
+        tabIndex={-1}
+        className="sr-only"
+        disabled={disabled}
+        {...(value !== undefined ? { value } : {})}
+        {...(defaultValue !== undefined ? { defaultValue } : {})}
         {...props}
+        ref={(el) => {
+          nativeRef.current = el;
+          if (typeof ref === 'function') ref(el);
+          else if (ref) ref.current = el;
+        }}
       >
         {children}
       </select>
