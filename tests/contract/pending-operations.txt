@@ -2,3 +2,10 @@
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
+# Telegram notifications (ADR-0016): specified in DEAR-99, built in DEAR-101.
+getTelegramChannel  # GET /notifications/telegram
+updateTelegramPrefs  # PATCH /notifications/telegram
+unlinkTelegram  # DELETE /notifications/telegram
+createTelegramLink  # POST /notifications/telegram/link
+sendTelegramTest  # POST /notifications/telegram/test
+telegramWebhook  # POST /integrations/telegram/webhook

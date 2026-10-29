@@ -19,3 +19,4 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0013](0013-review-to-qa-via-mention.md) | Alur review → QA: Tech Lead mention QA setelah merge + deploy staging | Accepted |
 | [0014](0014-kasir-via-pages-proxy.md) | Aplikasi kasir lewat proxy Cloudflare Pages `/v1`, tanpa domain API berbayar | Accepted |
 | [0015](0015-private-media-bucket.md) | Bucket media privat, gambar disajikan lewat `GET /v1/media/*` (redirect presigned GET) | Accepted (menggantikan bagian media publik di 0011) |
+| [0016](0016-telegram-transaction-notifications.md) | Notifikasi transaksi & void ke Telegram owner (outbox `notification_log`, dispatcher in-process) | Accepted |

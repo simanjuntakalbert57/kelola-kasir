@@ -30,6 +30,11 @@ export type SyncMutation = Schemas['SyncMutation'];
 export type SyncPullResponse = Schemas['SyncPullResponse'];
 export type OutletSettings = Schemas['OutletSettings'];
 export type Problem = Schemas['Problem'];
+export type NotificationPrefs = Schemas['NotificationPrefs'];
+export type NotificationPrefsInput = Schemas['NotificationPrefsInput'];
+export type TelegramChannel = Schemas['TelegramChannel'];
+export type TelegramChannelStatus = Schemas['TelegramChannelStatus'];
+export type TelegramLink = Schemas['TelegramLink'];
 
 /** JSON body of a successful response for `path` + `method`. */
 export type ResponseBody<
