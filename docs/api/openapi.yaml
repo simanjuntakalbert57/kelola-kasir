@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.4.0-draft
+  version: 0.5.0-draft
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -55,7 +55,7 @@ tags:
   - name: uploads
     description: Presigned uploads for images
   - name: notifications
-    description: Owner notifications to Telegram for paid transactions and voids (ADR-0016)
+    description: Owner laptop notifications via Web Push for paid transactions and voids (ADR-0017)
 
 security: []
 
@@ -1395,29 +1395,159 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  # ---------------------------------------------------------------- notifications (ADR-0016)
-  /notifications/telegram:
+  # ---------------------------------------------------------------- notifications (ADR-0017)
+  /notifications/push/config:
     get:
       tags: [notifications]
-      summary: Telegram notification channel of the signed-in owner for this outlet
+      summary: Web Push configuration (VAPID public key)
       description: |
-        Always 200. `status` is `not_linked` when the owner never linked (or unlinked), `pending` while a link code
-        is outstanding, `active` once the code was used in Telegram, `blocked` when the bot was blocked or the chat
-        disappeared (link again to recover). `configured: false` means the bot is not set up on this server; the
-        dashboard shows a "not available yet" state and hides the actions.
-      operationId: getTelegramChannel
+        `configured: false` means VAPID keys are not set on this server; the dashboard shows a "not available yet"
+        state and hides the actions. The public key is not secret; pass it as `applicationServerKey` to
+        `PushManager.subscribe({ userVisibleOnly: true, ... })`. Owner role only.
+      operationId: getPushConfig
       security: [{ ownerAuth: [] }]
       responses:
         '200':
-          description: Channel state
+          description: Push configuration
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TelegramChannel' }
+              schema: { $ref: '#/components/schemas/PushConfig' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/push/subscriptions:
+    get:
+      tags: [notifications]
+      summary: Browsers registered for notifications by the signed-in owner in this outlet
+      description: |
+        Subscriptions revoked by the owner (or replaced / over the limit) are omitted. Subscriptions the push service
+        reported as gone (404/410) are listed with `status: expired` so the browser can offer "register again".
+        The push endpoint and keys are never returned.
+      operationId: listPushSubscriptions
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Registered browsers, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PushSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [notifications]
+      summary: Register (or refresh) this browser's push subscription
+      description: |
+        Upsert by `endpoint`. Body is `PushSubscription.toJSON()` plus a display `label`. The same active endpoint
+        of the same owner returns 200 with the existing id (keys, label and last_seen_at are refreshed). An endpoint
+        that belongs to another user is revoked as `replaced` and a new subscription is created (201). At most
+        10 active subscriptions per owner per outlet; registering an 11th revokes the least recently seen one.
+        `endpoint` must be an `https:` URL of a known push service (FCM, Mozilla, WNS, Apple), otherwise
+        `INVALID_PUSH_SUBSCRIPTION` (anti-SSRF). Max 20 calls per 10 minutes per owner.
+      operationId: createPushSubscription
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PushSubscriptionInput' }
+      responses:
+        '200':
+          description: Existing subscription refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushSubscription' }
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushSubscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED` (no VAPID keys on this server)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /notifications/push/subscriptions/{id}:
+    delete:
+      tags: [notifications]
+      summary: Revoke a registered browser
+      description: Idempotent. The browser should also call `PushSubscription.unsubscribe()` when it revokes itself.
+      operationId: deletePushSubscription
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revoked (or already revoked) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /notifications/push/subscriptions/{id}/test:
+    post:
+      tags: [notifications]
+      summary: Send a test notification to one registered browser
+      description: |
+        Sent synchronously (5 s timeout, TTL 60 s) so the dashboard can tell the outcomes apart. If the push service
+        answers 404/410 the subscription becomes `expired` and the API returns 410 `NOTIFICATION_SUBSCRIPTION_GONE`.
+        Max 1 call per 5 seconds per subscription.
+      operationId: sendPushTest
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Accepted by the push service
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result: { type: string, enum: [sent] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: '`NOTIFICATION_SUBSCRIPTION_GONE` (push service no longer knows this browser; register again)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502':
+          description: '`PUSH_DELIVERY_FAILED` (push service error or timeout)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /notifications/prefs:
+    get:
+      tags: [notifications]
+      summary: Notification types of the signed-in owner in this outlet (all registered browsers)
+      operationId: getNotificationPrefs
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Current preferences (defaults to everything on)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPrefs' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     patch:
       tags: [notifications]
       summary: Turn notification types on or off
-      operationId: updateTelegramPrefs
+      operationId: updateNotificationPrefs
       security: [{ ownerAuth: [] }]
       requestBody:
         required: true
@@ -1426,114 +1556,13 @@ paths:
             schema: { $ref: '#/components/schemas/NotificationPrefsInput' }
       responses:
         '200':
-          description: Updated channel
+          description: Updated preferences
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TelegramChannel' }
+              schema: { $ref: '#/components/schemas/NotificationPrefs' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '409':
-          description: '`NOTIFICATION_CHANNEL_NOT_LINKED` (no channel row; call `POST /notifications/telegram/link` first)'
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-    delete:
-      tags: [notifications]
-      summary: Disconnect Telegram
-      description: Deletes the channel and its delivery log, then sends a best-effort "notifications turned off" message to the chat. Idempotent.
-      operationId: unlinkTelegram
-      security: [{ ownerAuth: [] }]
-      responses:
-        '204': { description: Disconnected (or was not linked) }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-  /notifications/telegram/link:
-    post:
-      tags: [notifications]
-      summary: Create a one-time link code (10 minutes) and the Telegram deep link
-      description: |
-        Replaces any outstanding code; an `active` channel stays active until the new code is used. Only the SHA-256
-        of the code is stored. Opening `deep_link` on the phone and pressing Start sends `/start <code>` to the bot;
-        poll `GET /notifications/telegram` until `status` is `active`. Max 5 calls per 10 minutes per owner.
-      operationId: createTelegramLink
-      security: [{ ownerAuth: [] }]
-      responses:
-        '201':
-          description: Link code created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TelegramLink' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '503':
-          description: '`NOTIFICATIONS_NOT_CONFIGURED` (no Telegram bot on this server)'
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-  /notifications/telegram/test:
-    post:
-      tags: [notifications]
-      summary: Queue a test message to the linked chat
-      description: Max 1 call per 10 seconds per owner. Delivery is asynchronous (same queue and retries as real notifications).
-      operationId: sendTelegramTest
-      security: [{ ownerAuth: [] }]
-      responses:
-        '202': { description: Queued }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '409':
-          description: '`NOTIFICATION_CHANNEL_NOT_LINKED` (status is not `active`)'
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '503':
-          description: '`NOTIFICATIONS_NOT_CONFIGURED`'
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-  /integrations/telegram/webhook:
-    post:
-      tags: [notifications]
-      summary: Telegram Bot API webhook (called by Telegram only)
-      description: |
-        Registered by the API at startup (`setWebhook` with `secret_token`, `allowed_updates: [message, my_chat_member]`).
-        The secret header is compared in constant time. Only private chats are handled: `/start <code>` links,
-        `/start` without code replies with instructions, `/stop` unlinks every channel of that chat, and a
-        `my_chat_member` update with status `kicked` marks the channel `blocked`. Every other update is acknowledged
-        with 200 so Telegram does not retry. A reply, when there is one, is returned as the response body
-        (`{"method":"sendMessage","chat_id":…,"text":…}`), so no extra outbound call is made.
-        The Pages proxy must forward `X-Telegram-Bot-Api-Secret-Token` (ADR-0014/ADR-0016).
-      operationId: telegramWebhook
-      parameters:
-        - name: X-Telegram-Bot-Api-Secret-Token
-          in: header
-          required: true
-          schema: { type: string, minLength: 32, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              description: Telegram `Update` object; only the fields the API reads are listed.
-              required: [update_id]
-              additionalProperties: true
-              properties:
-                update_id: { type: integer }
-                message: { type: object, additionalProperties: true }
-                my_chat_member: { type: object, additionalProperties: true }
-      responses:
-        '200':
-          description: Acknowledged. Body is empty (`{}`) or a Telegram `sendMessage` method call.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  method: { type: string, enum: [sendMessage] }
-                  chat_id: { type: integer }
-                  text: { type: string }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   securitySchemes:
@@ -1642,9 +1671,11 @@ components:
         - INVALID_QRIS_PAYLOAD
         - QRIS_PAYLOAD_REQUIRED
         - UPLOADS_NOT_CONFIGURED
-        # notifications (ADR-0016, planned)
+        # notifications (ADR-0017, planned)
         - NOTIFICATIONS_NOT_CONFIGURED
-        - NOTIFICATION_CHANNEL_NOT_LINKED
+        - INVALID_PUSH_SUBSCRIPTION
+        - NOTIFICATION_SUBSCRIPTION_GONE
+        - PUSH_DELIVERY_FAILED
         # shifts
         - SHIFT_ALREADY_OPEN
         - SHIFT_CLOSED
@@ -2112,11 +2143,11 @@ components:
 
     NotificationPrefs:
       type: object
-      description: Notification types the owner receives. Shift summaries and daily digests come later (concept B).
+      description: Notification types the owner receives on every registered browser. Shift summaries and daily digests come later.
       required: [transaction, void]
       properties:
         transaction: { type: boolean, description: 'Paid transactions (`transaction.paid`) and offline batch summaries (`transaction.batch`)' }
-        void: { type: boolean, description: 'Void requested and decided (`void.requested`, `void.decided`)' }
+        void: { type: boolean, description: 'Void requested and approved (`void.requested`, `void.approved`); rejected voids are not notified' }
     NotificationPrefsInput:
       type: object
       minProperties: 1
@@ -2124,25 +2155,43 @@ components:
       properties:
         transaction: { type: boolean }
         void: { type: boolean }
-    TelegramChannelStatus:
+    PushConfig:
+      type: object
+      required: [configured, vapid_public_key]
+      properties:
+        configured: { type: boolean, description: False when the server has no VAPID keys; all push actions are unavailable. }
+        vapid_public_key: { type: [string, 'null'], pattern: '^[A-Za-z0-9_-]{87}$', description: 'Base64url P-256 public key (65 bytes); null when not configured' }
+    PushSubscriptionStatus:
       type: string
-      enum: [not_linked, pending, active, blocked]
-    TelegramChannel:
+      enum: [active, expired]
+      description: '`expired` = the push service reported the browser gone (404/410); register again from that browser.'
+    PushSubscription:
       type: object
-      required: [configured, status, prefs]
+      required: [id, label, status, created_at, last_delivered_at]
       properties:
-        configured: { type: boolean, description: False when the server has no Telegram bot; all actions are unavailable. }
-        status: { $ref: '#/components/schemas/TelegramChannelStatus' }
-        bot_username: { type: [string, 'null'], description: 'Bot username without `@`, e.g. `kelolakasir_jus_bot`; null when not configured.' }
-        chat_label: { type: [string, 'null'], description: '`@username` or first name of the linked Telegram account, for display only' }
-        prefs: { $ref: '#/components/schemas/NotificationPrefs' }
-        linked_at: { type: [string, 'null'], format: date-time }
-        blocked_at: { type: [string, 'null'], format: date-time }
-        link_expires_at: { type: [string, 'null'], format: date-time, description: 'Expiry of the outstanding link code, if any' }
-    TelegramLink:
+        id: { type: string, format: uuid, description: 'Store in localStorage to mark "this browser" in the list.' }
+        label: { type: string, examples: ['Chrome di Windows'] }
+        status: { $ref: '#/components/schemas/PushSubscriptionStatus' }
+        created_at: { type: string, format: date-time }
+        last_delivered_at: { type: [string, 'null'], format: date-time }
+    PushSubscriptionInput:
       type: object
-      required: [deep_link, bot_username, expires_at]
+      required: [endpoint, keys, label]
+      description: '`PushSubscription.toJSON()` from the browser plus a display label.'
       properties:
-        deep_link: { type: string, format: uri, description: '`https://t.me/<bot_username>?start=<code>`; show as button and QR code. The code is single use.', examples: ['https://t.me/kelolakasir_jus_bot?start=Qm9vZ2llV29vZ2llQm9vZ2llV29vZ2ll'] }
-        bot_username: { type: string }
-        expires_at: { type: string, format: date-time }
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 1024
+          pattern: '^https://'
+          description: 'Push service URL. Host must be an allowed push service (fcm.googleapis.com, *.push.services.mozilla.com, *.notify.windows.com, *.push.apple.com, ...). Never echoed back or logged.'
+          examples: ['https://fcm.googleapis.com/fcm/send/dXJsLXNhZmUtdG9rZW4']
+        expirationTime: { type: [number, 'null'], description: Ignored. }
+        keys:
+          type: object
+          required: [p256dh, auth]
+          additionalProperties: false
+          properties:
+            p256dh: { type: string, pattern: '^[A-Za-z0-9_-]{87}$', description: 'Base64url, 65 bytes decoded' }
+            auth: { type: string, pattern: '^[A-Za-z0-9_-]{22}$', description: 'Base64url, 16 bytes decoded' }
+        label: { type: string, minLength: 1, maxLength: 60, description: 'e.g. "Chrome di Windows", derived from the User-Agent by the dashboard' }

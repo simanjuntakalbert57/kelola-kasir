@@ -910,7 +910,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/notifications/telegram": {
+    "/notifications/push/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -918,92 +918,109 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Telegram notification channel of the signed-in owner for this outlet
-         * @description Always 200. `status` is `not_linked` when the owner never linked (or unlinked), `pending` while a link code
-         *     is outstanding, `active` once the code was used in Telegram, `blocked` when the bot was blocked or the chat
-         *     disappeared (link again to recover). `configured: false` means the bot is not set up on this server; the
-         *     dashboard shows a "not available yet" state and hides the actions.
+         * Web Push configuration (VAPID public key)
+         * @description `configured: false` means VAPID keys are not set on this server; the dashboard shows a "not available yet"
+         *     state and hides the actions. The public key is not secret; pass it as `applicationServerKey` to
+         *     `PushManager.subscribe({ userVisibleOnly: true, ... })`. Owner role only.
          */
-        get: operations["getTelegramChannel"];
+        get: operations["getPushConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/push/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browsers registered for notifications by the signed-in owner in this outlet
+         * @description Subscriptions revoked by the owner (or replaced / over the limit) are omitted. Subscriptions the push service
+         *     reported as gone (404/410) are listed with `status: expired` so the browser can offer "register again".
+         *     The push endpoint and keys are never returned.
+         */
+        get: operations["listPushSubscriptions"];
+        put?: never;
+        /**
+         * Register (or refresh) this browser's push subscription
+         * @description Upsert by `endpoint`. Body is `PushSubscription.toJSON()` plus a display `label`. The same active endpoint
+         *     of the same owner returns 200 with the existing id (keys, label and last_seen_at are refreshed). An endpoint
+         *     that belongs to another user is revoked as `replaced` and a new subscription is created (201). At most
+         *     10 active subscriptions per owner per outlet; registering an 11th revokes the least recently seen one.
+         *     `endpoint` must be an `https:` URL of a known push service (FCM, Mozilla, WNS, Apple), otherwise
+         *     `INVALID_PUSH_SUBSCRIPTION` (anti-SSRF). Max 20 calls per 10 minutes per owner.
+         */
+        post: operations["createPushSubscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/push/subscriptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         put?: never;
         post?: never;
         /**
-         * Disconnect Telegram
-         * @description Deletes the channel and its delivery log, then sends a best-effort "notifications turned off" message to the chat. Idempotent.
+         * Revoke a registered browser
+         * @description Idempotent. The browser should also call `PushSubscription.unsubscribe()` when it revokes itself.
          */
-        delete: operations["unlinkTelegram"];
+        delete: operations["deletePushSubscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/push/subscriptions/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test notification to one registered browser
+         * @description Sent synchronously (5 s timeout, TTL 60 s) so the dashboard can tell the outcomes apart. If the push service
+         *     answers 404/410 the subscription becomes `expired` and the API returns 410 `NOTIFICATION_SUBSCRIPTION_GONE`.
+         *     Max 1 call per 5 seconds per subscription.
+         */
+        post: operations["sendPushTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notification types of the signed-in owner in this outlet (all registered browsers) */
+        get: operations["getNotificationPrefs"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         /** Turn notification types on or off */
-        patch: operations["updateTelegramPrefs"];
-        trace?: never;
-    };
-    "/notifications/telegram/link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a one-time link code (10 minutes) and the Telegram deep link
-         * @description Replaces any outstanding code; an `active` channel stays active until the new code is used. Only the SHA-256
-         *     of the code is stored. Opening `deep_link` on the phone and pressing Start sends `/start <code>` to the bot;
-         *     poll `GET /notifications/telegram` until `status` is `active`. Max 5 calls per 10 minutes per owner.
-         */
-        post: operations["createTelegramLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/notifications/telegram/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Queue a test message to the linked chat
-         * @description Max 1 call per 10 seconds per owner. Delivery is asynchronous (same queue and retries as real notifications).
-         */
-        post: operations["sendTelegramTest"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/integrations/telegram/webhook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Telegram Bot API webhook (called by Telegram only)
-         * @description Registered by the API at startup (`setWebhook` with `secret_token`, `allowed_updates: [message, my_chat_member]`).
-         *     The secret header is compared in constant time. Only private chats are handled: `/start <code>` links,
-         *     `/start` without code replies with instructions, `/stop` unlinks every channel of that chat, and a
-         *     `my_chat_member` update with status `kicked` marks the channel `blocked`. Every other update is acknowledged
-         *     with 200 so Telegram does not retry. A reply, when there is one, is returned as the response body
-         *     (`{"method":"sendMessage","chat_id":…,"text":…}`), so no extra outbound call is made.
-         *     The Pages proxy must forward `X-Telegram-Bot-Api-Secret-Token` (ADR-0014/ADR-0016).
-         */
-        post: operations["telegramWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
+        patch: operations["updateNotificationPrefs"];
         trace?: never;
     };
 }
@@ -1025,7 +1042,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "NOTIFICATION_CHANNEL_NOT_LINKED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1502,48 +1519,60 @@ export interface components {
             /** @description Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned. */
             owner_pin?: string;
         };
-        /** @description Notification types the owner receives. Shift summaries and daily digests come later (concept B). */
+        /** @description Notification types the owner receives on every registered browser. Shift summaries and daily digests come later. */
         NotificationPrefs: {
             /** @description Paid transactions (`transaction.paid`) and offline batch summaries (`transaction.batch`) */
             transaction: boolean;
-            /** @description Void requested and decided (`void.requested`, `void.decided`) */
+            /** @description Void requested and approved (`void.requested`, `void.approved`); rejected voids are not notified */
             void: boolean;
         };
         NotificationPrefsInput: {
             transaction?: boolean;
             void?: boolean;
         };
-        /** @enum {string} */
-        TelegramChannelStatus: "not_linked" | "pending" | "active" | "blocked";
-        TelegramChannel: {
-            /** @description False when the server has no Telegram bot; all actions are unavailable. */
+        PushConfig: {
+            /** @description False when the server has no VAPID keys; all push actions are unavailable. */
             configured: boolean;
-            status: components["schemas"]["TelegramChannelStatus"];
-            /** @description Bot username without `@`, e.g. `kelolakasir_jus_bot`; null when not configured. */
-            bot_username?: string | null;
-            /** @description `@username` or first name of the linked Telegram account, for display only */
-            chat_label?: string | null;
-            prefs: components["schemas"]["NotificationPrefs"];
-            /** Format: date-time */
-            linked_at?: string | null;
-            /** Format: date-time */
-            blocked_at?: string | null;
-            /**
-             * Format: date-time
-             * @description Expiry of the outstanding link code, if any
-             */
-            link_expires_at?: string | null;
+            /** @description Base64url P-256 public key (65 bytes); null when not configured */
+            vapid_public_key: string | null;
         };
-        TelegramLink: {
+        /**
+         * @description `expired` = the push service reported the browser gone (404/410); register again from that browser.
+         * @enum {string}
+         */
+        PushSubscriptionStatus: "active" | "expired";
+        PushSubscription: {
+            /**
+             * Format: uuid
+             * @description Store in localStorage to mark "this browser" in the list.
+             */
+            id: string;
+            /** @example Chrome di Windows */
+            label: string;
+            status: components["schemas"]["PushSubscriptionStatus"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_delivered_at: string | null;
+        };
+        /** @description `PushSubscription.toJSON()` from the browser plus a display label. */
+        PushSubscriptionInput: {
             /**
              * Format: uri
-             * @description `https://t.me/<bot_username>?start=<code>`; show as button and QR code. The code is single use.
-             * @example https://t.me/kelolakasir_jus_bot?start=Qm9vZ2llV29vZ2llQm9vZ2llV29vZ2ll
+             * @description Push service URL. Host must be an allowed push service (fcm.googleapis.com, *.push.services.mozilla.com, *.notify.windows.com, *.push.apple.com, ...). Never echoed back or logged.
+             * @example https://fcm.googleapis.com/fcm/send/dXJsLXNhZmUtdG9rZW4
              */
-            deep_link: string;
-            bot_username: string;
-            /** Format: date-time */
-            expires_at: string;
+            endpoint: string;
+            /** @description Ignored. */
+            expirationTime?: number | null;
+            keys: {
+                /** @description Base64url, 65 bytes decoded */
+                p256dh: string;
+                /** @description Base64url, 16 bytes decoded */
+                auth: string;
+            };
+            /** @description e.g. "Chrome di Windows", derived from the User-Agent by the dashboard */
+            label: string;
         };
     };
     responses: {
@@ -3391,7 +3420,7 @@ export interface operations {
             };
         };
     };
-    getTelegramChannel: {
+    getPushConfig: {
         parameters: {
             query?: never;
             header?: never;
@@ -3400,19 +3429,20 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Channel state */
+            /** @description Push configuration */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TelegramChannel"];
+                    "application/json": components["schemas"]["PushConfig"];
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    unlinkTelegram: {
+    listPushSubscriptions: {
         parameters: {
             query?: never;
             header?: never;
@@ -3421,7 +3451,79 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Disconnected (or was not linked) */
+            /** @description Registered browsers, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PushSubscription"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createPushSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscriptionInput"];
+            };
+        };
+        responses: {
+            /** @description Existing subscription refreshed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscription"];
+                };
+            };
+            /** @description Subscription created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscription"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description `NOTIFICATIONS_NOT_CONFIGURED` (no VAPID keys on this server) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deletePushSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (or already revoked) */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3429,9 +3531,89 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
-    updateTelegramPrefs: {
+    sendPushTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted by the push service */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        result: "sent";
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `NOTIFICATION_SUBSCRIPTION_GONE` (push service no longer knows this browser; register again) */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            /** @description `PUSH_DELIVERY_FAILED` (push service error or timeout) */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `NOTIFICATIONS_NOT_CONFIGURED` */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getNotificationPrefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current preferences (defaults to everything on) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPrefs"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateNotificationPrefs: {
         parameters: {
             query?: never;
             header?: never;
@@ -3444,138 +3626,18 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated channel */
+            /** @description Updated preferences */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TelegramChannel"];
+                    "application/json": components["schemas"]["NotificationPrefs"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            /** @description `NOTIFICATION_CHANNEL_NOT_LINKED` (no channel row; call `POST /notifications/telegram/link` first) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createTelegramLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Link code created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TelegramLink"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            429: components["responses"]["TooManyRequests"];
-            /** @description `NOTIFICATIONS_NOT_CONFIGURED` (no Telegram bot on this server) */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    sendTelegramTest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Queued */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description `NOTIFICATION_CHANNEL_NOT_LINKED` (status is not `active`) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            429: components["responses"]["TooManyRequests"];
-            /** @description `NOTIFICATIONS_NOT_CONFIGURED` */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    telegramWebhook: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-Telegram-Bot-Api-Secret-Token": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    update_id: number;
-                    message?: {
-                        [key: string]: unknown;
-                    };
-                    my_chat_member?: {
-                        [key: string]: unknown;
-                    };
-                } & {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        responses: {
-            /** @description Acknowledged. Body is empty (`{}`) or a Telegram `sendMessage` method call. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        method?: "sendMessage";
-                        chat_id?: number;
-                        text?: string;
-                    };
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

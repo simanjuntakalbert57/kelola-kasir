@@ -1,6 +1,6 @@
 ADR-0016 — Notifikasi transaksi & void ke Telegram owner (outbox di `notification_log`, dispatcher in-process)
 
-Status: Accepted · Tanggal: 2026-10-30 · Keputusan: Owner (inisiatif DEAR-97, kanal Telegram menunggu konfirmasi Albert di DEAR-98) + Tech Lead · Issue: DEAR-99 · Dasar: [konsep B](../product/concepts/laporan-alert-telegram.md) · Biaya tambahan: Rp0
+Status: **Superseded by [ADR-0017](0017-web-push-transaction-notifications.md)** (kanal diganti Web Push di laptop, DEAR-98) · Tanggal: 2026-10-30 · Keputusan: Owner (inisiatif DEAR-97, kanal Telegram menunggu konfirmasi Albert di DEAR-98) + Tech Lead · Issue: DEAR-99 · Dasar: [konsep B](../product/concepts/laporan-alert-telegram.md) · Biaya tambahan: Rp0
 
 ## Konteks
 Owner ingin tahu setiap transaksi yang masuk tanpa membuka dashboard. Konsep B (DEAR-24) memilih Telegram Bot API (gratis) dan pola "event-driven, tanpa worker". Konsep itu masih mengandaikan Render Free. Produksi sekarang satu VPS dengan satu container API (ADR-0012), dan klien hanya memakai `https://kelola-kasir.pages.dev/v1` (ADR-0014).

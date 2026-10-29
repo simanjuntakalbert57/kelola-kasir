@@ -32,9 +32,10 @@ export type OutletSettings = Schemas['OutletSettings'];
 export type Problem = Schemas['Problem'];
 export type NotificationPrefs = Schemas['NotificationPrefs'];
 export type NotificationPrefsInput = Schemas['NotificationPrefsInput'];
-export type TelegramChannel = Schemas['TelegramChannel'];
-export type TelegramChannelStatus = Schemas['TelegramChannelStatus'];
-export type TelegramLink = Schemas['TelegramLink'];
+export type PushConfig = Schemas['PushConfig'];
+export type PushSubscription = Schemas['PushSubscription'];
+export type PushSubscriptionInput = Schemas['PushSubscriptionInput'];
+export type PushSubscriptionStatus = Schemas['PushSubscriptionStatus'];
 
 /** JSON body of a successful response for `path` + `method`. */
 export type ResponseBody<
