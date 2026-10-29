@@ -323,6 +323,39 @@ describe('uploads', () => {
     }
   });
 
+  it('signs the SHA-256 checksum header when the client sends one', async () => {
+    const withStorage = await createTestEnv({ storage });
+    try {
+      const shop = await createShop(withStorage, { qris: false });
+      const owner = bearer(shop.ownerToken);
+      const checksum = 'n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=';
+      const res = await post(withStorage, '/v1/uploads', owner, {
+        purpose: 'logo',
+        content_type: 'image/png',
+        size_bytes: 1000,
+        checksum_sha256: checksum,
+      });
+      expect(res.statusCode).toBe(201);
+      const body = json<{ upload_url: string; upload_headers: Record<string, string> }>(res);
+      expect(new URL(body.upload_url).searchParams.get('X-Amz-SignedHeaders')).toBe(
+        'content-type;host;x-amz-checksum-sha256',
+      );
+      expect(body.upload_headers).toEqual({
+        'Content-Type': 'image/png',
+        'x-amz-checksum-sha256': checksum,
+      });
+      const bad = await post(withStorage, '/v1/uploads', owner, {
+        purpose: 'logo',
+        content_type: 'image/png',
+        size_bytes: 1000,
+        checksum_sha256: 'not-a-checksum',
+      });
+      expect(bad.statusCode).toBe(400);
+    } finally {
+      await withStorage.close();
+    }
+  });
+
   it('validates purpose, type and size, and is owner-only', async () => {
     const withStorage = await createTestEnv({ storage });
     try {

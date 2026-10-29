@@ -16,6 +16,14 @@ const body = z.object({
   purpose: z.enum(['product_image', 'logo', 'qris_image']),
   content_type: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   size_bytes: z.number().int().min(1).max(MAX_BYTES),
+  /**
+   * Base64 SHA-256 of the file. Buckets with Object Lock (B2) reject a PUT without a checksum
+   * header, so the client sends it here and the API signs it into the URL.
+   */
+  checksum_sha256: z
+    .string()
+    .regex(/^[A-Za-z0-9+/]{43}=$/)
+    .optional(),
 });
 
 /**
@@ -47,10 +55,18 @@ export function uploadRoutes(ctx: AppContext, guards: Guards) {
         now,
         expiresInSec: UPLOAD_TTL_SEC,
         // The uploader must send exactly this content type, so a JPEG slot cannot host HTML.
-        signedHeaders: { 'content-type': input.content_type },
+        signedHeaders: {
+          'content-type': input.content_type,
+          ...(input.checksum_sha256 ? { 'x-amz-checksum-sha256': input.checksum_sha256 } : {}),
+        },
       });
       return reply.status(201).send({
         upload_url: uploadUrl,
+        // Headers the PUT must carry exactly as given (they are part of the signature).
+        upload_headers: {
+          'Content-Type': input.content_type,
+          ...(input.checksum_sha256 ? { 'x-amz-checksum-sha256': input.checksum_sha256 } : {}),
+        },
         public_url: `${storage.apiPublicBaseUrl}${MEDIA_PATH}${key}`,
         expires_at: new Date(now.getTime() + UPLOAD_TTL_SEC * 1000).toISOString(),
       });

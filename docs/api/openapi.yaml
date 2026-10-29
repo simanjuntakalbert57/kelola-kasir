@@ -1374,6 +1374,7 @@ paths:
                 purpose: { type: string, enum: [product_image, logo, qris_image] }
                 content_type: { type: string, enum: [image/jpeg, image/png, image/webp] }
                 size_bytes: { type: integer, maximum: 2097152 }
+                checksum_sha256: { type: string, pattern: '^[A-Za-z0-9+/]{43}=$', description: 'Base64 SHA-256 of the file. When given it is signed as `x-amz-checksum-sha256`; required in practice for buckets with Object Lock (B2).' }
       responses:
         '201':
           description: Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings payload afterwards.
@@ -1384,6 +1385,7 @@ paths:
                 required: [upload_url, public_url, expires_at]
                 properties:
                   upload_url: { type: string, format: uri }
+                  upload_headers: { type: object, additionalProperties: { type: string }, description: 'Headers the PUT must send exactly as given (signed).' }
                   public_url: { type: string, format: uri }
                   expires_at: { type: string, format: date-time }
         '503':

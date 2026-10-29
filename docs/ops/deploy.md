@@ -55,7 +55,7 @@ Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** mene
 - [ ] Buat bucket `kelola-kasir-media` (foto/logo). Biarkan **privat** (jangan aktifkan r2.dev / akses publik); gambar disajikan lewat API (ADR-0015).
 - [ ] Bucket `kelola-kasir-media` → Settings → CORS policy:
   ```json
-  [{ "AllowedOrigins": ["https://kelola-kasir.pages.dev"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
+  [{ "AllowedOrigins": ["https://kelola-kasir.pages.dev"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type", "x-amz-checksum-sha256"], "MaxAgeSeconds": 3600 }]
   ```
 - [ ] Buat bucket `kelola-kasir-backup` (tanpa akses publik).
 - [ ] R2 → Manage API tokens: token **Object Read & Write** khusus `kelola-kasir-media` (untuk API), dan token kedua khusus `kelola-kasir-backup` (untuk backup). Catat Access Key ID, Secret Access Key, dan endpoint `https://<account-id>.r2.cloudflarestorage.com`.

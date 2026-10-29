@@ -3220,6 +3220,8 @@ export interface operations {
                     /** @enum {string} */
                     content_type: "image/jpeg" | "image/png" | "image/webp";
                     size_bytes: number;
+                    /** @description Base64 SHA-256 of the file. When given it is signed as `x-amz-checksum-sha256`; required in practice for buckets with Object Lock (B2). */
+                    checksum_sha256?: string;
                 };
             };
         };
@@ -3233,6 +3235,10 @@ export interface operations {
                     "application/json": {
                         /** Format: uri */
                         upload_url: string;
+                        /** @description Headers the PUT must send exactly as given (signed). */
+                        upload_headers?: {
+                            [key: string]: string;
+                        };
                         /** Format: uri */
                         public_url: string;
                         /** Format: date-time */
