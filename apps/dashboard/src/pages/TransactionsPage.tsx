@@ -23,7 +23,7 @@ import { formatDateTime, errorMessage } from '../lib/format';
 import { METHOD_LABEL, STATUS_LABEL } from '../lib/labels';
 import { useDebounced } from '../lib/useDebounced';
 import { useIsDesktop } from '../lib/useMediaQuery';
-import { formatTime } from '../lib/dates';
+import { formatShortDate, formatTime, wibDate } from '../lib/dates';
 
 type Page = { data: TransactionSummary[]; next_cursor: string | null };
 
@@ -215,6 +215,8 @@ export function TransactionsPage() {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   const rows = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const multiDay = state.range.from !== state.range.to;
+  const singleToday = !multiDay && state.range.from === wibDate();
   const filtered = Boolean(shiftId || employeeId || method || status || q);
   const reset = () => {
     setShiftId('');
@@ -272,6 +274,12 @@ export function TransactionsPage() {
         title="Transaksi"
         action={shiftId ? null : <ExportButtons query={qs(filters)} />}
       />
+      {list.data ? (
+        <p className="-mt-3 mb-4 text-sm font-bold text-muted">
+          {rows.length}
+          {list.hasNextPage ? '+' : ''} transaksi {singleToday ? 'hari ini' : 'di rentang ini'}
+        </p>
+      ) : null}
       {shiftId ? (
         <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
           <Badge tone="ok">Filter: satu shift</Badge>
@@ -362,9 +370,12 @@ export function TransactionsPage() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[15.5px] font-extrabold">
-                          {t.employee.name} · {formatTime(t.paid_at ?? t.client_created_at)}
+                          {t.employee.name} ·{' '}
+                          {multiDay ? `${formatShortDate(t.paid_at ?? t.client_created_at)} ` : ''}
+                          {formatTime(t.paid_at ?? t.client_created_at)}
                         </span>
                         <span className="block text-[13px] font-bold text-muted">
+                          {t.item_count ? `${t.item_count} item · ` : ''}
                           {METHOD_LABEL[t.payment_method]}
                         </span>
                       </span>

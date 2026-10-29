@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { json, mockApi, problem, renderApp, session } from '../test/helpers';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 const employee = { id: 'e1', name: 'Sari', is_active: true };
 const summary = {
@@ -64,8 +67,9 @@ describe('Dashboard', () => {
     expect(
       screen.getByRole('heading', { name: /^Selamat (pagi|siang|sore|malam), Pak Albert/ }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Gelas terjual')).toBeInTheDocument();
-    expect(screen.getByText(/74 gelas terjual hari ini\./)).toBeInTheDocument();
+    expect(screen.getByText('Pesanan', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText(/gelas terjual/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/74 pesanan hari ini\./)).toBeInTheDocument();
     expect(screen.getByText(/Tunai 62%/)).toBeInTheDocument();
     expect(screen.getByText(/QRIS 38%/)).toBeInTheDocument();
     expect(screen.getByText(/▲ 12% dari kemarin/)).toBeInTheDocument();
@@ -75,7 +79,8 @@ describe('Dashboard', () => {
     expect(screen.getByText('1 permintaan batal nunggu Bapak')).toBeInTheDocument();
   });
 
-  it('says the day is rame when revenue is ≥15% above the previous seven days', async () => {
+  it('says the day is rame when revenue is ≥15% above the previous seven days over the same hours', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-26T03:00:00Z') });
     const calls = mockApi({
       'POST /auth/refresh': () => json(session),
       'GET /dashboard/summary': () => json(summary),
@@ -88,10 +93,11 @@ describe('Dashboard', () => {
       init?: RequestInit,
     ) => Promise<Response>;
     vi.stubGlobal('fetch', async (i: string, init?: RequestInit) => {
-      if (String(i).includes('granularity=day')) {
+      if (String(i).includes('date_from=2026-10-19')) {
+        // 08.00 WIB on each of the previous seven days; "now" is 10.00 WIB.
         return json({
           data: Array.from({ length: 7 }, (_, n) => ({
-            bucket_start: `2026-10-${19 + n}T17:00:00Z`,
+            bucket_start: `2026-10-${19 + n}T01:00:00Z`,
             revenue: 500000,
             transaction_count: 20,
           })),
@@ -113,7 +119,7 @@ describe('Dashboard', () => {
       'GET /shifts': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/');
-    expect(await screen.findByText(/74 gelas terjual hari ini\./)).toBeInTheDocument();
+    expect(await screen.findByText(/74 pesanan hari ini\./)).toBeInTheDocument();
     expect(screen.queryByText(/Hari ini (rame|lagi sepi|normal)/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '7 hari' }));
     expect(await screen.findByText(/▲ 12% dari periode lalu/)).toBeInTheDocument();
@@ -152,6 +158,24 @@ describe('Dashboard', () => {
 });
 
 describe('Transaksi', () => {
+  it('shows the date on rows only when the range spans more than one day', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /employees': () => json({ data: [employee] }),
+      'GET /transactions': () => json({ data: [tx({ item_count: 3 })], next_cursor: null }),
+    });
+    renderApp('/transaksi');
+    const row = await screen.findByRole('button', { name: /Detail JUS1/ });
+    expect(row).toHaveTextContent(/Sari · 14\.32/);
+    expect(row).toHaveTextContent('3 item · Tunai');
+    expect(screen.getByText('1 transaksi hari ini')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '7 hari' }));
+    expect(await screen.findByText('1 transaksi di rentang ini')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Detail JUS1/ })).toHaveTextContent(
+      /Sari · 26 Okt 14\.32/,
+    );
+  });
+
   it('lists, filters by method and opens the detail', async () => {
     const calls = mockApi({
       'POST /auth/refresh': () => json(session),
@@ -326,6 +350,7 @@ describe('Shift & kas', () => {
     mockApi({
       'POST /auth/refresh': () => json(session),
       'GET /employees': () => json({ data: [employee] }),
+      'GET /shifts?status=open&limit=5': () => json({ data: [], next_cursor: null }),
       'GET /shifts': () =>
         shiftCalls++ > 0
           ? json({ data: [shift('old', -5000)], next_cursor: null })

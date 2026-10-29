@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { busyness, greeting, peakHourSentence, WIB_HOUR } from './insight';
+import { busyness, greeting, peakHourSentence, revenueBeforeHour, WIB_HOUR } from './insight';
 
 describe('greeting', () => {
   it.each([
@@ -35,6 +35,27 @@ describe('busyness', () => {
     expect(busyness(500, [100, 100, 100])).toBeNull();
     expect(busyness(500, [0, 0, 100, 100, 100, 100, 100])).toBeNull();
     expect(busyness(500, [0, 0, 0, 0, 0, 0, 0])).toBeNull();
+  });
+});
+
+describe('revenueBeforeHour', () => {
+  // Each previous day sells 10.000 per hour from 08.00 WIB (01:00Z) for ten hours.
+  const days = Array.from({ length: 7 }, (_, n) => n);
+  const points = days.flatMap((n) =>
+    Array.from({ length: 10 }, (_, h) => ({
+      bucket_start: new Date(Date.UTC(2026, 9, 19 + n, 1 + h)).toISOString(),
+      revenue: 10_000,
+    })),
+  );
+  it('sums only buckets before the current WIB hour, per day', () => {
+    expect(revenueBeforeHour(points, '2026-10-19', 7, 10)).toEqual(Array(7).fill(20_000));
+    expect(revenueBeforeHour(points, '2026-10-19', 7, 7)).toEqual(Array(7).fill(0));
+  });
+  it('a normal morning is "normal", not "sepi" as against full-day averages', () => {
+    const sameHours = revenueBeforeHour(points, '2026-10-19', 7, 10);
+    expect(busyness(21_000, sameHours)).toBe('normal');
+    // The old comparison against full days (100.000) would have said sepi.
+    expect(busyness(21_000, Array(7).fill(100_000))).toBe('sepi');
   });
 });
 

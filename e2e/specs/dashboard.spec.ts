@@ -18,7 +18,7 @@ test.describe('Dashboard (TC-DSH-01/02, O-02)', () => {
 
   test('TC-DSH-02 jumlah transaksi, rata-rata, split cash/QRIS konsisten', async ({ page }) => {
     await openAsOwner(page, '/');
-    await expect(page.getByText('Gelas terjual', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Pesanan', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('5 tunai · 2 QRIS')).toBeVisible();
     await expect(page.getByText(/^7$/).first()).toBeVisible();
     await expect(page.getByText(rp(21_428)).first()).toBeVisible();

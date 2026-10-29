@@ -9,7 +9,14 @@ import { Card, EmptyState, ErrorState, NoticeCard, PageHeader, Skeleton } from '
 import { useAuth } from '../auth/AuthProvider';
 import { api, qs } from '../lib/api';
 import { addDays, formatShortDate, formatTime } from '../lib/dates';
-import { BUSY_SENTENCE, busyness, greeting, peakHourSentence, WIB_HOUR } from '../lib/insight';
+import {
+  BUSY_SENTENCE,
+  busyness,
+  greeting,
+  peakHourSentence,
+  revenueBeforeHour,
+  WIB_HOUR,
+} from '../lib/insight';
 
 type Summary = components['schemas']['DashboardSummary'];
 type Point = { bucket_start: string; revenue: number; transaction_count: number };
@@ -114,13 +121,14 @@ export function DashboardPage() {
         `/shifts${qs({ status: 'open', limit: 5 })}`,
       ),
   });
-  // The seven days before today feed the rame/sepi sentence; only meaningful for "Hari ini".
+  // The seven days before today, hourly, feed the rame/sepi sentence (same hours as today so far);
+  // only meaningful for "Hari ini".
   const week = useQuery({
     queryKey: ['dashboard', 'week', from],
     enabled: isToday,
     queryFn: () =>
       api<{ data: Point[] }>(
-        `/dashboard/sales-series${qs({ date_from: addDays(from, -7), date_to: addDays(from, -1), granularity: 'day' })}`,
+        `/dashboard/sales-series${qs({ date_from: addDays(from, -7), date_to: addDays(from, -1), granularity: 'hour' })}`,
       ),
   });
 
@@ -131,10 +139,7 @@ export function DashboardPage() {
   const rangeWord = isToday ? 'hari ini' : state.preset === '7d' ? '7 hari ini' : 'periode ini';
   const mood =
     isToday && s && week.data
-      ? busyness(
-          s.revenue,
-          week.data.data.map((d) => d.revenue),
-        )
+      ? busyness(s.revenue, revenueBeforeHour(week.data.data, addDays(from, -7), 7, WIB_HOUR()))
       : null;
   const peak = series.data?.data.reduce<Point | null>(
     (best, d) => (d.revenue > (best?.revenue ?? 0) ? d : best),
@@ -201,12 +206,11 @@ export function DashboardPage() {
                 </p>
               ) : null}
               <p className="mt-3 text-[15px] font-semibold">
-                {s.transaction_count} gelas terjual {rangeWord}.
-                {mood ? ` ${BUSY_SENTENCE[mood]}` : ''}
+                {s.transaction_count} pesanan {rangeWord}.{mood ? ` ${BUSY_SENTENCE[mood]}` : ''}
               </p>
             </section>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Kpi label="Gelas terjual" value={String(s.transaction_count)} />
+              <Kpi label="Pesanan" value={String(s.transaction_count)} />
               <Kpi label="Rata-rata per pesanan" value={formatRupiah(s.average_ticket)} />
               <PaymentSplit summary={s} />
             </div>

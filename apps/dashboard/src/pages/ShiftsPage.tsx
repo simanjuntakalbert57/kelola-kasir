@@ -136,6 +136,11 @@ export function ShiftsPage() {
     queryKey: ['employees'],
     queryFn: () => api<{ data: Employee[] }>('/employees'),
   });
+  // Separate from the date-filtered list: a shift opened before `date_from` is still running.
+  const openShifts = useQuery({
+    queryKey: ['shifts', 'open'],
+    queryFn: () => api<Page>(`/shifts${qs({ status: 'open', limit: 5 })}`),
+  });
   const filters = { date_from: state.range.from, date_to: state.range.to, employee_id: employeeId };
   const list = useInfiniteQuery({
     queryKey: ['shifts', filters],
@@ -151,7 +156,7 @@ export function ShiftsPage() {
     if (onlyDiff && hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
   }, [onlyDiff, hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
   const scanning = onlyDiff && !!hasNextPage && !isError;
-  const running = all.filter((s) => s.status === 'open');
+  const running = openShifts.data?.data ?? [];
   const rows = onlyDiff ? all.filter((s) => (s.cash_difference ?? 0) !== 0) : all;
 
   return (
