@@ -107,7 +107,7 @@ function ExportButtons({ query }: { query: string }) {
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
-          className="size-5 accent-brand-600"
+          className="size-5 accent-pri"
           checked={detail}
           onChange={(e) => setDetail(e.target.checked)}
         />
@@ -257,7 +257,7 @@ export function TransactionsPage() {
                   type="button"
                   onClick={() => setOpenId(t.id)}
                   aria-label={`Detail ${t.number}`}
-                  className="grid w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-[16px] bg-surface p-3 text-left shadow-card hover:bg-brand-50 md:grid-cols-[1.5fr_1fr_1fr_1fr_8rem]"
+                  className="grid w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-[16px] bg-surface p-3 text-left shadow-card hover:bg-bg md:grid-cols-[1.5fr_1fr_1fr_1fr_8rem]"
                 >
                   <span className="min-w-0 truncate font-bold">{t.number}</span>
                   <span className="text-right font-bold md:order-4 md:text-right">

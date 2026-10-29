@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useAuth } from '../auth/AuthProvider';
 import { Card, EmptyState, PageHeader } from '../components/ui';
-import { NAV } from '../layout/AppShell';
+import { CountBadge, NAV, usePendingVoidCount } from '../layout/AppShell';
 
 export function ComingSoon({ title }: { title: string }) {
   return (
@@ -19,6 +19,7 @@ export function ComingSoon({ title }: { title: string }) {
 /** Mobile "Lainnya" tab: items that do not fit in the 5-item bottom bar. */
 export function MorePage() {
   const { logout } = useAuth();
+  const pending = usePendingVoidCount();
   const extra = NAV.filter((n) => n.short === null);
   return (
     <>
@@ -28,9 +29,11 @@ export function MorePage() {
           <li key={n.to}>
             <Link
               to={n.to}
-              className="block min-h-12 rounded-[16px] bg-surface px-4 py-3 font-bold shadow-card"
+              className="flex min-h-14 items-center gap-3 rounded-2xl bg-surface px-4 py-3 font-extrabold shadow-card"
             >
+              <n.icon size={22} aria-hidden="true" className="text-tint-ink" />
               {n.label}
+              {n.to === '/void' ? <CountBadge count={pending} className="ml-auto" /> : null}
             </Link>
           </li>
         ))}
@@ -38,7 +41,7 @@ export function MorePage() {
           <button
             type="button"
             onClick={() => void logout()}
-            className="block min-h-12 w-full rounded-[16px] bg-surface px-4 py-3 text-left font-bold text-danger shadow-card"
+            className="block min-h-12 w-full rounded-2xl bg-surface px-4 py-3 text-left font-extrabold text-danger shadow-card"
           >
             Keluar
           </button>

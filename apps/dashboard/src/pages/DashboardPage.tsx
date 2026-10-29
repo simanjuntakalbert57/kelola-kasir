@@ -42,7 +42,7 @@ function SalesChart({ data, granularity }: { data: Point[]; granularity: 'hour' 
           <div
             key={d.bucket_start}
             title={`${label(d)}: ${formatRupiah(d.revenue)} (${d.transaction_count} transaksi)`}
-            className={`min-w-1 flex-1 rounded-t-[4px] ${d === peak && d.revenue > 0 ? 'bg-accent' : 'bg-brand-600'}`}
+            className={`min-w-1 flex-1 rounded-t-[4px] ${d === peak && d.revenue > 0 ? 'bg-pri' : 'bg-bar'}`}
             style={{ height: `${Math.max(2, (d.revenue / max) * 100)}%` }}
           />
         ))}

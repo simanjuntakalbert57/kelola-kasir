@@ -162,7 +162,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
         {save.isSuccess && !form.formState.isDirty ? (
           <p
             role="status"
-            className="rounded-[12px] bg-brand-tint px-3.5 py-2 text-sm font-semibold text-brand-text"
+            className="rounded-[12px] bg-tint px-3.5 py-2 text-sm font-semibold text-tint-ink"
           >
             Pengaturan tersimpan.
           </p>
@@ -230,7 +230,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
           {decodeNote ? (
             <p
               role={decodeNote.ok ? 'status' : 'alert'}
-              className={`-mt-2 mb-3 text-[13px] ${decodeNote.ok ? 'text-brand-text' : 'text-danger'}`}
+              className={`-mt-2 mb-3 text-[13px] ${decodeNote.ok ? 'text-tint-ink' : 'text-danger'}`}
             >
               {decodeNote.text}
             </p>
