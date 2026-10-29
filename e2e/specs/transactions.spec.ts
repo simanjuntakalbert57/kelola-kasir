@@ -25,10 +25,10 @@ test.describe('Daftar transaksi & ekspor (TC-LST-01/02/03)', () => {
     await pickOption(page, 'Status', 'Batal');
     await expect(page.getByText('Menampilkan 1 transaksi')).toBeVisible();
     await pickOption(page, 'Status', 'Semua status');
-    await pickOption(page, 'Metode', 'Cash');
+    await pickOption(page, 'Metode', 'Tunai');
     await pickOption(page, 'Pegawai', 'Budi E2E');
     await expect(page.getByText('Menampilkan 3 transaksi')).toBeVisible();
-    await pickOption(page, 'Status', 'Menunggu void');
+    await pickOption(page, 'Status', 'Nunggu persetujuan batal');
     await expect(page.getByText('Menampilkan 2 transaksi')).toBeVisible();
   });
 
