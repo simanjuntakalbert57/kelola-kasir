@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -21,7 +21,9 @@ describe('SelectField', () => {
     render(<Harness />);
     const box = screen.getByRole('combobox', { name: 'Filter kategori' });
     await userEvent.click(box);
-    expect(screen.getByRole('listbox').className).toContain('top-full');
+    const list = screen.getByRole('listbox');
+    expect(list.style.position).toBe('fixed');
+    expect(list.style.top).not.toBe('');
     await userEvent.click(screen.getByRole('option', { name: 'Jus' }));
     expect(box).toHaveTextContent('Jus');
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -32,6 +34,78 @@ describe('SelectField', () => {
     screen.getByRole('combobox').focus();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}');
     expect(screen.getByRole('combobox')).toHaveTextContent('Jus');
+  });
+
+  it('marks the selected option with a check icon', async () => {
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('combobox'));
+    const [first, second] = screen.getAllByRole('option');
+    expect(first?.querySelector('svg')).not.toBeNull();
+    expect(second?.querySelector('svg')).toBeNull();
+  });
+
+  it('opens upward when there is no room below', async () => {
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      top: 700,
+      bottom: 748,
+      left: 20,
+      right: 220,
+      width: 200,
+      height: 48,
+      x: 20,
+      y: 700,
+      toJSON: () => ({}),
+    });
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('combobox'));
+    const list = screen.getByRole('listbox');
+    expect(list.style.bottom).not.toBe('');
+    expect(list.style.top).toBe('');
+    spy.mockRestore();
+  });
+
+  it('supports Home/End and type-ahead', async () => {
+    render(
+      <SelectField label="Pegawai" defaultValue="b">
+        <option value="a">Andi</option>
+        <option value="b">Budi</option>
+        <option value="c">Citra</option>
+        <option value="d">Dewi</option>
+      </SelectField>,
+    );
+    const box = screen.getByRole('combobox');
+    box.focus();
+    await userEvent.keyboard('{ArrowDown}{End}{Enter}');
+    expect(box).toHaveTextContent('Dewi');
+    await userEvent.keyboard('{ArrowDown}{Home}{Enter}');
+    expect(box).toHaveTextContent('Andi');
+    await userEvent.keyboard('c');
+    await userEvent.keyboard('{Enter}');
+    expect(box).toHaveTextContent('Citra');
+  });
+
+  it('closes on outside click and returns focus to the button', async () => {
+    render(
+      <>
+        <Harness />
+        <p>luar</p>
+      </>,
+    );
+    const box = screen.getByRole('combobox');
+    await userEvent.click(box);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('luar'));
+    expect(screen.queryByRole('listbox')).toBeNull();
+    await waitFor(() => expect(box).toHaveFocus());
+  });
+
+  it('closes on Escape and keeps focus on the button', async () => {
+    render(<Harness />);
+    const box = screen.getByRole('combobox');
+    await userEvent.click(box);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(box).toHaveFocus();
   });
 
   it('forwards blur and redirects native focus to the combobox (react-hook-form)', async () => {
