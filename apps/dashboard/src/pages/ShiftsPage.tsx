@@ -25,11 +25,11 @@ type Page = { data: Shift[]; next_cursor: string | null };
 /** Difference is conveyed by sign + icon + text, never by colour alone. */
 export function Difference({ value }: { value: number | null | undefined }) {
   if (value == null) return <span className="text-muted">—</span>;
-  if (value === 0) return <b className="text-brand-text">0 ✓ Pas</b>;
+  if (value === 0) return <b className="text-tint-ink">0 ✓ Pas</b>;
   const short = value < 0;
   const text = `${short ? '−' : '+'}${formatRupiah(Math.abs(value))}`;
   return (
-    <b className={short ? 'text-danger' : 'text-warn'}>
+    <b className={short ? 'text-danger' : 'text-warm-ink'}>
       {text} {short ? '▼ Kurang' : '▲ Lebih'}
     </b>
   );
@@ -110,7 +110,7 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
               date_from: wibDate(new Date(shift.opened_at)),
               date_to: wibDate(shift.closed_at ? new Date(shift.closed_at) : new Date()),
             }}
-            className="mt-3 inline-block text-brand-text underline"
+            className="mt-3 inline-block text-tint-ink underline"
             onClick={onClose}
           >
             Lihat daftar transaksi
@@ -203,7 +203,7 @@ export function ShiftsPage() {
                 type="button"
                 onClick={() => setSelected(s)}
                 aria-label={`Detail shift ${formatDateTime(s.opened_at)}`}
-                className="grid w-full grid-cols-2 gap-x-3 gap-y-1 rounded-[16px] bg-surface p-3 text-left shadow-card hover:bg-brand-50 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1.2fr]"
+                className="grid w-full grid-cols-2 gap-x-3 gap-y-1 rounded-[16px] bg-surface p-3 text-left shadow-card hover:bg-bg md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1.2fr]"
               >
                 <span className="col-span-2 font-bold md:col-span-1">
                   {formatDateTime(s.opened_at)}
