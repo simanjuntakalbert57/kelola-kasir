@@ -635,3 +635,56 @@ export function ConfirmDialog({
     </Dialog>
   );
 }
+
+/** On/off switch (52×32 track, ≥44px target); `labelledBy` points at the visible label. Space/Enter toggle. */
+export function Switch({
+  checked,
+  onChange,
+  labelledBy,
+  describedBy,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  labelledBy: string;
+  describedBy?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-labelledby={labelledBy}
+      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="grid min-h-11 min-w-14 shrink-0 place-items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span
+        aria-hidden="true"
+        className={`relative block h-8 w-[52px] rounded-full border-2 transition-colors duration-150 ${
+          checked ? 'border-pri bg-pri' : 'border-line-strong bg-dis-bg'
+        }`}
+      >
+        <span
+          className={`absolute top-[3px] size-[22px] rounded-full transition-all duration-150 ${
+            checked ? 'left-[23px] bg-surface' : 'left-[3px] bg-line-strong'
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** Short confirmation pill, announced politely. Render conditionally; the owner clears it after ~3 s. */
+export function Toast({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="status"
+      className="fixed bottom-24 left-1/2 z-20 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[13px] font-extrabold text-bg shadow-modal md:bottom-6"
+    >
+      {children}
+    </div>
+  );
+}

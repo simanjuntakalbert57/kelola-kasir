@@ -15,6 +15,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ShiftsPage } from './pages/ShiftsPage';
@@ -112,6 +113,7 @@ const routeTree = root.addChildren([
     page('/shift', ShiftsPage),
     page('/void', VoidPage),
     page('/pengaturan', SettingsPage),
+    page('/pengaturan/notifikasi', NotificationsPage),
     page('/lainnya', MorePage),
   ]),
 ]);

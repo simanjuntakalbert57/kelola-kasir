@@ -2,6 +2,7 @@ import { Link, Outlet } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { VoidRequest } from '@kelola-kasir/contracts';
 import {
+  Bell,
   CircleX,
   CupSoda,
   Ellipsis,
@@ -17,6 +18,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { api, qs } from '../lib/api';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { PushBridge } from '../components/PushBridge';
 
 export const NAV: readonly {
   to: string;
@@ -32,6 +34,7 @@ export const NAV: readonly {
   { to: '/shift', label: 'Shift & Kas', short: 'Shift', icon: Wallet },
   { to: '/void', label: 'Persetujuan batal', short: null, icon: CircleX },
   { to: '/pengaturan', label: 'Pengaturan', short: null, icon: Store },
+  { to: '/pengaturan/notifikasi', label: 'Notifikasi', short: null, icon: Bell },
 ];
 
 const tabs = NAV.filter((n) => n.short !== null);
@@ -75,6 +78,7 @@ export function AppShell() {
   const pending = usePendingVoidCount();
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
+      <PushBridge />
       <aside className="hidden w-62 shrink-0 flex-col gap-1 border-r border-line bg-side px-2.5 py-5 md:flex">
         <div className="flex items-center gap-3 px-2 pb-4">
           <div
@@ -95,7 +99,7 @@ export function AppShell() {
             <Link
               key={n.to}
               to={n.to}
-              activeOptions={{ exact: n.to === '/' }}
+              activeOptions={{ exact: n.to === '/' || n.to === '/pengaturan' }}
               className={sideLink}
               activeProps={{ className: `${sideLink} ${sideActive}`, 'aria-current': 'page' }}
             >
