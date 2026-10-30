@@ -16,6 +16,7 @@ import { DevicesPage } from './pages/DevicesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotificationsPage } from './pages/NotificationsPage';
+import { ProductImportPage } from './pages/ProductImportPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ShiftsPage } from './pages/ShiftsPage';
@@ -108,6 +109,7 @@ const routeTree = root.addChildren([
     page('/', DashboardPage),
     transactions,
     page('/produk', ProductsPage),
+    page('/produk/impor', ProductImportPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),
     page('/shift', ShiftsPage),
