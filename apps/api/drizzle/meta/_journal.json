@@ -22,6 +22,13 @@
       "when": 1793003486118,
       "tag": "0002_product_favorite",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793311862315,
+      "tag": "0003_notifications",
+      "breakpoints": true
     }
   ]
 }

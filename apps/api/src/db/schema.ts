@@ -489,3 +489,101 @@ export const idempotencyKeys = pgTable(
   },
   (t) => [primaryKey({ columns: [t.scopeId, t.key] })],
 );
+
+/** One row per browser an owner enabled Web Push on (ADR-0017). `endpoint` and keys are never logged or returned. */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    label: text('label').notNull(),
+    userAgent: text('user_agent'),
+    lastDeliveredAt: ts('last_delivered_at'),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    /** Null = active. */
+    revokedAt: ts('revoked_at'),
+    revokedReason: text('revoked_reason'),
+  },
+  (t) => [
+    uniqueIndex('push_subscriptions_endpoint_active_unique')
+      .on(t.endpoint)
+      .where(sql`${t.revokedAt} IS NULL`),
+    index('push_subscriptions_owner_active_idx')
+      .on(t.outletId, t.userId)
+      .where(sql`${t.revokedAt} IS NULL`),
+    check(
+      'push_subscriptions_revoked_reason_check',
+      sql`${t.revokedReason} IS NULL OR ${t.revokedReason} IN ('user', 'gone', 'replaced', 'limit')`,
+    ),
+  ],
+);
+
+/** Notification types per owner account per outlet, shared by all that owner's browsers. No row = defaults (all on). */
+export const notificationPrefs = pgTable(
+  'notification_prefs',
+  {
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    prefs: jsonb('prefs')
+      .notNull()
+      .default(sql`'{"transaction": true, "void": true}'::jsonb`),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.outletId, t.userId] })],
+);
+
+/** Outbox + idempotency record of Web Push messages: unique per (event, entity, subscription). */
+export const notificationLog = pgTable(
+  'notification_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    subscriptionId: uuid('subscription_id')
+      .notNull()
+      .references(() => pushSubscriptions.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    payload: jsonb('payload').notNull(),
+    ttlSeconds: integer('ttl_seconds').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    sentAt: ts('sent_at'),
+  },
+  (t) => [
+    uniqueIndex('notification_log_event_entity_subscription_unique').on(
+      t.event,
+      t.entityId,
+      t.subscriptionId,
+    ),
+    index('notification_log_pending_idx')
+      .on(t.nextAttemptAt)
+      .where(sql`${t.status} = 'pending'`),
+    check(
+      'notification_log_event_check',
+      sql`${t.event} IN ('transaction.paid', 'transaction.batch', 'void.requested', 'void.approved', 'subscription.test')`,
+    ),
+    check(
+      'notification_log_status_check',
+      sql`${t.status} IN ('pending', 'sent', 'failed', 'expired')`,
+    ),
+  ],
+);

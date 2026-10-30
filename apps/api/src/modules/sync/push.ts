@@ -60,6 +60,7 @@ async function apply(
   device: PushDevice,
   m: Mutation,
   ip: string | undefined,
+  paidIds: string[],
 ): Promise<MutationResult> {
   switch (m.type) {
     case 'transaction.create': {
@@ -76,6 +77,7 @@ async function apply(
         source: 'sync',
         ...(ip ? { ip } : {}),
       });
+      if (result.created && result.transaction.status === 'paid') paidIds.push(m.id);
       return { id: m.id, status: result.created ? 'applied' : 'duplicate' };
     }
     case 'shift.close': {
@@ -146,19 +148,26 @@ export async function pushMutations(
   ip: string | undefined,
 ): Promise<MutationResult[]> {
   const results: MutationResult[] = [];
-  for (const mutation of mutations) {
-    try {
-      results.push(await apply(ctx, device, mutation, ip));
-    } catch (err) {
-      if (!(err instanceof AppError)) throw err;
-      results.push(
-        reject(
-          mutation.id,
-          err.code,
-          err.errors?.map((e) => `${e.path}: ${e.message}`).join('; ') ?? err.detail ?? err.title,
-        ),
-      );
+  const paidIds: string[] = [];
+  try {
+    for (const mutation of mutations) {
+      try {
+        results.push(await apply(ctx, device, mutation, ip, paidIds));
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        results.push(
+          reject(
+            mutation.id,
+            err.code,
+            err.errors?.map((e) => `${e.path}: ${e.message}`).join('; ') ?? err.detail ?? err.title,
+          ),
+        );
+      }
     }
+  } finally {
+    // Mutations that committed are announced even if a later one crashed. >3 become one summary
+    // (ADR-0017 §2). Not awaited.
+    ctx.notifier.onSyncApplied(paidIds);
   }
   return results;
 }

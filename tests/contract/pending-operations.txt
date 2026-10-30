@@ -2,11 +2,3 @@
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
-# Web Push notifications (ADR-0017): specified in DEAR-99, built in DEAR-101.
-getPushConfig  # GET /notifications/push/config
-listPushSubscriptions  # GET /notifications/push/subscriptions
-createPushSubscription  # POST /notifications/push/subscriptions
-deletePushSubscription  # DELETE /notifications/push/subscriptions/{id}
-sendPushTest  # POST /notifications/push/subscriptions/{id}/test
-getNotificationPrefs  # GET /notifications/prefs
-updateNotificationPrefs  # PATCH /notifications/prefs

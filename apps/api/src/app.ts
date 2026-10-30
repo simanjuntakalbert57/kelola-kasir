@@ -17,6 +17,9 @@ import { deviceRoutes } from './modules/devices/routes.js';
 import { employeeRoutes } from './modules/employees/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { paymentRoutes } from './modules/payments/routes.js';
+import { notificationRoutes } from './modules/notifications/routes.js';
+import { createNotifier } from './modules/notifications/notifier.js';
+import { createWebPushClient, type PushClient } from './modules/notifications/push-client.js';
 import { createPaymentService } from './modules/payments/service.js';
 import { mediaRoutes } from './modules/media/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
@@ -36,15 +39,35 @@ export interface BuildAppOptions {
   now?: () => Date;
   /** Receives unexpected errors (HTTP 5xx), e.g. the Sentry reporter. */
   reportError?: ErrorReporter;
+  /** Replace the Web Push sender (tests). Defaults to `web-push` when VAPID is configured. */
+  pushClient?: PushClient;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config } = options;
+  const now = options.now ?? (() => new Date());
+  // The logger exists only once Fastify is built, and the notifier is needed by the context first.
+  const appRef: { current?: FastifyInstance } = {};
+  const pushClient =
+    options.pushClient ?? (config.webPush ? createWebPushClient(config.webPush) : null);
+  const notifier = createNotifier({
+    db: options.db,
+    now,
+    client: config.webPush || options.pushClient ? pushClient : null,
+    log: {
+      error: (obj, msg) => appRef.current?.log.error(obj, msg),
+      info: (obj, msg) => appRef.current?.log.info(obj, msg),
+    },
+    onError: (err, where) => {
+      void options.reportError?.(err, { route: where });
+    },
+  });
   const ctx: AppContext = {
     config,
     db: options.db,
     tokens: new TokenService(config.jwtPrivateKeyPem),
-    now: options.now ?? (() => new Date()),
+    now,
+    notifier,
   };
 
   const { trustProxy } = config;
@@ -74,6 +97,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           },
   });
 
+  appRef.current = app;
   registerProblemHandlers(app);
   const { reportError } = options;
   if (reportError) {
@@ -104,6 +128,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const guards = createGuards(ctx);
   const payments = createPaymentService(ctx);
   app.decorate('payments', payments);
+  app.decorate('notifier', notifier);
   await app.register(healthRoutes(ctx));
   await app.register(
     async (v1) => {
@@ -120,6 +145,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(reportRoutes(ctx, guards));
       await v1.register(paymentRoutes(ctx, guards, payments));
       await v1.register(syncRoutes(ctx, guards));
+      await v1.register(notificationRoutes(ctx, guards, notifier, pushClient));
     },
     { prefix: '/v1' },
   );

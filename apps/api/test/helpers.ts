@@ -8,6 +8,7 @@ import { createDb, type DbHandle } from '../src/db/client.js';
 import { outletSettings, outlets } from '../src/db/schema.js';
 import { TokenService } from '../src/lib/jwt.js';
 import { crc16 } from '../src/lib/qris.js';
+import type { PushClient } from '../src/modules/notifications/push-client.js';
 import { OwnerAuthService } from '../src/modules/auth/owner-service.js';
 
 export const OWNER_PASSWORD = 'correct-horse-battery';
@@ -20,7 +21,10 @@ export interface TestEnv {
   close(): Promise<void>;
 }
 
-export async function createTestEnv(overrides: Partial<Config> = {}): Promise<TestEnv> {
+export async function createTestEnv(
+  overrides: Partial<Config> = {},
+  extra: { pushClient?: PushClient } = {},
+): Promise<TestEnv> {
   const databaseUrl = inject('databaseUrl');
   const base = loadConfig({
     NODE_ENV: 'test',
@@ -37,7 +41,12 @@ export async function createTestEnv(overrides: Partial<Config> = {}): Promise<Te
       this.now = new Date(this.now.getTime() + ms);
     },
   };
-  const app = await buildApp({ config, db: handle.db, now: () => new Date(clock.now) });
+  const app = await buildApp({
+    config,
+    db: handle.db,
+    now: () => new Date(clock.now),
+    ...(extra.pushClient ? { pushClient: extra.pushClient } : {}),
+  });
   await app.ready();
   return {
     app,

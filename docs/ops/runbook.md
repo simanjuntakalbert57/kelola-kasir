@@ -55,6 +55,24 @@ Bila `POSTGRES_PASSWORD` pernah terlihat (log, screenshot, komentar), anggap boc
 Run workflow, ketik `rotate`. Password baru dibuat di VPS dan hanya ditulis ke `.env` (`ops/vps/rotate-db-password.sh`); API restart
 beberapa detik, lalu workflow mengecek `/healthz` dan menjalankan satu backup. Setelahnya salin nilai baru dari `.env` VPS ke password manager.
 
+## Notifikasi Web Push (kunci VAPID)
+
+Notifikasi transaksi/void ke browser laptop owner (ADR-0017) memakai kunci VAPID di `.env` VPS: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT`. Ketiganya terisi semua atau kosong semua; set parsial atau pasangan kunci tidak cocok membuat API menolak start.
+
+- **Membuat kunci:** Actions → **Configure Web Push** → Run workflow. Pasangan kunci dibuat di VPS (`ops/vps/configure-web-push.sh`), ditulis
+  ke `.env` (mode 600) dan tidak pernah dicetak. API restart beberapa detik. Idempotent: bila kunci sudah ada, tidak ada yang diubah.
+- **Cek:** `GET /v1/notifications/push/config` (token owner) harus `configured: true`. Kunci publik tidak rahasia; kunci privat tidak boleh
+  muncul di log, tiket, atau screenshot.
+- **Tanpa kunci:** fitur mati sendiri (`configured: false`, subscribe/uji 503, tidak ada pengiriman). Transaksi tidak terpengaruh.
+- **Rotasi:** jangan, kecuali kunci privat bocor. Mengganti kunci membatalkan **semua** langganan: setiap owner harus mengaktifkan ulang
+  notifikasi di tiap browser (Pengaturan → Notifikasi). Bila terpaksa: hapus tiga baris `VAPID_*` dari `.env`, jalankan workflow di atas, lalu
+  minta owner mendaftarkan ulang browser.
+- **Troubleshooting:** notifikasi tidak muncul → cek `notification_log` (`status`, `last_error`; hanya status HTTP, tanpa endpoint):
+  `./compose.sh exec db psql -U kelola_kasir -c "select event,status,attempts,last_error,created_at from notification_log order by created_at desc limit 20"`.
+  `failed` dengan `HTTP 401/403` = kunci tidak cocok dengan langganan (kunci pernah diganti): daftar ulang browser. `expired` = laptop mati/tidur
+  melewati batas 4 jam, sengaja dibuang. Langganan `expired` di daftar perangkat = push service melaporkan browser hilang (404/410): daftar ulang.
+
 ## Restore backup
 
 Ringkas (detail: [backup-restore.md](backup-restore.md)):
@@ -135,6 +153,7 @@ Untuk uji berikutnya di produksi: buat owner + outlet uji lewat `create-owner` (
 | Dashboard login gagal tapi API sehat | Cek env Pages `API_ORIGIN` dan `PROXY_SHARED_SECRET` (harus sama dengan `.env` VPS). `https://kelola-kasir.pages.dev/v1/me` harus 401. |
 | Upload foto gagal | Cek CORS bucket media dan `STORAGE_*` di `.env`. |
 | Email healthchecks.io "backup down" | `systemctl status kelola-kasir-backup.service` dan `journalctl -u kelola-kasir-backup.service -n 100`. Jalankan ulang: `sudo -u deploy /opt/kelola-kasir/backup-now.sh`. |
+| Notifikasi laptop tidak muncul | Lihat bagian *Notifikasi Web Push* di atas (`notification_log`, status langganan, kunci VAPID). |
 | Error 5xx | Sentry menampilkan route dan request id. Cari request id di `./compose.sh logs api`. |
 
 ## Pantauan rutin

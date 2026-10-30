@@ -1,3 +1,4 @@
+import webpush from 'web-push';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from './config.js';
 
@@ -111,5 +112,51 @@ describe('object storage config', () => {
 
   it('is all or nothing', () => {
     expect(() => loadConfig({ ...base, STORAGE_BUCKET: 'media' })).toThrow(/must be set together/);
+  });
+});
+
+describe('web push (VAPID) config', () => {
+  const base = { DATABASE_URL: 'postgres://localhost/db' };
+  const keys = webpush.generateVAPIDKeys();
+  const vapid = {
+    VAPID_PUBLIC_KEY: keys.publicKey,
+    VAPID_PRIVATE_KEY: keys.privateKey,
+    VAPID_SUBJECT: 'https://kelola-kasir.pages.dev',
+  };
+
+  it('is off when no VAPID variable is set', () => {
+    expect(loadConfig(base).webPush).toBeNull();
+    expect(
+      loadConfig({ ...base, VAPID_PUBLIC_KEY: '', VAPID_PRIVATE_KEY: '', VAPID_SUBJECT: '' })
+        .webPush,
+    ).toBeNull();
+  });
+
+  it('accepts a complete, matching set', () => {
+    expect(loadConfig({ ...base, ...vapid }).webPush).toEqual({
+      publicKey: keys.publicKey,
+      privateKey: keys.privateKey,
+      subject: 'https://kelola-kasir.pages.dev',
+    });
+  });
+
+  it('rejects a partial set', () => {
+    expect(() => loadConfig({ ...base, VAPID_PUBLIC_KEY: keys.publicKey })).toThrow(
+      /must be set together/,
+    );
+  });
+
+  it('rejects malformed or mismatched keys without echoing them', () => {
+    expect(() => loadConfig({ ...base, ...vapid, VAPID_PUBLIC_KEY: 'abc' })).toThrow(/65 bytes/);
+    expect(() => loadConfig({ ...base, ...vapid, VAPID_PRIVATE_KEY: 'abc' })).toThrow(/32 bytes/);
+    const other = webpush.generateVAPIDKeys();
+    let message = '';
+    try {
+      loadConfig({ ...base, ...vapid, VAPID_PUBLIC_KEY: other.publicKey });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/does not match/);
+    expect(message).not.toContain(keys.privateKey);
   });
 });

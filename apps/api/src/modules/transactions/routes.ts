@@ -176,6 +176,9 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         source: 'api',
         ip: req.ip,
       });
+      if (result.created && result.transaction.status === 'paid') {
+        ctx.notifier.onTransactionPaid(result.transaction.id);
+      }
       return reply.status(result.created ? 201 : 200).send(result.transaction);
     });
 

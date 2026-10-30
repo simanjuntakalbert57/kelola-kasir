@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import webpush from 'web-push';
 import { writeFileSync } from 'node:fs';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
@@ -37,9 +38,14 @@ async function main(): Promise<void> {
   const sessionFile = process.env['CONTRACT_SESSION_FILE'];
   if (!sessionFile) throw new Error('CONTRACT_SESSION_FILE is required');
 
+  const vapid = webpush.generateVAPIDKeys();
   const config = {
     ...loadConfig({
       ...process.env,
+      // Throwaway VAPID keys so the notification endpoints are exercised; sending is stubbed below.
+      VAPID_PUBLIC_KEY: vapid.publicKey,
+      VAPID_PRIVATE_KEY: vapid.privateKey,
+      VAPID_SUBJECT: 'https://contract.test',
       NODE_ENV: 'test',
       // Dummy object storage so POST /uploads is exercised; presigning is local, nothing is ever sent there.
       STORAGE_ENDPOINT: 'https://storage.contract.test',
@@ -55,7 +61,12 @@ async function main(): Promise<void> {
   };
   const handle = createDb(config.databaseUrl);
   await runMigrations(handle.db);
-  const app = await buildApp({ config, db: handle.db });
+  // Never contact a real push service from the contract test.
+  const app = await buildApp({
+    config,
+    db: handle.db,
+    pushClient: { send: () => Promise.resolve({ ok: true as const, status: 201 }) },
+  });
 
   const [outlet] = await handle.db
     .insert(outlets)
