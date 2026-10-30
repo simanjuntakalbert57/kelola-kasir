@@ -514,6 +514,7 @@ export interface paths {
          * List transactions (P-09 for employees, O-03 for owner)
          * @description Employees: results are restricted to their outlet and `scope` (the open shift or today, WIB);
          *     `date_from`/`date_to`/`employee_id` are ignored. Owner: all filters apply.
+         *     Transactions deleted by the owner (ADR-0019) are never listed; see `GET /transactions/deleted`.
          */
         get: operations["listTransactions"];
         put?: never;
@@ -550,9 +551,33 @@ export interface paths {
          *     prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
          *     (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
          *     Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
-         *     Harga satuan, Total baris, Catatan` (one row per item).
+         *     Harga satuan, Total baris, Catatan` (one row per item). Transactions deleted by the owner (ADR-0019) are never exported.
          */
         get: operations["exportTransactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transactions/deleted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deletion history (Riwayat Hapus) — transactions deleted by the owner (ADR-0019)
+         * @description Only transactions that are deleted **now** are listed (a restored transaction leaves this list; its delete and
+         *     restore stay in `deletion_history` of `GET /transactions/{transaction_id}` and in `audit_logs`).
+         *     Ordered by `deleted_at` descending. `date_from`/`date_to` are inclusive WIB business dates applied to
+         *     `date_field`: the delete time (default) or the transaction time (`client_created_at`). Owner role only;
+         *     a manager or employee gets `403`.
+         */
+        get: operations["listDeletedTransactions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -568,10 +593,51 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Transaction detail with items and payments (P-09, O-03) */
+        /**
+         * Transaction detail with items and payments (P-09, O-03)
+         * @description A transaction deleted by the owner (ADR-0019) is `404` for employees. The owner still gets it, with `deleted`
+         *     set and the full `deletion_history`, so Riwayat Hapus can open its detail.
+         */
         get: operations["getTransaction"];
         put?: never;
         post?: never;
+        /**
+         * Owner deletes a transaction (soft delete into Riwayat Hapus, ADR-0019)
+         * @description Soft delete: the transaction, its items and payments stay in the database with `deleted_at`, `deleted_by` and
+         *     `delete_reason`, and a `delete` row is appended to its deletion history. From then on it is excluded from the
+         *     transaction list, dashboard, reports, export, shift sales and notifications. Recorded in `audit_logs`
+         *     (`transaction.deleted`, before/after snapshot) in the same database transaction.
+         *
+         *     - Owner role only (`403` for a manager, employee or device).
+         *     - `pending` and `void_requested` transactions cannot be deleted (`409 TRANSACTION_NOT_DELETABLE`): finish the
+         *       payment or the void decision first. Any other status (`paid`, `voided`, `cancelled`) can be deleted.
+         *     - Idempotent: deleting an already deleted transaction answers `200` with the current state; the new `reason` is
+         *       ignored and no history row is added.
+         *     - A cashier device re-sending the same transaction (`POST /transactions` or `/sync/push`) never brings it back.
+         */
+        delete: operations["deleteTransaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transactions/{transaction_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Owner restores a deleted transaction (ADR-0019)
+         * @description Clears `deleted_at`, `deleted_by` and `delete_reason` and appends a `restore` row to the deletion history; the
+         *     transaction counts again everywhere it did before. Recorded in `audit_logs` (`transaction.restored`) in the same
+         *     database transaction. Owner role only. Idempotent: restoring a transaction that is not deleted answers `200`
+         *     and adds nothing.
+         */
+        post: operations["restoreTransaction"];
         delete?: never;
         options?: never;
         head?: never;
@@ -590,6 +656,7 @@ export interface paths {
          * @description Used for digital receipts and reprints from the history screen. The cashier app formats
          *     ESC/POS itself from local data + cached settings, so printing also works offline;
          *     this endpoint is the online source for reprints on another device and for the dashboard preview.
+         *     A transaction deleted by the owner (ADR-0019) is `404`.
          */
         get: operations["getReceipt"];
         put?: never;
@@ -618,6 +685,7 @@ export interface paths {
          *       audit log. A pending request of an employee on the same transaction is approved with it. Repeating the call is harmless.
          *     Every void is written to the append-only `audit_logs` (`transaction.void_requested`, `transaction.void_approved`)
          *     with actor, reason and time, in the same database transaction as the status change.
+         *     A transaction deleted by the owner (ADR-0019) is `404`.
          */
         post: operations["createVoidRequest"];
         delete?: never;
@@ -1117,7 +1185,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "TRANSACTION_NOT_DELETABLE" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1389,6 +1457,10 @@ export interface components {
             /** @description Synced transactions created after `closed_at` (not in expected_cash) */
             late_transaction_count?: number;
             late_cash_amount?: components["schemas"]["Rupiah"];
+            /** @description Paid transactions of this shift that the owner deleted (ADR-0019), shown as "N transaksi dihapus (Rp X)". Not in the sales totals above */
+            deleted_count?: number;
+            /** @description Sum of `total` of those deleted transactions */
+            deleted_amount?: components["schemas"]["Rupiah"];
             /** @description Per-cashier breakdown; the shift is shared but each transaction is recorded under its cashier */
             by_employee?: {
                 employee: components["schemas"]["Employee"];
@@ -1532,6 +1604,43 @@ export interface components {
             void_request?: components["schemas"]["VoidRequest"] | null;
             /** Format: date-time */
             server_received_at?: string;
+            /** @description Set while the owner has deleted the transaction (ADR-0019); only owners ever see a deleted transaction */
+            deleted?: components["schemas"]["TransactionDeleted"] | null;
+            /** @description Owner only; every delete and restore, oldest first. Omitted for employees. */
+            deletion_history?: components["schemas"]["TransactionDeletionEvent"][];
+        };
+        TransactionDeleteInput: {
+            /** @description Required; trimmed before the length check (e.g. "transaksi uji coba", "dobel input") */
+            reason: string;
+        };
+        TransactionRestoreInput: {
+            /** @description Optional note kept in the deletion history */
+            note?: string;
+        };
+        UserRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        TransactionDeleted: {
+            /** Format: date-time */
+            deleted_at: string;
+            deleted_by: components["schemas"]["UserRef"];
+            reason: string;
+        };
+        TransactionDeletionEvent: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            action: "delete" | "restore";
+            /** @description Delete reason, or the optional restore note */
+            reason: string | null;
+            actor: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        DeletedTransactionSummary: components["schemas"]["TransactionSummary"] & {
+            deleted: components["schemas"]["TransactionDeleted"];
         };
         Receipt: {
             store: {
@@ -2988,6 +3097,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listDeletedTransactions: {
+        parameters: {
+            query?: {
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                date_field?: "deleted_at" | "client_created_at";
+                /** @description Transaction number or customer label */
+                q?: string;
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted transactions (without items; open the detail for items and payments) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DeletedTransactionSummary"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getTransaction: {
         parameters: {
             query?: never;
@@ -3008,6 +3153,75 @@ export interface operations {
                     "application/json": components["schemas"]["Transaction"];
                 };
             };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: components["parameters"]["TransactionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionDeleteInput"];
+            };
+        };
+        responses: {
+            /** @description Deleted (or already deleted); the transaction with `deleted` set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transaction"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `TRANSACTION_NOT_DELETABLE` (status `pending` or `void_requested`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: components["parameters"]["TransactionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TransactionRestoreInput"];
+            };
+        };
+        responses: {
+            /** @description Restored (or was not deleted); the transaction with `deleted` = null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transaction"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };

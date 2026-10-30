@@ -29,6 +29,20 @@
       "when": 1793311862315,
       "tag": "0003_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793367566373,
+      "tag": "0004_transaction_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793367569608,
+      "tag": "0005_transaction_soft_delete_triggers",
+      "breakpoints": true
     }
   ]
 }

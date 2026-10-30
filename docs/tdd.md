@@ -485,6 +485,7 @@ Kontrak lengkap: `docs/api/openapi.yaml` (OpenAPI 3.1). Konvensi:
 | O-03 Daftar transaksi + ekspor | `GET /transactions` (filter tanggal, pegawai, metode, status), `GET /transactions/{id}`, `GET /transactions/export?format=csv/xlsx` | transactions, transaction_items, payments |
 | O-04 Kelola produk | `GET/POST /products`, `GET/PATCH/DELETE /products/{id}`, `POST /uploads` (presigned, `purpose=product_image`) | products, audit_logs |
 | Impor produk massal (DEAR-111, ADR-0018) | `GET /products/import/template?format=xlsx/csv`, `POST /products/import/preview` (dry-run), `POST /products/import/commit` | products, categories, audit_logs |
+| Hapus transaksi + Riwayat Hapus (DEAR-121, ADR-0019) | `DELETE /transactions/{id}` (alasan wajib), `GET /transactions/deleted`, `POST /transactions/{id}/restore` (owner saja) | transactions, transaction_deletions, audit_logs |
 | O-05 Kategori | `GET/POST /categories`, `PATCH/DELETE /categories/{id}` (tanpa varian/add-on) | categories |
 | O-06 Kelola pegawai | `GET/POST /employees`, `PATCH /employees/{id}` (nonaktifkan), `POST /employees/{id}/reset-pin` | employees, audit_logs |
 | O-07 Riwayat shift & rekonsiliasi | `GET /shifts?date_from=&date_to=&employee_id=`, `GET /shifts/{id}/summary` | shifts |
