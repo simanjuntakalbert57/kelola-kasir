@@ -1,6 +1,5 @@
 import { parse as parseCsv } from 'csv-parse/sync';
 import ExcelJS from 'exceljs';
-import { PRODUCT_IMPORT_COLUMNS, PRODUCT_IMPORT_LIMITS } from '@kelola-kasir/contracts';
 import type { ProductImportColumn } from '@kelola-kasir/contracts';
 import { AppError, errors, type FieldError } from '../../../errors.js';
 
@@ -23,6 +22,17 @@ export interface ParsedImportFile {
   rows: RawRow[];
   warnings: ImportWarning[];
 }
+
+// Runtime values are duplicated from `@kelola-kasir/contracts` on purpose: the API image cannot load that
+// package's TypeScript source at runtime (only types are imported). `file.test.ts` asserts they match.
+export const PRODUCT_IMPORT_LIMITS = { maxBytes: 2 * 1024 * 1024, maxRows: 500 } as const;
+export const PRODUCT_IMPORT_COLUMNS: readonly ProductImportColumn[] = [
+  'nama',
+  'kategori',
+  'harga',
+  'favorit',
+  'aktif',
+];
 
 const REQUIRED: readonly ProductImportColumn[] = ['nama', 'kategori', 'harga'];
 const MAX_UNZIPPED_BYTES = 20 * 1024 * 1024;

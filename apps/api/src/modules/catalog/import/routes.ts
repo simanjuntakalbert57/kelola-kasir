@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import multipart from '@fastify/multipart';
-import { PRODUCT_IMPORT_LIMITS } from '@kelola-kasir/contracts';
 import type { ProductImportPreview, ProductImportResult } from '@kelola-kasir/contracts';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -14,7 +13,12 @@ import { sha256Hex } from '../../../lib/crypto.js';
 import { parse } from '../../../lib/validate.js';
 import { requireUser, type Guards } from '../../../plugins/auth.js';
 import { writeAudit } from '../../audit/audit.js';
-import { importErrors, parseImportFile, type ParsedImportFile } from './file.js';
+import {
+  importErrors,
+  parseImportFile,
+  PRODUCT_IMPORT_LIMITS,
+  type ParsedImportFile,
+} from './file.js';
 import { buildPlan, type ImportPlan, type PlanRow } from './plan.js';
 import { buildCsvTemplate, buildXlsxTemplate, TEMPLATE_BASENAME } from './template.js';
 import { issueImportToken, verifyImportToken } from './token.js';
@@ -53,10 +57,8 @@ async function readUpload(req: FastifyRequest, wantToken: boolean): Promise<Uplo
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === 'FST_REQ_FILE_TOO_LARGE') throw importErrors.tooLarge();
-    if (code?.startsWith('FST_')) {
-      throw errors.validation([{ path: 'file', message: 'Permintaan upload tidak valid' }]);
-    }
-    throw err;
+    // Truncated or malformed multipart bodies surface as plain errors from busboy: a client problem.
+    throw errors.validation([{ path: 'file', message: 'Permintaan upload tidak valid' }]);
   }
   if (!file) throw errors.validation([{ path: 'file', message: 'File wajib diunggah' }]);
   if (wantToken && (!token || token.length > 200)) {

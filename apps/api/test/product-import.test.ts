@@ -284,6 +284,14 @@ describe('POST /products/import/preview', () => {
     const xls = await run({ name: 'a.xls', data: Buffer.from([0xd0, 0xcf, 0x11, 0xe0]) });
     expect(json(xls)).toMatchObject({ code: 'IMPORT_FILE_UNREADABLE' });
     expect((await run(null)).statusCode).toBe(400);
+    const truncated = await env.app.inject({
+      method: 'POST',
+      url: '/v1/products/import/preview',
+      headers: { ...bearer(shop.ownerToken), 'content-type': 'multipart/form-data; boundary=abc' },
+      payload: '--abc\r\nContent-Disposition: form-data; name="file"; filename="a.csv"\r\n\r\nnama',
+    });
+    expect(truncated.statusCode).toBe(400);
+    expect(json(truncated)).toMatchObject({ code: 'VALIDATION_ERROR' });
     const asJson = await post(env, '/v1/products/import/preview', bearer(shop.ownerToken), {});
     expect(asJson.statusCode).toBe(415);
   });

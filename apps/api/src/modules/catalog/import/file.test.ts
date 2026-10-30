@@ -1,7 +1,15 @@
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../../errors.js';
-import { inspectZip, normalizeHeader, parseImportFile, type RawRow } from './file.js';
+import { PRODUCT_IMPORT_COLUMNS, PRODUCT_IMPORT_LIMITS } from '@kelola-kasir/contracts';
+import {
+  PRODUCT_IMPORT_COLUMNS as COLUMNS,
+  PRODUCT_IMPORT_LIMITS as LIMITS,
+  inspectZip,
+  normalizeHeader,
+  parseImportFile,
+  type RawRow,
+} from './file.js';
 import { buildCsvTemplate, buildXlsxTemplate } from './template.js';
 
 const csv = (text: string | Buffer) =>
@@ -326,5 +334,12 @@ describe('templates', () => {
     expect(produk?.getCell('C2').numFmt).toBe('#,##0');
     expect(produk?.getCell('D10').dataValidation?.formulae).toEqual(['"ya,tidak"']);
     expect(wb.getWorksheet('Petunjuk')?.getCell('A1').value).toBe('Cara mengisi template produk');
+  });
+});
+
+describe('contracts', () => {
+  it('keeps the local import constants equal to @kelola-kasir/contracts', () => {
+    expect(LIMITS).toEqual(PRODUCT_IMPORT_LIMITS);
+    expect(COLUMNS).toEqual(PRODUCT_IMPORT_COLUMNS);
   });
 });
