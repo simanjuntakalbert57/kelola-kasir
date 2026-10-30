@@ -24,7 +24,8 @@ for project in ${E2E_PROJECTS:-chromium firefox webkit mobile-chrome}; do
       pnpm --filter @kelola-kasir/api owner:create >/dev/null
   done
   # No API/UI creates a manager (docs/tdd.md RBAC): promote the extra JUS1 member directly.
-  psql "$DB_URL" -v ON_ERROR_STOP=1 -c "update outlet_members set role='manager' where user_id=(select id from users where email='manager@e2e.test')" >/dev/null
+  promoted="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA -c "update outlet_members set role='manager' where user_id=(select id from users where email='manager@e2e.test') returning id")"
+  if [ -z "$promoted" ]; then echo "ERROR: manager@e2e.test was not promoted (no outlet_members row updated)" >&2; exit 1; fi
   echo "=== project: ${project}"
   pnpm --filter @kelola-kasir/e2e exec playwright test --project="$project" "$@" || status=$?
   if [ -n "${E2E_KEEP_DB:-}" ]; then echo "kept database: ${DB_NAME}"; else

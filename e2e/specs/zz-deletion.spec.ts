@@ -73,7 +73,7 @@ test.describe.serial('DEAR-124 hapus transaksi + Riwayat Hapus (owner)', () => {
 
   test('TC-DEL-03/05/06/07 hapus → laporan turun → Riwayat Hapus → detail → pulihkan @mobile', async ({
     page,
-  }) => {
+  }, info) => {
     const s = sale('paid');
     const { shop } = seed();
     await openAsOwner(page, '/');
@@ -108,7 +108,7 @@ test.describe.serial('DEAR-124 hapus transaksi + Riwayat Hapus (owner)', () => {
     await expect(page).toHaveURL(/\/transaksi\/dihapus$/);
     await expect(page.getByText(s.number).locator('visible=true').first()).toBeVisible();
     const row = page.getByRole('row', { name: new RegExp(s.number) });
-    if (await row.isVisible()) {
+    if (!info.project.name.includes('mobile')) {
       for (const h of [
         'Nomor',
         'Tanggal transaksi',
@@ -167,13 +167,9 @@ test.describe.serial('DEAR-124 hapus transaksi + Riwayat Hapus (owner)', () => {
     await expect(page.getByRole('button', { name: `Detail ${s.number}` }).first()).toBeVisible();
     await page.goto('/');
     await expect.poll(() => omzet(page)).toBe(before);
-    const tx = await call<{ status: string; deletions?: unknown[] }>(
-      'GET',
-      `/transactions/${s.id}`,
-      {
-        headers: bearer(shop.owner),
-      },
-    );
+    const tx = await call<{ status: string }>('GET', `/transactions/${s.id}`, {
+      headers: bearer(shop.owner),
+    });
     expect(tx.data.status).toBe('paid');
     await page.goto('/transaksi');
     await page
@@ -182,32 +178,46 @@ test.describe.serial('DEAR-124 hapus transaksi + Riwayat Hapus (owner)', () => {
       .click();
     await expect(page.getByText('Dipulihkan').first()).toBeVisible();
   });
-});
 
-test('TC-DEL-09 tampilan terang + gelap (tangkapan layar) @mobile', async ({ page }, info) => {
-  const s = sale('shot');
-  const { shop } = seed();
-  await call('DELETE', `/transactions/${s.id}`, {
-    headers: bearer(shop.owner),
-    body: { reason: 'Transaksi uji coba' },
+  test('TC-DEL-09 tampilan terang + gelap (tangkapan layar) @mobile', async ({ page }, info) => {
+    const s = sale('shot');
+    const { shop } = seed();
+    await call('DELETE', `/transactions/${s.id}`, {
+      headers: bearer(shop.owner),
+      body: { reason: 'Transaksi uji coba' },
+    });
+    try {
+      await openAsOwner(page, '/transaksi');
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((t) => localStorage.setItem('kk-theme', t), theme);
+        await page.goto('/transaksi/dihapus');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        await expect(page.getByText(s.number).locator('visible=true').first()).toBeVisible();
+        await page.screenshot({
+          path: `test-results/shot-riwayat-${theme}-${info.project.name}.png`,
+        });
+        await page
+          .getByRole('button', { name: `Detail ${s.number}` })
+          .locator('visible=true')
+          .first()
+          .click();
+        await expect(page.getByRole('button', { name: 'Pulihkan' })).toBeVisible();
+        await page.screenshot({
+          path: `test-results/shot-detail-${theme}-${info.project.name}.png`,
+        });
+        await page.getByRole('button', { name: 'Pulihkan' }).click();
+        await page.screenshot({
+          path: `test-results/shot-pulihkan-${theme}-${info.project.name}.png`,
+        });
+      }
+    } finally {
+      // Leave the sale restored so later specs (zz-pagination) see unchanged data.
+      await call('POST', `/transactions/${s.id}/restore`, {
+        headers: bearer(shop.owner),
+        body: {},
+      });
+    }
   });
-  await openAsOwner(page, '/transaksi');
-  for (const theme of ['light', 'dark']) {
-    await page.evaluate((t) => localStorage.setItem('kk-theme', t), theme);
-    await page.goto('/transaksi/dihapus');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-    await expect(page.getByText(s.number).locator('visible=true').first()).toBeVisible();
-    await page.screenshot({ path: `test-results/shot-riwayat-${theme}-${info.project.name}.png` });
-    await page
-      .getByRole('button', { name: `Detail ${s.number}` })
-      .locator('visible=true')
-      .first()
-      .click();
-    await expect(page.getByRole('button', { name: 'Pulihkan' })).toBeVisible();
-    await page.screenshot({ path: `test-results/shot-detail-${theme}-${info.project.name}.png` });
-    await page.getByRole('button', { name: 'Pulihkan' }).click();
-    await page.screenshot({ path: `test-results/shot-pulihkan-${theme}-${info.project.name}.png` });
-  }
 });
 
 test.describe('DEAR-124 manager tidak punya akses (TC-DEL-08)', () => {
