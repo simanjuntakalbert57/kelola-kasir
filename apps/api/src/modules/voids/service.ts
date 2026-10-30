@@ -46,7 +46,7 @@ export async function requestVoid(
   // A device clock running ahead must not date the request in the future.
   const requestedAt = input.requestedAt > now ? now : input.requestedAt;
   try {
-    return await ctx.db.transaction(async (tx) => {
+    const result = await ctx.db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(voidRequests)
@@ -113,6 +113,8 @@ export async function requestVoid(
       });
       return { voidRequest: await toVoidRequest(tx, created, row), created: true };
     });
+    if (result.created) ctx.notifier.onVoidRequested(input.id);
+    return result;
   } catch (err) {
     if (isUniqueViolation(err, 'void_requests_pkey')) {
       // Two identical requests raced; the loser replays.
@@ -149,7 +151,8 @@ export async function decideVoid(
   note: string | undefined,
 ): Promise<VoidRequestDto> {
   const wanted = decision === 'approve' ? 'approved' : 'rejected';
-  return ctx.db.transaction(async (tx) => {
+  let decidedNow: { transactionId: string } | undefined;
+  const dto = await ctx.db.transaction(async (tx) => {
     const [found] = await tx
       .select({ request: voidRequests, transaction: transactions })
       .from(voidRequests)
@@ -182,6 +185,7 @@ export async function decideVoid(
       .where(eq(voidRequests.id, request.id))
       .returning();
     if (!updated) throw new Error('void decision update failed');
+    decidedNow = { transactionId: transaction.id };
     await tx
       .update(transactions)
       .set(decision === 'approve' ? { status: 'voided', voidedAt: now } : { status: 'paid' })
@@ -210,6 +214,16 @@ export async function decideVoid(
     });
     return toVoidRequest(tx, updated, transaction);
   });
+  // Rejected voids are not notified; a dashboard decision is not echoed to its own author (ADR-0017 §1).
+  if (decidedNow && decision === 'approve') {
+    ctx.notifier.onVoidApproved({
+      transactionId: decidedNow.transactionId,
+      voidRequestId,
+      approverUserId: by.userId,
+      ...(by.channel === 'dashboard' ? { excludeUserId: by.userId } : {}),
+    });
+  }
+  return dto;
 }
 
 /** The owner voids a paid transaction right away (no request needed). */
@@ -219,6 +233,7 @@ export async function voidDirectly(
   transactionId: string,
   reason: string,
 ): Promise<void> {
+  let settledRequestId: string | null | undefined;
   await ctx.db.transaction(async (tx) => {
     const [row] = await tx
       .select()
@@ -237,7 +252,7 @@ export async function voidDirectly(
       .set({ status: 'voided', voidedAt: now })
       .where(eq(transactions.id, transactionId));
     // The owner's call settles an employee's pending request on the same transaction.
-    await tx
+    const settled = await tx
       .update(voidRequests)
       .set({
         status: 'approved',
@@ -246,9 +261,9 @@ export async function voidDirectly(
         decisionNote: reason,
         decidedAt: now,
       })
-      .where(
-        and(eq(voidRequests.transactionId, transactionId), eq(voidRequests.status, 'pending')),
-      );
+      .where(and(eq(voidRequests.transactionId, transactionId), eq(voidRequests.status, 'pending')))
+      .returning({ id: voidRequests.id });
+    settledRequestId = settled[0]?.id ?? null;
     await writeAudit(tx, {
       outletId: by.outletId,
       actor: { type: 'user', id: by.userId },
@@ -268,4 +283,12 @@ export async function voidDirectly(
       },
     });
   });
+  if (settledRequestId !== undefined) {
+    ctx.notifier.onVoidApproved({
+      transactionId,
+      ...(settledRequestId ? { voidRequestId: settledRequestId } : {}),
+      approverUserId: by.userId,
+      excludeUserId: by.userId,
+    });
+  }
 }

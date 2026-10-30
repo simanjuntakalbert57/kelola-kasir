@@ -26,7 +26,7 @@ export interface OwnerLoginResult {
 }
 
 export class OwnerAuthService {
-  constructor(private readonly ctx: AppContext) {}
+  constructor(private readonly ctx: Omit<AppContext, 'notifier'>) {}
 
   private async memberships(userId: string) {
     return (

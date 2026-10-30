@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createECDH, generateKeyPairSync } from 'node:crypto';
 import { z } from 'zod';
 
 const booleanFromEnv = z
@@ -50,7 +50,21 @@ const envSchema = z.object({
   API_PUBLIC_BASE_URL: z.url().optional(),
   /** Legacy: base URL of a public bucket. Optional; URLs under it are still accepted when saved (ADR-0015). */
   STORAGE_PUBLIC_BASE_URL: z.url().optional(),
+  /**
+   * Web Push (ADR-0017). The three VAPID variables are all or nothing; unset = notifications off.
+   * Keys are base64url (public 65 bytes, private 32 bytes). The private key is a secret.
+   */
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.url().optional(),
 });
+
+export interface WebPushConfig {
+  publicKey: string;
+  privateKey: string;
+  /** `https:` URL (or `mailto:`) identifying the sender in the VAPID JWT. */
+  subject: string;
+}
 
 export interface StorageConfig {
   endpoint: string;
@@ -91,8 +105,42 @@ export interface Config {
   ownerLockoutSec: number;
   pinLockoutMax: number;
   pinLockoutSec: number;
+  /** `null` when VAPID keys are not configured: push endpoints answer 503 and nothing is sent. */
+  webPush: WebPushConfig | null;
   /** A pending QRIS payment expires (transaction `cancelled`) after this many seconds. */
   qrisExpirySec: number;
+}
+
+/** Checks VAPID key formats and that the public key belongs to the private key. Never echoes key values. */
+function parseWebPush(e: z.output<typeof envSchema>): WebPushConfig | null {
+  const { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: subject } = e;
+  if (!publicKey && !privateKey && !subject) return null;
+  if (!publicKey || !privateKey || !subject) {
+    throw new Error(
+      'Invalid environment: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must be set together',
+    );
+  }
+  const base64url = /^[A-Za-z0-9_-]+$/;
+  const pub = base64url.test(publicKey) ? Buffer.from(publicKey, 'base64url') : Buffer.alloc(0);
+  const priv = base64url.test(privateKey) ? Buffer.from(privateKey, 'base64url') : Buffer.alloc(0);
+  if (pub.length !== 65 || pub[0] !== 4) {
+    throw new Error(
+      'Invalid environment: VAPID_PUBLIC_KEY must be a base64url P-256 point (65 bytes)',
+    );
+  }
+  if (priv.length !== 32) {
+    throw new Error('Invalid environment: VAPID_PRIVATE_KEY must be base64url (32 bytes)');
+  }
+  const ecdh = createECDH('prime256v1');
+  try {
+    ecdh.setPrivateKey(priv);
+  } catch {
+    throw new Error('Invalid environment: VAPID_PRIVATE_KEY is not a valid P-256 key');
+  }
+  if (!ecdh.getPublicKey().equals(pub)) {
+    throw new Error('Invalid environment: VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY');
+  }
+  return { publicKey, privateKey, subject };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -182,6 +230,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .filter(Boolean),
     rateLimit: { loginMax: e.RATE_LIMIT_LOGIN_MAX, pairMax: e.RATE_LIMIT_PAIR_MAX },
     storage,
+    webPush: parseWebPush(e),
     ownerAccessTtlSec: 15 * 60,
     employeeAccessTtlSec: 12 * 60 * 60,
     refreshTtlSec: 30 * 24 * 60 * 60,
