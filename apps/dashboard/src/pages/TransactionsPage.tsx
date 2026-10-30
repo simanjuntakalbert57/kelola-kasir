@@ -1,8 +1,16 @@
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import type { Employee, Transaction, TransactionSummary } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
-import { useSearch } from '@tanstack/react-router';
-import { Banknote, ChevronRight, Download, QrCode, SlidersHorizontal, X } from 'lucide-react';
+import { Link, useSearch } from '@tanstack/react-router';
+import {
+  Archive,
+  Banknote,
+  ChevronRight,
+  Download,
+  QrCode,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import { useState } from 'react';
 import { DateRangePicker, initialRange, type RangeState } from '../components/DateRangePicker';
 import {
@@ -24,6 +32,12 @@ import { METHOD_LABEL, STATUS_LABEL } from '../lib/labels';
 import { useDebounced } from '../lib/useDebounced';
 import { useIsDesktop } from '../lib/useMediaQuery';
 import { formatShortDate, formatTime, wibDate } from '../lib/dates';
+import {
+  DeleteTransactionButton,
+  DeletionTimeline,
+  RestoreTransactionButton,
+} from '../components/DeleteTransaction';
+import { useIsOwner } from '../lib/deletion';
 
 type Page = { data: TransactionSummary[]; next_cursor: string | null };
 
@@ -32,7 +46,7 @@ function StatusBadge({ status }: { status: TransactionSummary['status'] }) {
   return <Badge tone={s.tone}>{s.label}</Badge>;
 }
 
-function DetailBody({ id }: { id: string }) {
+export function DetailBody({ id }: { id: string }) {
   const { data, error, isPending } = useQuery({
     queryKey: ['transaction', id],
     queryFn: () => api<Transaction>(`/transactions/${id}`),
@@ -43,6 +57,12 @@ function DetailBody({ id }: { id: string }) {
       {error ? <Alert>{errorMessage(error)}</Alert> : null}
       {data ? (
         <div className="text-sm">
+          {data.deleted ? (
+            <Alert tone="warn">
+              Dihapus oleh {data.deleted.deleted_by.name} ·{' '}
+              {formatDateTime(data.deleted.deleted_at)} · “{data.deleted.reason}”
+            </Alert>
+          ) : null}
           <p className="mb-2 flex flex-wrap items-center gap-2">
             <StatusBadge status={data.status} />
             <span className="text-muted">
@@ -81,6 +101,12 @@ function DetailBody({ id }: { id: string }) {
           {data.void_request ? (
             <p className="mt-2 text-muted">Alasan batal: “{data.void_request.reason}”</p>
           ) : null}
+          {data.deletion_history ? <DeletionTimeline events={data.deletion_history} /> : null}
+          {data.deleted ? (
+            <RestoreTransactionButton tx={data} />
+          ) : (
+            <DeleteTransactionButton tx={data} />
+          )}
         </div>
       ) : null}
     </>
@@ -95,7 +121,7 @@ function useNumber(id: string): string | undefined {
   }).data?.number;
 }
 
-function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+export function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const number = useNumber(id);
   return (
     <Dialog title={number ? `Transaksi ${number}` : 'Detail transaksi'} onClose={onClose}>
@@ -194,6 +220,7 @@ export function TransactionsPage() {
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const q = useDebounced(search.trim());
+  const isOwner = useIsOwner();
 
   const employees = useQuery({
     queryKey: ['employees'],
@@ -274,6 +301,17 @@ export function TransactionsPage() {
         title="Transaksi"
         action={shiftId ? null : <ExportButtons query={qs(filters)} />}
       />
+      {isOwner ? (
+        <p className="-mt-2 mb-3">
+          <Link
+            to="/transaksi/dihapus"
+            className="inline-flex min-h-11 items-center gap-2 text-sm font-extrabold text-pri underline"
+          >
+            <Archive size={18} aria-hidden="true" />
+            Riwayat Hapus
+          </Link>
+        </p>
+      ) : null}
       {list.data ? (
         <p className="-mt-3 mb-4 text-sm font-bold text-muted">
           {rows.length}
