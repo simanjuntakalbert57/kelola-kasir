@@ -22,6 +22,7 @@ Butuh `psql` dan server PostgreSQL yang user-nya boleh `CREATE DATABASE`. `E2E_K
 | `shifts.spec.ts`          | TC-SHF-05/07/12                                                |
 | `transactions.spec.ts`    | TC-LST-01/02/03 (ekspor CSV/XLSX di Chromium, Firefox, WebKit) |
 | `void.spec.ts`            | TC-STM-05/06/09, TC-SHF-13, TC-RBAC-04                         |
+| `zz-deletion.spec.ts`     | TC-DEL-01..09 hapus transaksi + Riwayat Hapus (DEAR-124)       |
 | `zz-pagination.spec.ts`   | data >1 halaman (jalan terakhir; menambah banyak data)         |
 
 Test yang menandai bug terbuka memakai `test.fail(true, 'DEAR-xx: …')`: suite tetap hijau dan akan **merah** saat bug
