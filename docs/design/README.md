@@ -57,3 +57,7 @@ Spesifikasi lengkap ada di `owner.html` (DEAR-63). Implementasi bertahap di bran
 ## Notifikasi laptop / Web Push (DEAR-100)
 
 Spesifikasi di `notifikasi-laptop.html` (+ `notifikasi-laptop.png`): teks notifikasi sistem final (transaksi tunggal Cash/QRIS, offline, batch offline, void diajukan/disetujui, uji, "notifikasi aktif") dengan variabel, ikon/tag/tujuan klik untuk Backend/Service Worker; serta layar dashboard Pengaturan → Notifikasi (belum aktif, menunggu izin, aktif + daftar perangkat + Cabut, diblokir + panduan Chrome/Edge/macOS/Windows, tidak didukung, dialog Cabut), terang + gelap, desktop + HP. Memakai token Jus Hangat yang ada; tanpa token baru. Menggantikan draf versi Telegram.
+
+## Impor produk dari Excel/CSV (DEAR-113)
+
+Spesifikasi di `impor-produk.html` (+ `impor-produk.png`): tombol Impor produk di halaman Produk, layar Impor 3 langkah (unduh template, unggah/drag & drop, pratinjau Baru/Diperbarui/Error, Simpan, sukses), dialog batal, error level file, dan copy final semua pesan error (`Baris 7: harga harus angka, contoh 15000`). Terang + gelap, desktop + HP, token Arah A tanpa token baru. File contoh di `impor-produk/`: `template-produk.xlsx` (sheet Produk + Petunjuk), `template-produk.csv`, `contoh-bermasalah.csv`. Asumsi untuk Tech Lead tercantum di bagian 0 dokumen.
