@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { errorListCsv } from './ProductImportPage';
 import { json, mockApi, problem, renderApp, session } from '../test/helpers';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -179,5 +180,33 @@ describe('Impor produk', () => {
     });
     await upload(file());
     expect(await screen.findByText(/File tidak bisa dibuka/)).toBeInTheDocument();
+  });
+
+  it('ignores a file dropped while saving', async () => {
+    let release: (r: Response) => void = () => {};
+    const calls = mockApi({
+      ...base,
+      'POST /products/import/preview': () => json(preview([row({})], { create: 1 }, 'tok-1')),
+      'POST /products/import/commit': () => new Promise<Response>((r) => (release = r)),
+    });
+    await upload(file());
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan 1 produk' }));
+    await waitFor(() => expect(calls.some((c) => c.key.includes('import/commit'))).toBe(true));
+    await userEvent.upload(screen.getByLabelText('File impor produk'), file('lain.csv'));
+    expect(calls.filter((c) => c.key.includes('import/preview'))).toHaveLength(1);
+    release(json({ created: 1, updated: 0, unchanged: 0, categories_created: 0 }));
+    expect(
+      await screen.findByRole('heading', { name: '1 produk berhasil disimpan' }),
+    ).toBeInTheDocument();
+  });
+
+  it('neutralises formulas in the error list CSV', async () => {
+    const blob = errorListCsv([
+      row({ errors: [{ column: 'nama', code: 'X', message: '=HYPERLINK("http://x")' }] }) as never,
+      row({ row: 3, errors: [{ column: 'nama', code: 'X', message: 'Harga salah' }] }) as never,
+    ]);
+    const text = await blob.text();
+    expect(text).toContain(`"'=HYPERLINK(""http://x"")"`);
+    expect(text).toContain('"Harga salah"');
   });
 });

@@ -78,9 +78,13 @@ function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-const csvCell = (v: string) => `"${v.replaceAll('"', '""')}"`;
+// Cells starting with = + - @ are prefixed with ' so Excel never evaluates them as formulas (ADR-0018 §8).
+const csvCell = (v: string) => {
+  const safe = /^[=+\-@]/.test(v) ? `'${v}` : v;
+  return `"${safe.replaceAll('"', '""')}"`;
+};
 
-function errorListCsv(rows: ProductImportRow[]): Blob {
+export function errorListCsv(rows: ProductImportRow[]): Blob {
   const lines = ['baris;kolom;pesan'];
   for (const r of rows)
     for (const e of r.errors) lines.push([r.row, e.column ?? '', csvCell(e.message)].join(';'));
@@ -272,6 +276,8 @@ export function ProductImportPage() {
   const desktop = useIsDesktop();
   const input = useRef<HTMLInputElement>(null);
   const file = useRef<File | null>(null);
+  const previewSeq = useRef(0);
+  const busy = useRef(false);
   const [phase, setPhase] = useState<Phase>({ name: 'idle' });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -294,22 +300,28 @@ export function ProductImportPage() {
   }, [toast]);
 
   async function runPreview(f: File) {
+    const seq = ++previewSeq.current;
+    busy.current = true;
     setPhase({ name: 'checking' });
     setError(null);
     try {
       const preview = await post<ProductImportPreview>('/products/import/preview', toFormData(f));
+      if (seq !== previewSeq.current) return;
       file.current = f;
       setFilter(null);
       setPhase({ name: 'preview', preview });
     } catch (e) {
+      if (seq !== previewSeq.current) return;
       file.current = null;
       setError(importErrorMessage(e));
       setPhase({ name: 'idle' });
+    } finally {
+      if (seq === previewSeq.current) busy.current = false;
     }
   }
 
   function pick(f: File | undefined) {
-    if (!f) return;
+    if (!f || busy.current) return;
     setNotice(null);
     const problem = checkImportFile(f);
     if (problem) {
@@ -321,7 +333,8 @@ export function ProductImportPage() {
 
   async function save(preview: ProductImportPreview) {
     const f = file.current;
-    if (!f || !preview.import_token) return;
+    if (!f || !preview.import_token || busy.current) return;
+    busy.current = true;
     setPhase({ name: 'saving', preview });
     setError(null);
     try {
@@ -336,9 +349,11 @@ export function ProductImportPage() {
       const total = result.created + result.updated;
       setToast(`${total} produk berhasil disimpan`);
       file.current = null;
+      busy.current = false;
       setPhase({ name: 'success', result });
     } catch (e) {
       if (e instanceof ApiError && e.code === 'IMPORT_STALE') {
+        busy.current = false;
         setNotice('Katalog berubah, unggah ulang. Pratinjau diperbarui dengan file yang sama.');
         await runPreview(f);
         return;
@@ -348,6 +363,7 @@ export function ProductImportPage() {
           ? 'Produk belum tersimpan. Terjadi gangguan, tidak ada yang berubah. Tekan Simpan untuk mencoba lagi.'
           : importErrorMessage(e),
       );
+      busy.current = false;
       setPhase({ name: 'preview', preview });
     }
   }

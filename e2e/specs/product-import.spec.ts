@@ -6,6 +6,7 @@ import { openAsOwner } from '../support/ui.js';
 // Run it against staging by removing `stubImportApi` once DEAR-114 is merged.
 
 const SHOTS = process.env['IMPORT_SHOTS_DIR'];
+const SCHEME = process.env['IMPORT_COLOR_SCHEME'] === 'dark' ? 'dark' : 'light';
 
 const row = (over: Record<string, unknown>) => ({
   row: 2,
@@ -98,6 +99,8 @@ const csv = (name: string) => ({
 });
 
 test.describe('Impor produk (DEAR-115)', () => {
+  test.beforeEach(({ page }) => page.emulateMedia({ colorScheme: SCHEME }));
+
   test('unduh template → unggah file valid → simpan → sukses @mobile', async ({ page }) => {
     await openAsOwner(page, '/produk');
     await stubImportApi(page, validPreview);
