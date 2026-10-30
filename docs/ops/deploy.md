@@ -145,7 +145,7 @@ read -rs -p 'Password owner (min 12 karakter): ' OWNER_PASSWORD; echo
   -e OUTLET_CODE=JUS1 -e OUTLET_NAME='<nama toko>' api node dist/scripts/create-owner.js
 unset OWNER_PASSWORD
 ```
-Lalu login di dashboard dan isi Pengaturan toko (header/footer struk, QRIS statis).
+`OUTLET_CODE` wajib 2–6 huruf/angka, karena dipakai sebagai awalan nomor transaksi (`JUS1-K01-261030-0001`). Lalu login di dashboard dan isi Pengaturan toko (header/footer struk, QRIS statis).
 
 ### 9. Backup pertama + uji restore
 > **Ditunda selama UAT** (keputusan owner 26 Okt 2026). Langkah 2 bucket `kelola-kasir-backup`, kunci age, healthchecks.io, dan langkah ini **wajib selesai sebelum go-live** dengan data asli.
