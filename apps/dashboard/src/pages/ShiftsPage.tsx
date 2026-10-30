@@ -85,6 +85,11 @@ function ShiftDialog({ shift, onClose }: { shift: Shift; onClose: () => void }) 
             <Row label="Batal disetujui">
               {data.voided_count} ({formatRupiah(data.voided_amount)})
             </Row>
+            {data.deleted_count ? (
+              <Row label="Transaksi dihapus">
+                {data.deleted_count} transaksi dihapus ({formatRupiah(data.deleted_amount ?? 0)})
+              </Row>
+            ) : null}
             {data.late_transaction_count ? (
               <Row label="Transaksi sinkron terlambat">
                 {data.late_transaction_count} ({formatRupiah(data.late_cash_amount ?? 0)} cash)

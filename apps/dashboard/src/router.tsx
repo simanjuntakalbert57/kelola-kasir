@@ -12,6 +12,7 @@ import { useAuth } from './auth/AuthProvider';
 import { Skeleton } from './components/ui';
 import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
+import { DeletedTransactionsPage } from './pages/DeletedTransactionsPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
@@ -108,6 +109,7 @@ const routeTree = root.addChildren([
   app.addChildren([
     page('/', DashboardPage),
     transactions,
+    page('/transaksi/dihapus', DeletedTransactionsPage),
     page('/produk', ProductsPage),
     page('/produk/impor', ProductImportPage),
     page('/pegawai', EmployeesPage),
