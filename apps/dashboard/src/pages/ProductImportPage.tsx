@@ -565,6 +565,11 @@ export function ProductImportPage() {
                 Menyimpan {preview.summary.create + preview.summary.update} produk… Jangan tutup
                 halaman ini.
               </p>
+            ) : null}
+            {saving ? (
+              <div aria-hidden className="mb-2 h-1 overflow-hidden rounded-full bg-tint">
+                <div className="h-full w-1/3 animate-pulse rounded-full bg-pri motion-reduce:animate-none" />
+              </div>
             ) : preview.import_token === null && errCount > 0 ? (
               <p className="mb-2 text-sm text-muted">Simpan aktif setelah semua baris benar.</p>
             ) : null}
