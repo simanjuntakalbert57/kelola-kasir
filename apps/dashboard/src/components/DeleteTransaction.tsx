@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { TransactionDeletionEvent } from '@kelola-kasir/contracts';
+import { TRANSACTION_DELETE_REASON, type TransactionDeletionEvent } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
 import { ArchiveRestore, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -8,13 +8,14 @@ import {
   deletionErrorMessage,
   invalidateAfterDeletion,
   isDeletableStatus,
+  noteError,
+  restoreErrorMessage,
   reasonError,
   useIsOwner,
   type DeletableTransaction,
 } from '../lib/deletion';
 import { formatDateTime } from '../lib/format';
 import { Alert, Button, Dialog, TextareaField } from './ui';
-import { TRANSACTION_DELETE_REASON } from '@kelola-kasir/contracts';
 
 function Summary({ tx }: { tx: DeletableTransaction }) {
   return (
@@ -86,6 +87,7 @@ function DeleteDialog({ tx, onClose }: { tx: DeletableTransaction; onClose: () =
 function RestoreDialog({ tx, onClose }: { tx: DeletableTransaction; onClose: () => void }) {
   const qc = useQueryClient();
   const [note, setNote] = useState('');
+  const tooLong = noteError(note);
   const restore = useMutation({
     mutationFn: () =>
       api(`/transactions/${tx.id}/restore`, {
@@ -99,7 +101,7 @@ function RestoreDialog({ tx, onClose }: { tx: DeletableTransaction; onClose: () 
   });
   return (
     <Dialog title="Pulihkan transaksi ini?" onClose={onClose}>
-      {restore.error ? <Alert>{deletionErrorMessage(restore.error)}</Alert> : null}
+      {restore.error ? <Alert>{restoreErrorMessage(restore.error)}</Alert> : null}
       <Summary tx={tx} />
       <p className="mb-3 text-sm text-muted">
         Transaksi kembali masuk ke daftar, laporan, dan ringkasan seperti semula.
@@ -108,9 +110,14 @@ function RestoreDialog({ tx, onClose }: { tx: DeletableTransaction; onClose: () 
         label="Catatan (opsional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
+        error={tooLong}
       />
       <div className="mt-2 flex gap-2">
-        <Button variant="primary" disabled={restore.isPending} onClick={() => restore.mutate()}>
+        <Button
+          variant="primary"
+          disabled={Boolean(tooLong) || restore.isPending}
+          onClick={() => restore.mutate()}
+        >
           {restore.isPending ? 'Memulihkan…' : 'Pulihkan'}
         </Button>
         <Button onClick={onClose}>Batal</Button>

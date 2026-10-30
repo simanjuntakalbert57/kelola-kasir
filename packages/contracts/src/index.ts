@@ -26,6 +26,7 @@ export type PaymentMethod = Schemas['PaymentMethod'];
 export type Payment = Schemas['Payment'];
 export type Receipt = Schemas['Receipt'];
 export type VoidRequest = Schemas['VoidRequest'];
+export type Principal = Schemas['Principal'];
 export type TransactionDeleteInput = Schemas['TransactionDeleteInput'];
 export type TransactionRestoreInput = Schemas['TransactionRestoreInput'];
 export type TransactionDeleted = Schemas['TransactionDeleted'];
@@ -81,6 +82,9 @@ export const DELETABLE_TRANSACTION_STATUSES = [
 
 /** Delete reason length after trimming (ADR-0019); the API enforces it, the dashboard checks it first. */
 export const TRANSACTION_DELETE_REASON = { min: 5, max: 200 } as const;
+
+/** Optional restore note length after trimming (OpenAPI `TransactionRestoreInput.note`). */
+export const TRANSACTION_RESTORE_NOTE = { max: 200 } as const;
 
 export const SHIFT_STATUSES = ['open', 'closed'] as const satisfies readonly ShiftStatus[];
 

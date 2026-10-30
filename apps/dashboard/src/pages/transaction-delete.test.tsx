@@ -174,4 +174,25 @@ describe('Riwayat Hapus', () => {
     expect(await screen.findByText('Riwayat Hapus hanya untuk pemilik.')).toBeInTheDocument();
     expect(calls.some((c) => c.key.startsWith('GET /transactions/deleted'))).toBe(false);
   });
+
+  it('blocks a restore note over 200 characters with an inline message', async () => {
+    setup(
+      owner,
+      { deleted },
+      {
+        'GET /transactions/deleted': () =>
+          json({ data: [{ ...base, deleted }], next_cursor: null }),
+      },
+    );
+    renderApp('/transaksi/dihapus');
+    await userEvent.click(
+      (await screen.findAllByRole('button', { name: /Detail JUS1/ }))[0] as HTMLElement,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Pulihkan' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pulihkan transaksi ini?' });
+    await userEvent.click(within(dialog).getByLabelText('Catatan (opsional)'));
+    await userEvent.paste('x'.repeat(201));
+    expect(await within(dialog).findByText('Catatan maksimal 200 karakter.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Pulihkan' })).toBeDisabled();
+  });
 });

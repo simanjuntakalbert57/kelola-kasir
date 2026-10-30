@@ -1,13 +1,13 @@
 import { useQuery, type QueryClient } from '@tanstack/react-query';
 import {
   DELETABLE_TRANSACTION_STATUSES,
+  TRANSACTION_RESTORE_NOTE,
+  type Principal,
   TRANSACTION_DELETE_REASON,
   type Transaction,
   type TransactionStatus,
 } from '@kelola-kasir/contracts';
 import { ApiError, api } from './api';
-
-type Principal = { role: 'owner' | 'manager' | 'cashier' };
 
 /** Only the owner role may delete or restore (a manager passes the owner guard but not this one, ADR-0019). */
 export function useIsOwner(): boolean {
@@ -43,6 +43,20 @@ export function deletionErrorMessage(error: unknown): string {
     if (error.status === 400) return 'Alasan belum sesuai. Cek lagi ya.';
   }
   return 'Belum berhasil. Cek sinyal, lalu coba lagi.';
+}
+
+/** Inline validation message for the optional restore note (length after trimming). */
+export function noteError(note: string): string | undefined {
+  return note.trim().length > TRANSACTION_RESTORE_NOTE.max
+    ? `Catatan maksimal ${TRANSACTION_RESTORE_NOTE.max} karakter.`
+    : undefined;
+}
+
+/** Restore has its own 400 copy: the only free-text field is the note. */
+export function restoreErrorMessage(error: unknown): string {
+  return error instanceof ApiError && error.status === 400
+    ? 'Catatan belum sesuai. Cek lagi ya.'
+    : deletionErrorMessage(error);
 }
 
 /** Everything that counts or lists transactions must refetch after a delete or restore. */
