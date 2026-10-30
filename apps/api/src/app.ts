@@ -11,6 +11,7 @@ import { AppError } from './errors.js';
 import { clientIp } from './lib/client-ip.js';
 import type { ErrorReporter } from './lib/error-reporter.js';
 import { TokenService } from './lib/jwt.js';
+import { productImportRoutes } from './modules/catalog/import/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { deviceRoutes } from './modules/devices/routes.js';
@@ -137,6 +138,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(employeeRoutes(ctx, guards));
       await v1.register(shiftRoutes(ctx, guards));
       await v1.register(catalogRoutes(ctx, guards));
+      await v1.register(productImportRoutes(ctx, guards));
       await v1.register(settingsRoutes(ctx, guards));
       await v1.register(uploadRoutes(ctx, guards));
       await v1.register(mediaRoutes(ctx));

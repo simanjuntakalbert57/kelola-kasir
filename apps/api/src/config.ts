@@ -94,7 +94,7 @@ export interface Config {
   dbPoolMax: number;
   sentry: { dsn: string; environment: string } | null;
   corsOrigins: string[];
-  rateLimit: { loginMax: number; pairMax: number };
+  rateLimit: { loginMax: number; pairMax: number; importMax?: number };
   /** `null` when object storage is not configured: `POST /uploads` then answers 503. */
   storage: StorageConfig | null;
   ownerAccessTtlSec: number;
@@ -228,7 +228,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOrigins: e.CORS_ORIGINS.split(',')
       .map((o) => o.trim())
       .filter(Boolean),
-    rateLimit: { loginMax: e.RATE_LIMIT_LOGIN_MAX, pairMax: e.RATE_LIMIT_PAIR_MAX },
+    rateLimit: {
+      loginMax: e.RATE_LIMIT_LOGIN_MAX,
+      pairMax: e.RATE_LIMIT_PAIR_MAX,
+      importMax: 20,
+    },
     storage,
     webPush: parseWebPush(e),
     ownerAccessTtlSec: 15 * 60,
