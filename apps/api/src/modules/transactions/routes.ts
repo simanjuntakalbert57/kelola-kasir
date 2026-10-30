@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { z } from 'zod';
 import type { AppContext, Principal } from '../../context.js';
 import { employees, shifts, transactions } from '../../db/schema.js';
@@ -12,6 +12,14 @@ import { loadSettings } from '../settings/serialize.js';
 import { formatReceipt } from './receipt.js';
 import { findVisibleTransaction, wibDate } from './access.js';
 import { csvStream, xlsxStream, type ExportFilter } from './export.js';
+import {
+  deleteInputSchema,
+  deleteTransaction,
+  deletedListQuery,
+  listDeleted,
+  restoreInputSchema,
+  restoreTransaction,
+} from './deletion.js';
 import { createTransaction, transactionCreateSchema } from './service.js';
 import {
   loadTransactionDto,
@@ -70,12 +78,23 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
   const findInOutlet = (principal: Principal, id: string): Promise<TransactionRow> =>
     findVisibleTransaction(db, ctx.now(), principal, id);
 
+  // `guards.owner` also lets managers in; deleting and restoring is for the owner only (ADR-0019).
+  const ownerRole: preHandlerAsyncHookHandler = async (req) => {
+    if (req.principal?.type !== 'user' || req.principal.role !== 'owner') {
+      throw errors.forbidden('Only the owner can delete or restore transactions');
+    }
+  };
+  const ownerOnly = [guards.owner, ownerRole];
+
   return async (app: FastifyInstance): Promise<void> => {
     app.get('/transactions', { preHandler: guards.ownerOrEmployee }, async (req) => {
       const principal = req.principal;
       if (!principal) throw errors.unauthorized();
       const q = parse(listQuery, req.query);
-      const conditions: SQL[] = [eq(transactions.outletId, principal.outletId)];
+      const conditions: SQL[] = [
+        eq(transactions.outletId, principal.outletId),
+        isNull(transactions.deletedAt),
+      ];
 
       if (principal.type === 'employee') {
         if (q.scope === 'today') {
@@ -189,11 +208,41 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         const principal = req.principal;
         if (!principal) throw errors.unauthorized();
         const { transaction_id: id } = parse(idParams, req.params);
-        const row = await findInOutlet(principal, id);
-        const [dto] = await toTransactionDetails(db, [row]);
+        const isOwner = principal.type === 'user' && principal.role === 'owner';
+        const row = await findVisibleTransaction(db, ctx.now(), principal, id, isOwner);
+        const [dto] = await toTransactionDetails(db, [row], { ownerView: isOwner });
         return dto;
       },
     );
+
+    app.get('/transactions/deleted', { preHandler: ownerOnly }, async (req) => {
+      const principal = requireUser(req);
+      return listDeleted(db, principal.outletId, parse(deletedListQuery, req.query));
+    });
+
+    app.delete('/transactions/:transaction_id', { preHandler: ownerOnly }, async (req) => {
+      const principal = requireUser(req);
+      const { transaction_id: id } = parse(idParams, req.params);
+      const body = parse(deleteInputSchema, req.body);
+      return deleteTransaction(
+        ctx,
+        { outletId: principal.outletId, userId: principal.id, ip: req.ip },
+        id,
+        body.reason,
+      );
+    });
+
+    app.post('/transactions/:transaction_id/restore', { preHandler: ownerOnly }, async (req) => {
+      const principal = requireUser(req);
+      const { transaction_id: id } = parse(idParams, req.params);
+      const body = parse(restoreInputSchema, req.body);
+      return restoreTransaction(
+        ctx,
+        { outletId: principal.outletId, userId: principal.id, ip: req.ip },
+        id,
+        body.note,
+      );
+    });
 
     app.get(
       '/transactions/:transaction_id/receipt',

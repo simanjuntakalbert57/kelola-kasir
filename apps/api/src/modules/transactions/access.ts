@@ -10,7 +10,7 @@ export const wibDate = (at: Date): string =>
   new Date(at.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 /**
- * A transaction of the caller's outlet. Employees only see the running shift and today's sales
+ * A transaction of the caller's outlet; one the owner deleted is `404` unless `includeDeleted` (ADR-0019). Employees only see the running shift and today's sales
  * (PRD §5); anything else is `403`, an unknown id (or another outlet's) is `404`.
  */
 export async function findVisibleTransaction(
@@ -18,13 +18,14 @@ export async function findVisibleTransaction(
   now: Date,
   principal: Principal,
   id: string,
+  includeDeleted = false,
 ): Promise<TransactionRow> {
   const [row] = await db
     .select()
     .from(transactions)
     .where(and(eq(transactions.id, id), eq(transactions.outletId, principal.outletId)))
     .limit(1);
-  if (!row) throw errors.notFound('Transaction not found');
+  if (!row || (row.deletedAt && !includeDeleted)) throw errors.notFound('Transaction not found');
   if (principal.type === 'employee') await assertEmployeeMayView(db, now, row);
   return row;
 }

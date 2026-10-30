@@ -203,7 +203,7 @@ export function createNotifier(deps: NotifierDeps): Notifier {
       .from(transactions)
       .innerJoin(employees, eq(employees.id, transactions.employeeId))
       .innerJoin(outlets, eq(outlets.id, transactions.outletId))
-      .where(inArray(transactions.id, ids));
+      .where(and(inArray(transactions.id, ids), isNull(transactions.deletedAt)));
   }
 
   async function enqueueSingle(id: string, offline: boolean): Promise<void> {

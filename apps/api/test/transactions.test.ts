@@ -398,15 +398,15 @@ describe('immutability of paid transactions (DB trigger)', () => {
     expect(after.total).toBe(30_000);
   });
 
-  it('has no API to edit or delete a transaction', async () => {
+  it('has no API to edit a transaction (DELETE is the owner soft delete, ADR-0019)', async () => {
     const shop = await createShop(env);
     const tx = json<TxDto>(await create(shop, txBody(env, shop)));
-    for (const method of ['PATCH', 'PUT', 'DELETE'] as const) {
+    for (const method of ['PATCH', 'PUT'] as const) {
       const res = await env.app.inject({
         method,
         url: `/v1/transactions/${tx.id}`,
         headers: bearer(shop.ownerToken),
-        ...(method === 'DELETE' ? {} : { payload: { total: 1 } }),
+        payload: { total: 1 },
       });
       expect(res.statusCode).toBe(404);
     }

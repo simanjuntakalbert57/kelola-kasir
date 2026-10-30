@@ -57,7 +57,7 @@ export async function requestVoid(
         .from(transactions)
         .where(and(eq(transactions.id, transactionId), eq(transactions.outletId, by.outletId)))
         .for('update');
-      if (!row) throw errors.notFound('Transaction not found');
+      if (!row || row.deletedAt) throw errors.notFound('Transaction not found');
       const [employee] = await tx
         .select({ id: employees.id })
         .from(employees)
@@ -240,7 +240,7 @@ export async function voidDirectly(
       .from(transactions)
       .where(and(eq(transactions.id, transactionId), eq(transactions.outletId, by.outletId)))
       .for('update');
-    if (!row) throw errors.notFound('Transaction not found');
+    if (!row || row.deletedAt) throw errors.notFound('Transaction not found');
     if (row.status === 'voided') {
       // Idempotent: voiding twice is not an error, but the first void keeps its audit record.
       return;
