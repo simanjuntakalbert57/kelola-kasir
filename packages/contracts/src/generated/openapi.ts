@@ -340,6 +340,81 @@ export interface paths {
         patch: operations["setProductAvailability"];
         trace?: never;
     };
+    "/products/import/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the product import template (DEAR-111, ADR-0018)
+         * @description Generated on the fly with the same columns the parser expects: `nama, kategori, harga, favorit, aktif`.
+         *     XLSX has a `Produk` sheet (frozen header + 2 example rows, `harga` formatted `#,##0`, `ya,tidak` list validation
+         *     on `favorit`/`aktif`) and a `Petunjuk` sheet. CSV is UTF-8 with a BOM, `;` separator and CRLF line ends so it
+         *     opens in columns in Indonesian-locale Excel. Sent with `Content-Disposition: attachment;
+         *     filename="template-impor-produk.<format>"` and `Cache-Control: no-store`. Owner role only.
+         */
+        get: operations["getProductImportTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check an import file without saving anything (dry-run) (DEAR-111, ADR-0018)
+         * @description Parses and validates the file and matches every row against the outlet's live (not deleted) products by name
+         *     (trimmed, whitespace collapsed, case-insensitive). Nothing is written. Row-level problems are reported in
+         *     `rows[].errors` with a `200`; only file-level problems are a `Problem`. `import_token` is returned only when
+         *     `summary.error = 0` and `summary.create + summary.update > 0`; pass it with the **same file** to `commit`
+         *     within 30 minutes. Format comes from the file name extension plus magic bytes, not the part `Content-Type`.
+         *     The file is processed in memory only and never stored or logged. Owner role only; rate limited (20/min per
+         *     user, shared with `commit`).
+         */
+        post: operations["previewProductImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/import/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a previewed import, all rows or nothing (DEAR-111, ADR-0018)
+         * @description Send the same file again with the `import_token` from `preview`. The server re-parses and re-validates it with
+         *     the same rules, verifies the token (file hash, user, outlet, expiry) and checks, under a per-outlet lock, that
+         *     the catalog has not changed since the preview. Then, in one database transaction, it creates new categories,
+         *     creates and updates products, and writes the audit log (`product.imported`, plus `product.price_changed` per
+         *     price change). Products are never deleted; `is_sold_out`, `image_url` and `sort_order` of existing products
+         *     are never touched. Changes reach the cashier app through `/sync/pull`. Owner role only.
+         */
+        post: operations["commitProductImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shifts": {
         parameters: {
             query?: never;
@@ -1042,7 +1117,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1172,6 +1247,101 @@ export interface components {
             products: components["schemas"]["Product"][];
             /** @description Use as `cursor` for the next `/sync/pull` */
             cursor: string;
+        };
+        ProductImportPreviewRequest: {
+            /** @description `.csv` (UTF-8, `;`/`,`/tab separated) or `.xlsx`, at most 2 MiB */
+            file: string;
+        };
+        ProductImportCommitRequest: {
+            /** @description The same file that was previewed */
+            file: string;
+            import_token: string;
+        };
+        /**
+         * @description `create` = new product, `update` = existing product (same name) gets new values, `unchanged` = existing product
+         *     already has these values, `error` = row cannot be imported (see `errors`).
+         * @enum {string}
+         */
+        ProductImportAction: "create" | "update" | "unchanged" | "error";
+        /** @enum {string} */
+        ProductImportColumn: "nama" | "kategori" | "harga" | "favorit" | "aktif";
+        /**
+         * @description `UNSAFE_TEXT` = text starts with `= + - @`; `FORMULA_NOT_ALLOWED` = XLSX formula without a stored value (or an
+         *     error value); `DUPLICATE_IN_FILE` = another row has the same name; `AMBIGUOUS_MATCH` = more than one existing
+         *     product has this name.
+         * @enum {string}
+         */
+        ProductImportRowErrorCode: "REQUIRED" | "TOO_LONG" | "UNSAFE_TEXT" | "INVALID_PRICE" | "INVALID_BOOLEAN" | "FORMULA_NOT_ALLOWED" | "DUPLICATE_IN_FILE" | "AMBIGUOUS_MATCH";
+        ProductImportRowError: {
+            /** @description `null` when the error is about the whole row */
+            column: components["schemas"]["ProductImportColumn"] | null;
+            code: components["schemas"]["ProductImportRowErrorCode"];
+            /** @description Indonesian text ready to show, e.g. "Harga harus angka bulat, contoh 15000 atau Rp15.000" */
+            message: string;
+        };
+        ProductImportRow: {
+            /** @description Spreadsheet row number as shown in Excel (header is usually row 1) */
+            row: number;
+            action: components["schemas"]["ProductImportAction"];
+            /** @description Normalized name (null when missing) */
+            name: string | null;
+            /** @description Normalized category name (null when missing) */
+            category: string | null;
+            /** @description Parsed price; null when missing or invalid */
+            price: components["schemas"]["Rupiah"] | null;
+            /** @description Value that will be saved; null only for error rows where it could not be read */
+            is_favorite: boolean | null;
+            /** @description Value that will be saved; null only for error rows where it could not be read */
+            is_active: boolean | null;
+            /**
+             * Format: uuid
+             * @description Existing product for `update`/`unchanged`
+             */
+            product_id: string | null;
+            /** @description The category does not exist yet and will be created */
+            category_is_new: boolean;
+            /** @description For `update`: the fields that change, with old and new values */
+            changes: {
+                /** @enum {string} */
+                field: "price" | "category" | "is_favorite" | "is_active";
+                /** @description Rupiah for `price`, category name for `category` */
+                before: number | string | boolean;
+                after: number | string | boolean;
+            }[];
+            errors: components["schemas"]["ProductImportRowError"][];
+        };
+        ProductImportWarning: {
+            /** @enum {string} */
+            code: "UNKNOWN_COLUMN" | "ENCODING_FALLBACK";
+            message: string;
+        };
+        ProductImportPreview: {
+            /** @enum {string} */
+            format: "csv" | "xlsx";
+            file_sha256: string;
+            summary: {
+                /** @description Non-empty data rows */
+                total: number;
+                create: number;
+                update: number;
+                unchanged: number;
+                error: number;
+            };
+            /** @description Categories that will be created, in file order */
+            new_categories: string[];
+            /** @description Every non-empty data row in file order */
+            rows: components["schemas"]["ProductImportRow"][];
+            warnings: components["schemas"]["ProductImportWarning"][];
+            /** @description Present only when there are no errors and something to save. Valid 30 minutes, only with this exact file. */
+            import_token: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+        };
+        ProductImportResult: {
+            created: number;
+            updated: number;
+            unchanged: number;
+            categories_created: number;
         };
         /** @enum {string} */
         ShiftStatus: "open" | "closed";
@@ -1623,6 +1793,37 @@ export interface components {
         };
         /** @description Rate limited */
         TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description `IMPORT_FILE_TOO_LARGE` (over 2 MiB) */
+        ImportFileTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description `UNSUPPORTED_MEDIA_TYPE`: not a `.csv` or `.xlsx` file */
+        ImportUnsupportedFile: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `IMPORT_FILE_UNREADABLE` (corrupt, empty, `.xls`, macro-enabled, or too large when unzipped),
+         *     `IMPORT_COLUMNS_INVALID` (required column missing or duplicated; `errors[].path` = column name) or
+         *     `IMPORT_TOO_MANY_ROWS` (more than 500 non-empty data rows)
+         */
+        ImportFileInvalid: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2354,6 +2555,122 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getProductImportTemplate: {
+        parameters: {
+            query: {
+                format: "xlsx" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Template file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    previewProductImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ProductImportPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Preview (may contain row errors) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductImportPreview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["ImportFileTooLarge"];
+            415: components["responses"]["ImportUnsupportedFile"];
+            422: components["responses"]["ImportFileInvalid"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    commitProductImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ProductImportCommitRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductImportResult"];
+                };
+            };
+            /** @description `VALIDATION_ERROR` (missing field) or `IMPORT_TOKEN_INVALID` (malformed, wrong signature, or issued for another file/user/outlet) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `IMPORT_STALE`: the token expired or the catalog changed since the preview; preview again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            413: components["responses"]["ImportFileTooLarge"];
+            415: components["responses"]["ImportUnsupportedFile"];
+            /**
+             * @description File-level problem (`IMPORT_FILE_UNREADABLE`, `IMPORT_COLUMNS_INVALID`, `IMPORT_TOO_MANY_ROWS`) or
+             *     `IMPORT_HAS_ERRORS` (the file has row errors; nothing was saved)
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     listShifts: {

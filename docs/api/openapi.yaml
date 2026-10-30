@@ -558,6 +558,110 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /products/import/template:
+    get:
+      tags: [catalog]
+      summary: Download the product import template (DEAR-111, ADR-0018)
+      description: |
+        Generated on the fly with the same columns the parser expects: `nama, kategori, harga, favorit, aktif`.
+        XLSX has a `Produk` sheet (frozen header + 2 example rows, `harga` formatted `#,##0`, `ya,tidak` list validation
+        on `favorit`/`aktif`) and a `Petunjuk` sheet. CSV is UTF-8 with a BOM, `;` separator and CRLF line ends so it
+        opens in columns in Indonesian-locale Excel. Sent with `Content-Disposition: attachment;
+        filename="template-impor-produk.<format>"` and `Cache-Control: no-store`. Owner role only.
+      operationId: getProductImportTemplate
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [xlsx, csv] } }
+      responses:
+        '200':
+          description: Template file
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /products/import/preview:
+    post:
+      tags: [catalog]
+      summary: Check an import file without saving anything (dry-run) (DEAR-111, ADR-0018)
+      description: |
+        Parses and validates the file and matches every row against the outlet's live (not deleted) products by name
+        (trimmed, whitespace collapsed, case-insensitive). Nothing is written. Row-level problems are reported in
+        `rows[].errors` with a `200`; only file-level problems are a `Problem`. `import_token` is returned only when
+        `summary.error = 0` and `summary.create + summary.update > 0`; pass it with the **same file** to `commit`
+        within 30 minutes. Format comes from the file name extension plus magic bytes, not the part `Content-Type`.
+        The file is processed in memory only and never stored or logged. Owner role only; rate limited (20/min per
+        user, shared with `commit`).
+      operationId: previewProductImport
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ProductImportPreviewRequest' }
+      responses:
+        '200':
+          description: Preview (may contain row errors)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImportPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/ImportFileTooLarge' }
+        '415': { $ref: '#/components/responses/ImportUnsupportedFile' }
+        '422': { $ref: '#/components/responses/ImportFileInvalid' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /products/import/commit:
+    post:
+      tags: [catalog]
+      summary: Save a previewed import, all rows or nothing (DEAR-111, ADR-0018)
+      description: |
+        Send the same file again with the `import_token` from `preview`. The server re-parses and re-validates it with
+        the same rules, verifies the token (file hash, user, outlet, expiry) and checks, under a per-outlet lock, that
+        the catalog has not changed since the preview. Then, in one database transaction, it creates new categories,
+        creates and updates products, and writes the audit log (`product.imported`, plus `product.price_changed` per
+        price change). Products are never deleted; `is_sold_out`, `image_url` and `sort_order` of existing products
+        are never touched. Changes reach the cashier app through `/sync/pull`. Owner role only.
+      operationId: commitProductImport
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ProductImportCommitRequest' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImportResult' }
+        '400':
+          description: '`VALIDATION_ERROR` (missing field) or `IMPORT_TOKEN_INVALID` (malformed, wrong signature, or issued for another file/user/outlet)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`IMPORT_STALE`: the token expired or the catalog changed since the preview; preview again'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '413': { $ref: '#/components/responses/ImportFileTooLarge' }
+        '415': { $ref: '#/components/responses/ImportUnsupportedFile' }
+        '422':
+          description: |
+            File-level problem (`IMPORT_FILE_UNREADABLE`, `IMPORT_COLUMNS_INVALID`, `IMPORT_TOO_MANY_ROWS`) or
+            `IMPORT_HAS_ERRORS` (the file has row errors; nothing was saved)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   # ---------------------------------------------------------------- shifts
   /shifts:
     get:
@@ -1627,6 +1731,24 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    ImportFileTooLarge:
+      description: '`IMPORT_FILE_TOO_LARGE` (over 2 MiB)'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ImportUnsupportedFile:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: not a `.csv` or `.xlsx` file'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ImportFileInvalid:
+      description: |
+        `IMPORT_FILE_UNREADABLE` (corrupt, empty, `.xls`, macro-enabled, or too large when unzipped),
+        `IMPORT_COLUMNS_INVALID` (required column missing or duplicated; `errors[].path` = column name) or
+        `IMPORT_TOO_MANY_ROWS` (more than 500 non-empty data rows)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
     Rupiah:
@@ -1700,6 +1822,14 @@ components:
         - VOID_ALREADY_DECIDED
         - INVALID_OWNER_PIN
         - OWNER_PIN_LOCKED
+        # product import (ADR-0018, planned)
+        - IMPORT_FILE_TOO_LARGE
+        - IMPORT_FILE_UNREADABLE
+        - IMPORT_COLUMNS_INVALID
+        - IMPORT_TOO_MANY_ROWS
+        - IMPORT_HAS_ERRORS
+        - IMPORT_TOKEN_INVALID
+        - IMPORT_STALE
     Problem:
       type: object
       required: [type, title, status, code]
@@ -1829,6 +1959,101 @@ components:
         categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
         products: { type: array, items: { $ref: '#/components/schemas/Product' } }
         cursor: { type: string, description: Use as `cursor` for the next `/sync/pull` }
+
+    ProductImportPreviewRequest:
+      type: object
+      required: [file]
+      properties:
+        file: { type: string, contentEncoding: binary, description: '`.csv` (UTF-8, `;`/`,`/tab separated) or `.xlsx`, at most 2 MiB' }
+    ProductImportCommitRequest:
+      type: object
+      required: [file, import_token]
+      properties:
+        file: { type: string, contentEncoding: binary, description: The same file that was previewed }
+        import_token: { type: string, maxLength: 200 }
+    ProductImportAction:
+      type: string
+      enum: [create, update, unchanged, error]
+      description: |
+        `create` = new product, `update` = existing product (same name) gets new values, `unchanged` = existing product
+        already has these values, `error` = row cannot be imported (see `errors`).
+    ProductImportColumn:
+      type: string
+      enum: [nama, kategori, harga, favorit, aktif]
+    ProductImportRowErrorCode:
+      type: string
+      enum: [REQUIRED, TOO_LONG, UNSAFE_TEXT, INVALID_PRICE, INVALID_BOOLEAN, FORMULA_NOT_ALLOWED, DUPLICATE_IN_FILE, AMBIGUOUS_MATCH]
+      description: |
+        `UNSAFE_TEXT` = text starts with `= + - @`; `FORMULA_NOT_ALLOWED` = XLSX formula without a stored value (or an
+        error value); `DUPLICATE_IN_FILE` = another row has the same name; `AMBIGUOUS_MATCH` = more than one existing
+        product has this name.
+    ProductImportRowError:
+      type: object
+      required: [column, code, message]
+      properties:
+        column: { oneOf: [{ $ref: '#/components/schemas/ProductImportColumn' }, { type: 'null' }], description: '`null` when the error is about the whole row' }
+        code: { $ref: '#/components/schemas/ProductImportRowErrorCode' }
+        message: { type: string, description: 'Indonesian text ready to show, e.g. "Harga harus angka bulat, contoh 15000 atau Rp15.000"' }
+    ProductImportRow:
+      type: object
+      required: [row, action, name, category, price, is_favorite, is_active, product_id, category_is_new, changes, errors]
+      properties:
+        row: { type: integer, minimum: 1, description: Spreadsheet row number as shown in Excel (header is usually row 1) }
+        action: { $ref: '#/components/schemas/ProductImportAction' }
+        name: { type: [string, 'null'], description: Normalized name (null when missing) }
+        category: { type: [string, 'null'], description: Normalized category name (null when missing) }
+        price: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }], description: Parsed price; null when missing or invalid }
+        is_favorite: { type: [boolean, 'null'], description: 'Value that will be saved; null only for error rows where it could not be read' }
+        is_active: { type: [boolean, 'null'], description: 'Value that will be saved; null only for error rows where it could not be read' }
+        product_id: { type: [string, 'null'], format: uuid, description: Existing product for `update`/`unchanged` }
+        category_is_new: { type: boolean, description: The category does not exist yet and will be created }
+        changes:
+          type: array
+          description: 'For `update`: the fields that change, with old and new values'
+          items:
+            type: object
+            required: [field, before, after]
+            properties:
+              field: { type: string, enum: [price, category, is_favorite, is_active] }
+              before: { type: [integer, string, boolean], description: 'Rupiah for `price`, category name for `category`' }
+              after: { type: [integer, string, boolean] }
+        errors: { type: array, items: { $ref: '#/components/schemas/ProductImportRowError' } }
+    ProductImportWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, enum: [UNKNOWN_COLUMN, ENCODING_FALLBACK] }
+        message: { type: string }
+    ProductImportPreview:
+      type: object
+      required: [format, file_sha256, summary, new_categories, rows, warnings, import_token, expires_at]
+      properties:
+        format: { type: string, enum: [csv, xlsx] }
+        file_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        summary:
+          type: object
+          required: [total, create, update, unchanged, error]
+          properties:
+            total: { type: integer, description: Non-empty data rows }
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            error: { type: integer }
+        new_categories: { type: array, items: { type: string }, description: 'Categories that will be created, in file order' }
+        rows: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/ProductImportRow' }, description: Every non-empty data row in file order }
+        warnings: { type: array, items: { $ref: '#/components/schemas/ProductImportWarning' } }
+        import_token:
+          type: [string, 'null']
+          description: Present only when there are no errors and something to save. Valid 30 minutes, only with this exact file.
+        expires_at: { type: [string, 'null'], format: date-time }
+    ProductImportResult:
+      type: object
+      required: [created, updated, unchanged, categories_created]
+      properties:
+        created: { type: integer }
+        updated: { type: integer }
+        unchanged: { type: integer }
+        categories_created: { type: integer }
 
     ShiftStatus:
       type: string

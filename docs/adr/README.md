@@ -21,3 +21,4 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0015](0015-private-media-bucket.md) | Bucket media privat, gambar disajikan lewat `GET /v1/media/*` (redirect presigned GET) | Accepted (menggantikan bagian media publik di 0011) |
 | [0016](0016-telegram-transaction-notifications.md) | Notifikasi transaksi & void ke Telegram owner (outbox `notification_log`, dispatcher in-process) | Superseded by 0017 |
 | [0017](0017-web-push-transaction-notifications.md) | Notifikasi transaksi & void di laptop owner lewat Web Push dashboard (Service Worker + VAPID) | Accepted (menggantikan 0016) |
+| [0018](0018-product-import-csv-xlsx.md) | Impor produk CSV/XLSX: pratinjau tanpa state + simpan dengan unggah ulang file dan `import_token` | Accepted |

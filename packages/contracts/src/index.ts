@@ -36,6 +36,13 @@ export type PushConfig = Schemas['PushConfig'];
 export type PushSubscription = Schemas['PushSubscription'];
 export type PushSubscriptionInput = Schemas['PushSubscriptionInput'];
 export type PushSubscriptionStatus = Schemas['PushSubscriptionStatus'];
+export type ProductImportPreview = Schemas['ProductImportPreview'];
+export type ProductImportRow = Schemas['ProductImportRow'];
+export type ProductImportRowError = Schemas['ProductImportRowError'];
+export type ProductImportRowErrorCode = Schemas['ProductImportRowErrorCode'];
+export type ProductImportAction = Schemas['ProductImportAction'];
+export type ProductImportColumn = Schemas['ProductImportColumn'];
+export type ProductImportResult = Schemas['ProductImportResult'];
 
 /** JSON body of a successful response for `path` + `method`. */
 export type ResponseBody<
@@ -61,3 +68,14 @@ export const TRANSACTION_STATUSES = [
 export const PAYMENT_METHODS = ['cash', 'qris'] as const satisfies readonly PaymentMethod[];
 
 export const SHIFT_STATUSES = ['open', 'closed'] as const satisfies readonly ShiftStatus[];
+
+export const PRODUCT_IMPORT_COLUMNS = [
+  'nama',
+  'kategori',
+  'harga',
+  'favorit',
+  'aktif',
+] as const satisfies readonly ProductImportColumn[];
+
+/** Import file limits (ADR-0018); the API enforces them, the dashboard checks them before uploading. */
+export const PRODUCT_IMPORT_LIMITS = { maxBytes: 2 * 1024 * 1024, maxRows: 500 } as const;
