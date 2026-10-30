@@ -1923,7 +1923,7 @@ components:
         # voids
         - TRANSACTION_NOT_VOIDABLE
         - VOID_ALREADY_DECIDED
-        # owner delete (ADR-0019, planned)
+        # owner delete (ADR-0019)
         - TRANSACTION_NOT_DELETABLE
         - INVALID_OWNER_PIN
         - OWNER_PIN_LOCKED
