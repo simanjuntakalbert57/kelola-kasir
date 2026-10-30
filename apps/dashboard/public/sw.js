@@ -5,9 +5,16 @@
 var FALLBACK_TITLE = 'Kelola Kasir';
 var FALLBACK_BODY = 'Ada aktivitas baru';
 
-/** Same-origin paths only ("/x", never "//host"); anything else falls back to the dashboard root. */
+/** Same-origin targets only. Parsed like a browser would, so "/\\host" and "/<TAB>/host" cannot slip through;
+ * anything resolving to another origin falls back to the dashboard root. */
 function safeUrl(url) {
-  return typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/' ? url : '/';
+  if (typeof url !== 'string') return '/';
+  try {
+    var u = new URL(url, self.location.origin);
+    return u.origin === self.location.origin ? u.pathname + u.search + u.hash : '/';
+  } catch (_) {
+    return '/';
+  }
 }
 
 /** Turns a push payload into notification content; unparsable payloads still show a generic one. */

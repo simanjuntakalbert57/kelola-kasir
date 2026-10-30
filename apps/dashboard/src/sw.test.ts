@@ -135,4 +135,20 @@ describe('service worker', () => {
     await click('//evil.example');
     expect(sw.openWindow).toHaveBeenCalledWith('/');
   });
+
+  it.each(['/\\evil.com', '/\t/evil.com', '/\n/evil.com'])(
+    'never opens %j from a click or a push payload',
+    async (url) => {
+      sw.clients.matchAll.mockResolvedValue([]);
+      await click(url);
+      expect(sw.openWindow).toHaveBeenCalledWith('/');
+      const { event, waits } = pushEvent({ title: 'x', body: 'y', url });
+      sw.handlers['push']?.(event);
+      await Promise.all(waits);
+      expect(sw.showNotification).toHaveBeenCalledWith(
+        'x',
+        expect.objectContaining({ data: { url: '/' } }),
+      );
+    },
+  );
 });

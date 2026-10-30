@@ -290,6 +290,33 @@ describe('Pengaturan → Notifikasi', () => {
     });
   });
 
+  it('does not re-create a revoked browser on startup (no POST when the stored id is not listed)', async () => {
+    installBrowser({ permission: 'granted', subscription: activeSub() });
+    localStorage.setItem('kelola-kasir.push-subscription-id', 'revoked-id');
+    const calls = mockApi({
+      ...base,
+      'GET /notifications/push/subscriptions': () => json({ items: [other] }),
+      'POST /notifications/push/subscriptions': () => json(mine, 201),
+    });
+    renderApp('/pengaturan/notifikasi');
+    await screen.findByRole('button', { name: 'Daftarkan ulang browser ini' });
+    expect(calls.some((c) => c.key === 'POST /notifications/push/subscriptions')).toBe(false);
+  });
+
+  it('does not re-create a browser that is listed but expired', async () => {
+    installBrowser({ permission: 'granted', subscription: activeSub() });
+    localStorage.setItem('kelola-kasir.push-subscription-id', SUB_ID);
+    const calls = mockApi({
+      ...base,
+      'GET /notifications/push/subscriptions': () =>
+        json({ items: [{ ...mine, status: 'expired' }] }),
+      'POST /notifications/push/subscriptions': () => json(mine, 201),
+    });
+    renderApp('/pengaturan/notifikasi');
+    await screen.findByRole('button', { name: 'Daftarkan ulang browser ini' });
+    expect(calls.some((c) => c.key === 'POST /notifications/push/subscriptions')).toBe(false);
+  });
+
   it('locks the toggles until a browser is active', async () => {
     installBrowser();
     mockApi({ ...base, 'GET /notifications/push/subscriptions': () => json({ items: [] }) });

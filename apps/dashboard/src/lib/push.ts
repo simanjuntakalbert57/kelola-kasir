@@ -126,6 +126,13 @@ export async function unsubscribeBrowser(): Promise<void> {
   }
 }
 
-/** Same rule as the service worker: only same-origin paths are followed. */
-export const isSafePath = (url: unknown): url is string =>
-  typeof url === 'string' && url.startsWith('/') && !url.startsWith('//');
+/** Same rule as the service worker: only targets resolving to this origin are followed. Returns the safe path. */
+export function safePath(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  try {
+    const u = new URL(url, window.location.origin);
+    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : null;
+  } catch {
+    return null;
+  }
+}
