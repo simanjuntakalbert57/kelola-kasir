@@ -131,6 +131,18 @@ Langkah (pelaksana: Tech Lead, di luar jam jualan, setelah owner/CTO setuju di i
 5. Verifikasi: jalankan lagi langkah 3 (outlet target hilang, outlet asli tidak berubah), `curl https://<API_DOMAIN>/healthz`, dan 1 login dashboard owner.
 6. Hapus file kredensial uji di runtime, dan foto uji di bucket media bila ada. Tempel bukti (nama objek backup + output langkah 4–5) di issue.
 
+### Kosongkan data jualan & katalog satu outlet (outlet tetap)
+
+`ops/vps/reset-outlet-data.sql` menghapus transaksi + item, pembayaran, permintaan void, shift, produk, dan kategori satu outlet,
+tanpa menyentuh outlet, akun, Pengaturan, pegawai, perangkat, notifikasi, maupun audit log. Dipakai 30 Okt 2026 untuk JUS1 (DEAR-120).
+Sidik (jumlah baris + md5) **semua** baris lain di semua tabel dibandingkan sebelum/sesudah; beda sedikit saja → rollback.
+Tabel target dikunci di awal, jadi API menunggu beberapa detik selama skrip jalan.
+
+1. Arsip ekspor XLSX transaksi, cek shift terbuka, lalu `./backup-now.sh` (catat nama objek).
+2. Dry run: ganti `COMMIT;` dengan `ROLLBACK;` di salinan skrip, jalankan, pastikan semua `identical = t`.
+3. Jalankan: `./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v code=JUS1 < reset-outlet-data.sql`.
+4. Hapus objek `<outlet_id>/product_image/` di bucket media bila ada, cek `/healthz`, lalu minta owner membersihkan data / pairing ulang aplikasi kasir di tiap HP.
+
 Untuk uji berikutnya di produksi: buat owner + outlet uji lewat `create-owner` (deploy.md langkah 8) dengan kode outlet khusus uji, jangan pernah memakai akun owner atau outlet asli.
 
 ## Perawatan server
