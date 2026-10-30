@@ -334,6 +334,10 @@ export const transactions = pgTable(
     serverReceivedAt: ts('server_received_at').notNull().defaultNow(),
     paidAt: ts('paid_at'),
     voidedAt: ts('voided_at'),
+    /** Soft delete by the owner (ADR-0019). Set together, cleared together on restore. */
+    deletedAt: ts('deleted_at'),
+    deletedBy: uuid('deleted_by').references(() => users.id),
+    deleteReason: text('delete_reason'),
   },
   (t) => [
     uniqueIndex('transactions_outlet_number_unique').on(t.outletId, t.number),
@@ -341,6 +345,15 @@ export const transactions = pgTable(
     index('transactions_shift_idx').on(t.shiftId),
     index('transactions_outlet_status_idx').on(t.outletId, t.status),
     index('transactions_outlet_employee_idx').on(t.outletId, t.employeeId, t.clientCreatedAt),
+    index('transactions_outlet_deleted_idx').on(t.outletId, t.deletedAt),
+    check(
+      'transactions_deleted_fields_check',
+      sql`(${t.deletedAt} IS NULL AND ${t.deletedBy} IS NULL AND ${t.deleteReason} IS NULL) OR (${t.deletedAt} IS NOT NULL AND ${t.deletedBy} IS NOT NULL AND ${t.deleteReason} IS NOT NULL)`,
+    ),
+    check(
+      'transactions_deleted_status_check',
+      sql`${t.deletedAt} IS NULL OR ${t.status} NOT IN ('pending', 'void_requested')`,
+    ),
     check(
       'transactions_status_check',
       sql`${t.status} IN ('pending', 'paid', 'void_requested', 'voided', 'cancelled')`,
@@ -444,6 +457,38 @@ export const voidRequests = pgTable(
     check(
       'void_requests_channel_check',
       sql`${t.decisionChannel} IS NULL OR ${t.decisionChannel} IN ('dashboard', 'device_pin')`,
+    ),
+  ],
+);
+
+/**
+ * History of owner deletes and restores of a transaction (ADR-0019). Append-only (enforced by
+ * trigger); one row per action, so delete → restore → delete again stays traceable.
+ */
+export const transactionDeletions = pgTable(
+  'transaction_deletions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    transactionId: uuid('transaction_id')
+      .notNull()
+      .references(() => transactions.id),
+    action: text('action').notNull(),
+    reason: text('reason'),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('transaction_deletions_transaction_idx').on(t.transactionId, t.createdAt),
+    index('transaction_deletions_outlet_created_idx').on(t.outletId, t.createdAt.desc()),
+    check('transaction_deletions_action_check', sql`${t.action} IN ('delete', 'restore')`),
+    check(
+      'transaction_deletions_reason_check',
+      sql`${t.action} <> 'delete' OR ${t.reason} IS NOT NULL`,
     ),
   ],
 );

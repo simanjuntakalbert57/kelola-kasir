@@ -26,6 +26,11 @@ export type PaymentMethod = Schemas['PaymentMethod'];
 export type Payment = Schemas['Payment'];
 export type Receipt = Schemas['Receipt'];
 export type VoidRequest = Schemas['VoidRequest'];
+export type TransactionDeleteInput = Schemas['TransactionDeleteInput'];
+export type TransactionRestoreInput = Schemas['TransactionRestoreInput'];
+export type TransactionDeleted = Schemas['TransactionDeleted'];
+export type TransactionDeletionEvent = Schemas['TransactionDeletionEvent'];
+export type DeletedTransactionSummary = Schemas['DeletedTransactionSummary'];
 export type SyncMutation = Schemas['SyncMutation'];
 export type SyncPullResponse = Schemas['SyncPullResponse'];
 export type OutletSettings = Schemas['OutletSettings'];
@@ -66,6 +71,16 @@ export const TRANSACTION_STATUSES = [
 ] as const satisfies readonly TransactionStatus[];
 
 export const PAYMENT_METHODS = ['cash', 'qris'] as const satisfies readonly PaymentMethod[];
+
+/** Statuses the owner may delete (ADR-0019); `pending` and `void_requested` must be settled first. */
+export const DELETABLE_TRANSACTION_STATUSES = [
+  'paid',
+  'voided',
+  'cancelled',
+] as const satisfies readonly TransactionStatus[];
+
+/** Delete reason length after trimming (ADR-0019); the API enforces it, the dashboard checks it first. */
+export const TRANSACTION_DELETE_REASON = { min: 5, max: 200 } as const;
 
 export const SHIFT_STATUSES = ['open', 'closed'] as const satisfies readonly ShiftStatus[];
 

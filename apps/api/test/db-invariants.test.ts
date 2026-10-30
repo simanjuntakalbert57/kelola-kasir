@@ -6,8 +6,10 @@ import {
   categories,
   products,
   shifts,
+  transactionDeletions,
   transactionItems,
   transactions,
+  users,
 } from '../src/db/schema.js';
 import { pgError } from '../src/db/client.js';
 import { writeAudit } from '../src/modules/audit/audit.js';
@@ -275,5 +277,110 @@ describe('sync cursor', () => {
         .values({ outletId: seeded.outletId, categoryId: cat?.id ?? '', name: 'Neg', price: -1 }),
     );
     expect(bad?.code).toBe('23514');
+  });
+});
+
+describe('owner soft delete (ADR-0019)', () => {
+  async function ownerId(email: string) {
+    const [row] = await env.handle.db.select().from(users).where(eq(users.email, email));
+    if (!row) throw new Error('owner not seeded');
+    return row.id;
+  }
+
+  it('sets and clears deleted_at, deleted_by and delete_reason together', async () => {
+    const { seeded, txId } = await shiftWithTransaction('paid');
+    const userId = await ownerId(seeded.ownerEmail);
+    const partial = await violation(() =>
+      env.handle.db
+        .update(transactions)
+        .set({ deletedAt: new Date() })
+        .where(eq(transactions.id, txId)),
+    );
+    expect(partial).toMatchObject({
+      code: '23514',
+      constraint: 'transactions_deleted_fields_check',
+    });
+    const deleted = {
+      deletedAt: new Date(),
+      deletedBy: userId,
+      deleteReason: 'transaksi uji coba',
+    };
+    await env.handle.db.update(transactions).set(deleted).where(eq(transactions.id, txId));
+    await env.handle.db
+      .update(transactions)
+      .set({ deletedAt: null, deletedBy: null, deleteReason: null })
+      .where(eq(transactions.id, txId));
+    const [row] = await env.handle.db.select().from(transactions).where(eq(transactions.id, txId));
+    expect(row?.deletedAt).toBeNull();
+  });
+
+  it('rejects deleting a pending transaction', async () => {
+    const { seeded, txId } = await shiftWithTransaction('pending');
+    const userId = await ownerId(seeded.ownerEmail);
+    const err = await violation(() =>
+      env.handle.db
+        .update(transactions)
+        .set({ deletedAt: new Date(), deletedBy: userId, deleteReason: 'dobel input' })
+        .where(eq(transactions.id, txId)),
+    );
+    expect(err).toMatchObject({ code: '23514', constraint: 'transactions_deleted_status_check' });
+  });
+
+  it('freezes the status of a deleted transaction until it is restored', async () => {
+    const { seeded, txId } = await shiftWithTransaction('paid');
+    const userId = await ownerId(seeded.ownerEmail);
+    await env.handle.db
+      .update(transactions)
+      .set({ deletedAt: new Date(), deletedBy: userId, deleteReason: 'dobel input' })
+      .where(eq(transactions.id, txId));
+    for (const status of ['void_requested', 'voided']) {
+      const err = await violation(() =>
+        env.handle.db.update(transactions).set({ status }).where(eq(transactions.id, txId)),
+      );
+      expect(err?.code, status).toBe('23514');
+    }
+    await env.handle.db
+      .update(transactions)
+      .set({ deletedAt: null, deletedBy: null, deleteReason: null })
+      .where(eq(transactions.id, txId));
+    await env.handle.db
+      .update(transactions)
+      .set({ status: 'voided' })
+      .where(eq(transactions.id, txId));
+  });
+
+  it('keeps transaction_deletions append-only', async () => {
+    const { seeded, txId } = await shiftWithTransaction('paid');
+    const userId = await ownerId(seeded.ownerEmail);
+    const [row] = await env.handle.db
+      .insert(transactionDeletions)
+      .values({
+        outletId: seeded.outletId,
+        transactionId: txId,
+        action: 'delete',
+        reason: 'transaksi uji coba',
+        actorUserId: userId,
+      })
+      .returning();
+    const noReason = await violation(() =>
+      env.handle.db.insert(transactionDeletions).values({
+        outletId: seeded.outletId,
+        transactionId: txId,
+        action: 'delete',
+        actorUserId: userId,
+      }),
+    );
+    expect(noReason?.code).toBe('23514');
+    const upd = await violation(() =>
+      env.handle.db
+        .update(transactionDeletions)
+        .set({ reason: 'x' })
+        .where(eq(transactionDeletions.id, row?.id ?? '')),
+    );
+    expect(upd?.code).toBe('23514');
+    const del = await violation(() =>
+      env.handle.db.delete(transactionDeletions).where(eq(transactionDeletions.id, row?.id ?? '')),
+    );
+    expect(del?.code).toBe('23514');
   });
 });

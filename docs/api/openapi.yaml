@@ -803,6 +803,7 @@ paths:
       description: |
         Employees: results are restricted to their outlet and `scope` (the open shift or today, WIB);
         `date_from`/`date_to`/`employee_id` are ignored. Owner: all filters apply.
+        Transactions deleted by the owner (ADR-0019) are never listed; see `GET /transactions/deleted`.
       operationId: listTransactions
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters:
@@ -884,7 +885,7 @@ paths:
         prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
         (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
         Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
-        Harga satuan, Total baris, Catatan` (one row per item).
+        Harga satuan, Total baris, Catatan` (one row per item). Transactions deleted by the owner (ADR-0019) are never exported.
       operationId: exportTransactions
       security: [{ ownerAuth: [] }]
       parameters:
@@ -906,10 +907,46 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /transactions/deleted:
+    get:
+      tags: [transactions]
+      summary: Deletion history (Riwayat Hapus) — transactions deleted by the owner (ADR-0019)
+      description: |
+        Only transactions that are deleted **now** are listed (a restored transaction leaves this list; its delete and
+        restore stay in `deletion_history` of `GET /transactions/{transaction_id}` and in `audit_logs`).
+        Ordered by `deleted_at` descending. `date_from`/`date_to` are inclusive WIB business dates applied to
+        `date_field`: the delete time (default) or the transaction time (`client_created_at`). Owner role only;
+        a manager or employee gets `403`.
+      operationId: listDeletedTransactions
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: date_field, in: query, schema: { type: string, enum: [deleted_at, client_created_at], default: deleted_at } }
+        - { name: q, in: query, description: Transaction number or customer label, schema: { type: string } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Deleted transactions (without items; open the detail for items and payments)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DeletedTransactionSummary' } }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /transactions/{transaction_id}:
     get:
       tags: [transactions]
       summary: Transaction detail with items and payments (P-09, O-03)
+      description: |
+        A transaction deleted by the owner (ADR-0019) is `404` for employees. The owner still gets it, with `deleted`
+        set and the full `deletion_history`, so Riwayat Hapus can open its detail.
       operationId: getTransaction
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -921,6 +958,70 @@ paths:
               schema: { $ref: '#/components/schemas/Transaction' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [transactions]
+      summary: Owner deletes a transaction (soft delete into Riwayat Hapus, ADR-0019)
+      description: |
+        Soft delete: the transaction, its items and payments stay in the database with `deleted_at`, `deleted_by` and
+        `delete_reason`, and a `delete` row is appended to its deletion history. From then on it is excluded from the
+        transaction list, dashboard, reports, export, shift sales and notifications. Recorded in `audit_logs`
+        (`transaction.deleted`, before/after snapshot) in the same database transaction.
+
+        - Owner role only (`403` for a manager, employee or device).
+        - `pending` and `void_requested` transactions cannot be deleted (`409 TRANSACTION_NOT_DELETABLE`): finish the
+          payment or the void decision first. Any other status (`paid`, `voided`, `cancelled`) can be deleted.
+        - Idempotent: deleting an already deleted transaction answers `200` with the current state; the new `reason` is
+          ignored and no history row is added.
+        - A cashier device re-sending the same transaction (`POST /transactions` or `/sync/push`) never brings it back.
+      operationId: deleteTransaction
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionDeleteInput' }
+      responses:
+        '200':
+          description: Deleted (or already deleted); the transaction with `deleted` set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`TRANSACTION_NOT_DELETABLE` (status `pending` or `void_requested`)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /transactions/{transaction_id}/restore:
+    post:
+      tags: [transactions]
+      summary: Owner restores a deleted transaction (ADR-0019)
+      description: |
+        Clears `deleted_at`, `deleted_by` and `delete_reason` and appends a `restore` row to the deletion history; the
+        transaction counts again everywhere it did before. Recorded in `audit_logs` (`transaction.restored`) in the same
+        database transaction. Owner role only. Idempotent: restoring a transaction that is not deleted answers `200`
+        and adds nothing.
+      operationId: restoreTransaction
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionRestoreInput' }
+      responses:
+        '200':
+          description: Restored (or was not deleted); the transaction with `deleted` = null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /transactions/{transaction_id}/receipt:
     get:
       tags: [transactions]
@@ -929,6 +1030,7 @@ paths:
         Used for digital receipts and reprints from the history screen. The cashier app formats
         ESC/POS itself from local data + cached settings, so printing also works offline;
         this endpoint is the online source for reprints on another device and for the dashboard preview.
+        A transaction deleted by the owner (ADR-0019) is `404`.
       operationId: getReceipt
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -951,6 +1053,7 @@ paths:
           audit log. A pending request of an employee on the same transaction is approved with it. Repeating the call is harmless.
         Every void is written to the append-only `audit_logs` (`transaction.void_requested`, `transaction.void_approved`)
         with actor, reason and time, in the same database transaction as the status change.
+        A transaction deleted by the owner (ADR-0019) is `404`.
       operationId: createVoidRequest
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -1820,6 +1923,8 @@ components:
         # voids
         - TRANSACTION_NOT_VOIDABLE
         - VOID_ALREADY_DECIDED
+        # owner delete (ADR-0019, planned)
+        - TRANSACTION_NOT_DELETABLE
         - INVALID_OWNER_PIN
         - OWNER_PIN_LOCKED
         # product import (ADR-0018)
@@ -2095,6 +2200,10 @@ components:
         unsynced_hint: { type: boolean, description: True when the device reported queued mutations at close time }
         late_transaction_count: { type: integer, description: Synced transactions created after `closed_at` (not in expected_cash) }
         late_cash_amount: { $ref: '#/components/schemas/Rupiah' }
+        deleted_count:
+          type: integer
+          description: 'Paid transactions of this shift that the owner deleted (ADR-0019), shown as "N transaksi dihapus (Rp X)". Not in the sales totals above'
+        deleted_amount: { $ref: '#/components/schemas/Rupiah', description: Sum of `total` of those deleted transactions }
         by_employee:
           type: array
           description: Per-cashier breakdown; the shift is shared but each transaction is recorded under its cashier
@@ -2222,6 +2331,55 @@ components:
             payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
             void_request: { oneOf: [{ $ref: '#/components/schemas/VoidRequest' }, { type: 'null' }] }
             server_received_at: { type: string, format: date-time }
+            deleted:
+              oneOf: [{ $ref: '#/components/schemas/TransactionDeleted' }, { type: 'null' }]
+              description: Set while the owner has deleted the transaction (ADR-0019); only owners ever see a deleted transaction
+            deletion_history:
+              type: array
+              description: Owner only; every delete and restore, oldest first. Omitted for employees.
+              items: { $ref: '#/components/schemas/TransactionDeletionEvent' }
+    TransactionDeleteInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 200
+          description: Required; trimmed before the length check (e.g. "transaksi uji coba", "dobel input")
+    TransactionRestoreInput:
+      type: object
+      properties:
+        note: { type: string, maxLength: 200, description: Optional note kept in the deletion history }
+    UserRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    TransactionDeleted:
+      type: object
+      required: [deleted_at, deleted_by, reason]
+      properties:
+        deleted_at: { type: string, format: date-time }
+        deleted_by: { $ref: '#/components/schemas/UserRef' }
+        reason: { type: string }
+    TransactionDeletionEvent:
+      type: object
+      required: [id, action, reason, actor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, enum: [delete, restore] }
+        reason: { type: [string, 'null'], description: 'Delete reason, or the optional restore note' }
+        actor: { $ref: '#/components/schemas/UserRef' }
+        created_at: { type: string, format: date-time }
+    DeletedTransactionSummary:
+      allOf:
+        - $ref: '#/components/schemas/TransactionSummary'
+        - type: object
+          required: [deleted]
+          properties:
+            deleted: { $ref: '#/components/schemas/TransactionDeleted' }
     Receipt:
       type: object
       required: [store, cashier_name, transaction]
