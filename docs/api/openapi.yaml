@@ -1822,7 +1822,7 @@ components:
         - VOID_ALREADY_DECIDED
         - INVALID_OWNER_PIN
         - OWNER_PIN_LOCKED
-        # product import (ADR-0018, planned)
+        # product import (ADR-0018)
         - IMPORT_FILE_TOO_LARGE
         - IMPORT_FILE_UNREADABLE
         - IMPORT_COLUMNS_INVALID
