@@ -44,7 +44,9 @@ async function toError(res: Response): Promise<ApiError> {
 
 async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+  // FormData sets its own multipart boundary header.
+  if (init.body !== undefined && !(init.body instanceof FormData))
+    headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return fetch(`${BASE_URL}${path}`, { ...init, headers, credentials: 'include' });
 }

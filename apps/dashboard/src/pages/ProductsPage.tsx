@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Category, Product } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
+import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
@@ -423,13 +424,21 @@ export function ProductsPage() {
         }
         action={
           productList && !emptyWithCta ? (
-            <Button
-              variant="primary"
-              disabled={categories.length === 0}
-              onClick={() => setEditing('new')}
-            >
-              ＋ Tambah produk
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to="/produk/impor"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-surface px-5 text-[15px] font-extrabold whitespace-nowrap text-ink ring-2 ring-line-strong ring-inset hover:bg-bg"
+              >
+                Impor produk
+              </Link>
+              <Button
+                variant="primary"
+                disabled={categories.length === 0}
+                onClick={() => setEditing('new')}
+              >
+                ＋ Tambah produk
+              </Button>
+            </div>
           ) : undefined
         }
       />
