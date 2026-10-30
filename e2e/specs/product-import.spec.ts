@@ -34,12 +34,14 @@ test.describe('Impor produk (DEAR-115)', () => {
     expect((await download).suggestedFilename()).toBe('template-impor-produk.csv');
     await shot(page, '1-awal');
 
-    await page.getByLabel('File impor produk').setInputFiles(
-      csv('produk.csv', [
-        `Jus Jeruk ${run};Jus Buah ${run};15000;;`,
-        `Kopi Susu ${run};Jus Buah ${run};18000;ya;`,
-      ]),
-    );
+    await page
+      .getByLabel('File impor produk')
+      .setInputFiles(
+        csv('produk.csv', [
+          `Jus Jeruk ${run};Jus Buah ${run};15000;;`,
+          `Kopi Susu ${run};Jus Buah ${run};18000;ya;`,
+        ]),
+      );
     await expect(page.getByText(/File siap disimpan\. 2 produk baru/)).toBeVisible();
     await shot(page, '2-pratinjau-siap');
 
@@ -53,12 +55,14 @@ test.describe('Impor produk (DEAR-115)', () => {
 
   test('file ber-error: pesan baris tampil dan Simpan nonaktif @mobile', async ({ page }) => {
     await openAsOwner(page, '/produk/impor');
-    await page.getByLabel('File impor produk').setInputFiles(
-      csv('bermasalah.csv', [
-        `Jus Mangga ${run};Jus Buah ${run};15000;;`,
-        `Jus Nanas ${run};Jus Buah ${run};abc;;`,
-      ]),
-    );
+    await page
+      .getByLabel('File impor produk')
+      .setInputFiles(
+        csv('bermasalah.csv', [
+          `Jus Mangga ${run};Jus Buah ${run};15000;;`,
+          `Jus Nanas ${run};Jus Buah ${run};abc;;`,
+        ]),
+      );
     await expect(page.getByText(/Harga harus angka bulat/)).toBeVisible();
     await expect(page.getByText(/1 baris perlu diperbaiki/)).toBeVisible();
     await expect(page.getByRole('button', { name: /^Simpan/ })).toBeDisabled();
