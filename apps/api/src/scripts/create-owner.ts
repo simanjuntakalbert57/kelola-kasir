@@ -7,7 +7,7 @@ import { OwnerAuthService } from '../modules/auth/owner-service.js';
 
 /**
  * Bootstrap the first owner and outlet. Credentials come from the environment, never from the repo:
- *   OWNER_EMAIL, OWNER_PASSWORD (min 12 chars), OWNER_NAME, OUTLET_CODE (e.g. JUS1), OUTLET_NAME
+ *   OWNER_EMAIL, OWNER_PASSWORD (min 12 chars), OWNER_NAME, OUTLET_CODE (2-6 letters or digits, e.g. JUS1), OUTLET_NAME
  */
 async function main(): Promise<void> {
   const required = (name: string): string => {
@@ -20,6 +20,10 @@ async function main(): Promise<void> {
   if (password.length < 12) throw new Error('OWNER_PASSWORD must be at least 12 characters');
   const name = process.env['OWNER_NAME'] ?? 'Owner';
   const outletCode = required('OUTLET_CODE').toUpperCase();
+  // Transaction numbers are `<outlet>-<device>-<yymmdd>-<seq>` with a 2-6 character outlet part.
+  if (!/^[A-Z0-9]{2,6}$/.test(outletCode)) {
+    throw new Error('OUTLET_CODE must be 2-6 letters or digits (e.g. JUS1)');
+  }
   const outletName = process.env['OUTLET_NAME'] ?? outletCode;
 
   const config = loadConfig();
