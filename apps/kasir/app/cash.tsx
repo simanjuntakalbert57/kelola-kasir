@@ -1,7 +1,7 @@
 import { cashChange, formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePrinter } from '../src/printing/PrinterProvider';
 import { quickCashAmounts, totalsOf } from '../src/sales/cart';
@@ -10,6 +10,7 @@ import { toCompleted, useSales } from '../src/sales/SalesProvider';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
 import { colors, radius, space } from '../src/theme';
 import { Button, Chip, Keypad, TopBar } from '../src/ui/components';
+import { isCompactHeight } from '../src/ui/layout';
 import { PrintToggle } from '../src/ui/PrintToggle';
 
 export default function CashScreen() {
@@ -20,6 +21,7 @@ export default function CashScreen() {
   const [digits, setDigits] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const compact = isCompactHeight(useWindowDimensions().height);
   const tendered = digitsToRupiah(digits);
   const enough = tendered >= total;
 
@@ -52,7 +54,7 @@ export default function CashScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.label}>Total</Text>
-        <Text testID="cash-total" style={styles.total}>
+        <Text testID="cash-total" style={[styles.total, compact && styles.totalCompact]}>
           {formatRupiah(total)}
         </Text>
         <Button
@@ -74,6 +76,11 @@ export default function CashScreen() {
             />
           ))}
         </View>
+        {error ? <Text style={styles.err}>{error}</Text> : null}
+        <View style={{ flexGrow: 1 }} />
+        <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
+      </ScrollView>
+      <View style={styles.footer}>
         <View style={styles.amountBox}>
           <Text style={styles.label}>Uang diterima</Text>
           <Text testID="cash-tendered" style={styles.amount}>
@@ -90,12 +97,7 @@ export default function CashScreen() {
                 : `Kurang ${formatRupiah(total - tendered)}`}
           </Text>
         </View>
-        {error ? <Text style={styles.err}>{error}</Text> : null}
-        <View style={{ flexGrow: 1 }} />
-        <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
         <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
-      </ScrollView>
-      <View style={styles.footer}>
         <Button
           testID="cash-submit"
           label={busy ? 'Menyimpan…' : 'Selesai'}
@@ -113,8 +115,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
   body: { flexGrow: 1, padding: space.s4, gap: space.s2 },
-  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
+  footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
   label: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+  totalCompact: { fontSize: 32 },
   total: { color: colors.orange, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] },
   quick: { flexDirection: 'row', gap: space.s2, flexWrap: 'wrap' },
   amountBox: { padding: space.s3, borderRadius: radius.md, backgroundColor: colors.surface },

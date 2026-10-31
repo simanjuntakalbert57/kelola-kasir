@@ -5,7 +5,7 @@
  */
 export const API_BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://10.0.2.2:4010';
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.1';
 
 /** PIN rules (TDD §2.3): 6 digits, 5 wrong attempts lock the employee on this device for 5 minutes. */
 export const PIN_LENGTH = 6;
