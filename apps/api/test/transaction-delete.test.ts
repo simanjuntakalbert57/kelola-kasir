@@ -4,6 +4,7 @@ import { auditLogs, shifts, transactionDeletions, transactions } from '../src/db
 import { TokenService } from '../src/lib/jwt.js';
 import { OwnerAuthService } from '../src/modules/auth/owner-service.js';
 import { computeShiftTotals } from '../src/modules/shifts/summary.js';
+import { wibDate } from '../src/modules/transactions/access.js';
 import {
   bearer,
   createShop,
@@ -85,7 +86,8 @@ async function manager(shop: Shop): Promise<string> {
   return json<{ access_token: string }>(res).access_token;
 }
 
-const today = () => env.clock.now.toISOString().slice(0, 10);
+// Reports use the WIB business date; the UTC date is yesterday between 00:00 and 07:00 WIB.
+const today = () => wibDate(env.clock.now);
 const summary = async (shop: Shop): Promise<Summary> => {
   const res = await get(
     env,
