@@ -23,3 +23,5 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0017](0017-web-push-transaction-notifications.md) | Notifikasi transaksi & void di laptop owner lewat Web Push dashboard (Service Worker + VAPID) | Accepted (menggantikan 0016) |
 | [0018](0018-product-import-csv-xlsx.md) | Impor produk CSV/XLSX: pratinjau tanpa state + simpan dengan unggah ulang file dan `import_token` | Accepted |
 | [0019](0019-owner-transaction-soft-delete.md) | Owner hapus transaksi: soft delete (`deleted_*`) + tabel riwayat `transaction_deletions` + pulihkan; query wajib `deleted_at IS NULL` | Accepted |
+| [0020](0020-multi-outlet-owner.md) | Multi-cabang: token owner terikat 1 outlet aktif + `POST /auth/switch-outlet`; `outlet_scope=all` untuk laporan; rename outlet dengan `previous_codes` | Accepted |
+| [0021](0021-outlet-expenses.md) | Pengeluaran per cabang: `expense_categories` + `expenses` (soft delete + `expense_history`), rekap bulanan & laba sederhana, siap Fase 2 kas laci | Accepted |

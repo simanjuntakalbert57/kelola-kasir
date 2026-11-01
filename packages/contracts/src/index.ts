@@ -49,6 +49,24 @@ export type ProductImportRowErrorCode = Schemas['ProductImportRowErrorCode'];
 export type ProductImportAction = Schemas['ProductImportAction'];
 export type ProductImportColumn = Schemas['ProductImportColumn'];
 export type ProductImportResult = Schemas['ProductImportResult'];
+export type OwnerSession = Schemas['OwnerSession'];
+export type OwnerOutletRef = Schemas['OwnerOutletRef'];
+export type ExpenseGroup = Schemas['ExpenseGroup'];
+export type ExpenseFundingSource = Schemas['ExpenseFundingSource'];
+export type ExpenseCategory = Schemas['ExpenseCategory'];
+export type ExpenseCategoryInput = Schemas['ExpenseCategoryInput'];
+export type ExpenseCategoryUpdate = Schemas['ExpenseCategoryUpdate'];
+export type Expense = Schemas['Expense'];
+export type ExpenseDetail = Schemas['ExpenseDetail'];
+export type ExpenseInput = Schemas['ExpenseInput'];
+export type ExpenseUpdate = Schemas['ExpenseUpdate'];
+export type ExpenseDeleteInput = Schemas['ExpenseDeleteInput'];
+export type ExpenseHistoryEvent = Schemas['ExpenseHistoryEvent'];
+export type ExpenseReport = Schemas['ExpenseReport'];
+export type ExpenseReportCell = Schemas['ExpenseReportCell'];
+export type OutletScope = NonNullable<
+  operations['getExpenseReport']['parameters']['query']
+>['outlet_scope'];
 
 /** JSON body of a successful response for `path` + `method`. */
 export type ResponseBody<
@@ -98,3 +116,52 @@ export const PRODUCT_IMPORT_COLUMNS = [
 
 /** Import file limits (ADR-0018); the API enforces them, the dashboard checks them before uploading. */
 export const PRODUCT_IMPORT_LIMITS = { maxBytes: 2 * 1024 * 1024, maxRows: 500 } as const;
+
+/** "Semua cabang" aggregates the outlets where the caller is owner (ADR-0020). */
+export const OUTLET_SCOPES = [
+  'current',
+  'all',
+] as const satisfies readonly NonNullable<OutletScope>[];
+
+/** Expense groups in report order (ADR-0021), with the dashboard labels. */
+export const EXPENSE_GROUPS = [
+  'hpp',
+  'operasional',
+  'tetap',
+  'lainnya',
+] as const satisfies readonly ExpenseGroup[];
+
+export const EXPENSE_GROUP_LABELS = {
+  hpp: 'Bahan jus (HPP)',
+  operasional: 'Operasional',
+  tetap: 'Tetap',
+  lainnya: 'Lainnya',
+} as const satisfies Record<ExpenseGroup, string>;
+
+export const EXPENSE_FUNDING_SOURCES = [
+  'drawer',
+  'owner',
+] as const satisfies readonly ExpenseFundingSource[];
+
+export const EXPENSE_FUNDING_SOURCE_LABELS = {
+  drawer: 'Kas laci cabang',
+  owner: 'Uang owner (transfer/pribadi)',
+} as const satisfies Record<ExpenseFundingSource, string>;
+
+/** Expense input limits (ADR-0021); the API enforces them, the dashboard checks them first. Lengths after trimming. */
+export const EXPENSE_LIMITS = {
+  descriptionMax: 200,
+  categoryNameMax: 40,
+  amountMin: 1,
+  amountMax: 1_000_000_000,
+  earliestSpentOn: '2020-01-01',
+  /** Server limit of a receipt upload; the dashboard compresses to `receiptTargetBytes` first. */
+  receiptMaxBytes: 300 * 1024,
+  receiptTargetBytes: 200 * 1000,
+} as const;
+
+/** Expense delete reason length after trimming, same rule as transactions (ADR-0019). */
+export const EXPENSE_DELETE_REASON = TRANSACTION_DELETE_REASON;
+
+/** At most this many months per expense report request. */
+export const EXPENSE_REPORT_MAX_MONTHS = 12;

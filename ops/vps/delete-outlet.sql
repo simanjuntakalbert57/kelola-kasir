@@ -68,6 +68,14 @@ CREATE TEMP VIEW kept AS
     FROM payments x WHERE transaction_id NOT IN (SELECT id FROM d_tx)
   UNION ALL SELECT 'void_requests', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
     FROM void_requests x WHERE transaction_id NOT IN (SELECT id FROM d_tx)
+  UNION ALL SELECT 'transaction_deletions', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
+    FROM transaction_deletions x WHERE transaction_id NOT IN (SELECT id FROM d_tx)
+  UNION ALL SELECT 'expense_categories', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
+    FROM expense_categories x WHERE outlet_id NOT IN (SELECT id FROM d_outlet)
+  UNION ALL SELECT 'expenses', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
+    FROM expenses x WHERE outlet_id NOT IN (SELECT id FROM d_outlet)
+  UNION ALL SELECT 'expense_history', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
+    FROM expense_history x WHERE outlet_id NOT IN (SELECT id FROM d_outlet)
   UNION ALL SELECT 'audit_logs', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x.id), ''))
     FROM audit_logs x
     WHERE outlet_id IS DISTINCT FROM (SELECT id FROM d_outlet) AND (actor_id IS NULL OR actor_id NOT IN (SELECT id FROM d_user));
@@ -76,7 +84,14 @@ CREATE TEMP TABLE kept_before ON COMMIT DROP AS SELECT * FROM kept;
 ALTER TABLE transactions DISABLE TRIGGER transactions_no_delete;
 ALTER TABLE transaction_items DISABLE TRIGGER transaction_items_guard;
 ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_append_only;
+ALTER TABLE transaction_deletions DISABLE TRIGGER transaction_deletions_append_only;
+ALTER TABLE expenses DISABLE TRIGGER expenses_guard;
+ALTER TABLE expense_history DISABLE TRIGGER expense_history_append_only;
 
+DELETE FROM expense_history WHERE outlet_id IN (SELECT id FROM d_outlet);
+DELETE FROM expenses WHERE outlet_id IN (SELECT id FROM d_outlet);
+DELETE FROM expense_categories WHERE outlet_id IN (SELECT id FROM d_outlet);
+DELETE FROM transaction_deletions WHERE transaction_id IN (SELECT id FROM d_tx);
 DELETE FROM void_requests WHERE transaction_id IN (SELECT id FROM d_tx);
 DELETE FROM payments WHERE transaction_id IN (SELECT id FROM d_tx);
 DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM d_tx);
@@ -101,6 +116,9 @@ DELETE FROM users WHERE id IN (SELECT id FROM d_user);
 ALTER TABLE transactions ENABLE TRIGGER transactions_no_delete;
 ALTER TABLE transaction_items ENABLE TRIGGER transaction_items_guard;
 ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_append_only;
+ALTER TABLE transaction_deletions ENABLE TRIGGER transaction_deletions_append_only;
+ALTER TABLE expenses ENABLE TRIGGER expenses_guard;
+ALTER TABLE expense_history ENABLE TRIGGER expense_history_append_only;
 
 -- Report, then refuse to commit if anything outside the outlet changed.
 SELECT b.tbl, b.n AS kept_rows, (a.sum = b.sum) AS identical
@@ -111,7 +129,8 @@ BEGIN
     RAISE EXCEPTION 'rows outside outlet % changed, rolling back', current_setting('kk.code');
   END IF;
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN
-      ('transactions_no_delete', 'transaction_items_guard', 'audit_logs_append_only', 'audit_logs_no_truncate')
+      ('transactions_no_delete', 'transaction_items_guard', 'audit_logs_append_only', 'audit_logs_no_truncate',
+       'transaction_deletions_append_only', 'expenses_guard', 'expense_history_append_only')
       AND tgenabled <> 'O') THEN
     RAISE EXCEPTION 'a guard trigger is still disabled, rolling back';
   END IF;

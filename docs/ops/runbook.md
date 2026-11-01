@@ -145,6 +145,28 @@ Tabel target dikunci di awal, jadi API menunggu beberapa detik selama skrip jala
 
 Untuk uji berikutnya di produksi: buat owner + outlet uji lewat `create-owner` (deploy.md langkah 8) dengan kode outlet khusus uji, jangan pernah memakai akun owner atau outlet asli.
 
+## Multi-cabang: rename outlet & buat cabang baru (ADR-0020)
+
+Kedua skrip non-destruktif, berjalan dalam satu transaksi, dan menulis `audit_logs` (`outlet.renamed` / `outlet.created`). Kalau ada pengecekan yang gagal, tidak ada yang berubah.
+**Syarat:** API yang sudah mengenal `outlets.previous_codes` (DEAR-136, migrasi `0006`/`0007`) sudah ter-deploy. Rename sebelum itu akan membuat sync HP lama ditolak. Jalankan hanya setelah Albert OK di issue.
+
+1. `./backup-now.sh` (catat nama objek).
+2. Rename outlet yang ada (contoh `JUS1` → `RGN`). Nomor lama `JUS1-…` tetap valid, dan HP yang sudah ter-pairing tetap jalan:
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
+     -v old_code=JUS1 -v new_code=RGN -v new_name='Jus Albert Ragunan' < rename-outlet.sql
+   ```
+3. Buat cabang kedua untuk akun owner yang sudah ada (pengaturan default, membership owner, kategori pengeluaran default):
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
+     -v code=PLM -v name='Jus Albert Palmerah' -v owner_email=<email owner> < create-branch-outlet.sql
+   ```
+4. Owner login ulang di dashboard, memilih cabang baru, mengisi Pengaturan (header struk, QRIS), Produk, dan Pegawai, lalu melakukan pairing HP cabang baru (nomor `PLM-K01-…`).
+5. HP cabang lama: kalau ingin nomor memakai kode baru, pairing ulang setelah shift ditutup dan antrean sync kosong. Ini tidak wajib.
+6. Tempel bukti (output langkah 2–3) di issue.
+
+`delete-outlet.sql` dan `reset-outlet-data.sql` sudah mengenal tabel pengeluaran. Reset outlet **mempertahankan** pengeluaran dan kategorinya. Hapus outlet ikut menghapusnya.
+
 ## Perawatan server
 
 - **Update keamanan** dipasang otomatis setiap hari (`dnf-automatic` di AlmaLinux, `unattended-upgrades` di Ubuntu). Bila kernel ikut diperbarui (cek `dnf needs-restarting -r` di AlmaLinux; di Ubuntu login SSH menampilkan `*** System restart required ***`), reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
