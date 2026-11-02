@@ -3551,6 +3551,16 @@ export interface operations {
                         qris_count: number;
                         pending_void_count: number;
                         pending_void_amount: number;
+                        /** @description Per cashier of the outlet, largest total first; cashiers without paid sales are omitted. Sums equal the outlet totals. */
+                        by_employee: {
+                            /** Format: uuid */
+                            employee_id: string;
+                            name: string;
+                            transaction_count: number;
+                            total: number;
+                            cash_total: number;
+                            qris_total: number;
+                        }[];
                     };
                 };
             };

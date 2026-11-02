@@ -121,7 +121,12 @@ export default function RiwayatScreen() {
         />
       </View>
       {summary ? (
-        <SummaryCard summary={summary} scope={scope} localOnly={summaryLocalOnly} />
+        <SummaryCard
+          summary={summary}
+          scope={scope}
+          localOnly={summaryLocalOnly}
+          meId={session?.employeeId ?? null}
+        />
       ) : null}
       {rows === null ? null : rows.length === 0 ? (
         <EmptyState
@@ -203,11 +208,14 @@ function SummaryCard({
   summary,
   scope,
   localOnly,
+  meId,
 }: {
   summary: SalesSummary;
   scope: HistoryScope;
   localOnly: boolean;
+  meId: string | null;
 }) {
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <View testID="summary-card" style={styles.summary}>
       <Text style={styles.summaryLabel}>
@@ -229,6 +237,33 @@ function SummaryCard({
         <Text testID="summary-pending-void" style={[styles.badge, { color: colors.warn }]}>
           {summary.pendingVoidCount} void menunggu · {formatRupiah(summary.pendingVoidAmount)}
         </Text>
+      ) : null}
+      {summary.byEmployee.length > 0 ? (
+        <View testID="summary-by-employee" style={styles.perEmployee}>
+          <Text style={styles.summaryLabel}>Per kasir</Text>
+          {summary.byEmployee.map((e) => (
+            <Pressable
+              key={e.employeeId}
+              testID={`summary-employee-${e.employeeId}`}
+              accessibilityRole="button"
+              onPress={() => setOpen(open === e.employeeId ? null : e.employeeId)}
+              style={styles.employeeRow}
+            >
+              <View style={styles.employeeLine}>
+                <Text style={styles.summaryMethod}>
+                  {e.name}
+                  {e.employeeId === meId ? ' (Anda)' : ''} · {e.transactionCount} transaksi
+                </Text>
+                <Text style={styles.amount}>{formatRupiah(e.total)}</Text>
+              </View>
+              {open === e.employeeId ? (
+                <Text style={styles.meta}>
+                  Cash {formatRupiah(e.cashTotal)} · QRIS {formatRupiah(e.qrisTotal)}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
       ) : null}
       {localOnly ? (
         <Text testID="summary-offline" style={[styles.badge, { color: colors.warn }]}>
@@ -257,6 +292,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
+  perEmployee: { gap: space.s1, marginTop: space.s2 },
+  employeeRow: { minHeight: 48, justifyContent: 'center' },
+  employeeLine: { flexDirection: 'row', justifyContent: 'space-between', gap: space.s3 },
   summaryMethods: { flexDirection: 'row', gap: space.s4, flexWrap: 'wrap' },
   summaryMethod: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   root: { flex: 1, backgroundColor: colors.bg },

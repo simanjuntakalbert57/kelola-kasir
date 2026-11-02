@@ -113,7 +113,7 @@ describe('history (M-12)', () => {
   });
 
   it('summarizes paid sales on the device; pending voids apart, voided and cancelled left out', () => {
-    const row = (total: number, method: 'cash' | 'qris', status: string) => ({
+    const row = (total: number, method: 'cash' | 'qris', status: string, by = 'e1') => ({
       id: `${total}${status}`,
       number: 'N',
       createdAt: '2026-10-26T07:00:00Z',
@@ -121,14 +121,15 @@ describe('history (M-12)', () => {
       status,
       total,
       itemCount: 1,
-      employeeName: 'Sari',
+      employeeId: by,
+      employeeName: by === 'e1' ? 'Sari' : 'Budi',
       sync: 'synced' as const,
       local: true,
     });
     expect(
       summarizeRows([
         row(10000, 'cash', 'paid'),
-        row(25000, 'qris', 'paid'),
+        row(25000, 'qris', 'paid', 'e2'),
         row(7000, 'cash', 'void_requested'),
         row(99000, 'cash', 'voided'),
         row(99000, 'qris', 'cancelled'),
@@ -142,6 +143,24 @@ describe('history (M-12)', () => {
       qrisCount: 1,
       pendingVoidCount: 1,
       pendingVoidAmount: 7000,
+      byEmployee: [
+        {
+          employeeId: 'e2',
+          name: 'Budi',
+          transactionCount: 1,
+          total: 25000,
+          cashTotal: 0,
+          qrisTotal: 25000,
+        },
+        {
+          employeeId: 'e1',
+          name: 'Sari',
+          transactionCount: 1,
+          total: 10000,
+          cashTotal: 10000,
+          qrisTotal: 0,
+        },
+      ],
     });
   });
 

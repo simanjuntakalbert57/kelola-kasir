@@ -881,6 +881,7 @@ paths:
                   - qris_count
                   - pending_void_count
                   - pending_void_amount
+                  - by_employee
                 properties:
                   scope: { type: string, enum: [shift, today] }
                   transaction_count: { type: integer }
@@ -891,6 +892,19 @@ paths:
                   qris_count: { type: integer }
                   pending_void_count: { type: integer }
                   pending_void_amount: { type: integer }
+                  by_employee:
+                    description: Per cashier of the outlet, largest total first; cashiers without paid sales are omitted. Sums equal the outlet totals.
+                    type: array
+                    items:
+                      type: object
+                      required: [employee_id, name, transaction_count, total, cash_total, qris_total]
+                      properties:
+                        employee_id: { type: string, format: uuid }
+                        name: { type: string }
+                        transaction_count: { type: integer }
+                        total: { type: integer }
+                        cash_total: { type: integer }
+                        qris_total: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /transactions:
     get:

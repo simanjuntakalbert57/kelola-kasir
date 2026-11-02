@@ -178,6 +178,7 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
       }
       const rows = await db
         .select({
+          employeeId: transactions.employeeId,
           status: transactions.status,
           method: transactions.paymentMethod,
           n: sql<number>`count(*)::int`,
@@ -185,7 +186,7 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         })
         .from(transactions)
         .where(and(...conditions, inArray(transactions.status, ['paid', 'void_requested'])))
-        .groupBy(transactions.status, transactions.paymentMethod);
+        .groupBy(transactions.employeeId, transactions.status, transactions.paymentMethod);
 
       const out = {
         scope: q.scope,
@@ -197,7 +198,16 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         qris_count: 0,
         pending_void_count: 0,
         pending_void_amount: 0,
+        by_employee: [] as {
+          employee_id: string;
+          name: string;
+          transaction_count: number;
+          total: number;
+          cash_total: number;
+          qris_total: number;
+        }[],
       };
+      const per = new Map<string, (typeof out.by_employee)[number]>();
       for (const r of rows) {
         const amount = Number(r.amount);
         if (r.status === 'void_requested') {
@@ -207,6 +217,19 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         }
         out.transaction_count += r.n;
         out.total_sales += amount;
+        const entry = per.get(r.employeeId) ?? {
+          employee_id: r.employeeId,
+          name: '',
+          transaction_count: 0,
+          total: 0,
+          cash_total: 0,
+          qris_total: 0,
+        };
+        entry.transaction_count += r.n;
+        entry.total += amount;
+        if (r.method === 'cash') entry.cash_total += amount;
+        else entry.qris_total += amount;
+        per.set(r.employeeId, entry);
         if (r.method === 'cash') {
           out.total_cash_sales += amount;
           out.cash_count += r.n;
@@ -215,6 +238,17 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
           out.qris_count += r.n;
         }
       }
+      const ids = [...per.keys()];
+      const people = ids.length
+        ? await db
+            .select({ id: employees.id, name: employees.name })
+            .from(employees)
+            .where(inArray(employees.id, ids))
+        : [];
+      const names = new Map(people.map((e) => [e.id, e.name]));
+      out.by_employee = [...per.values()]
+        .map((e) => ({ ...e, name: names.get(e.employee_id) ?? '' }))
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
       return out;
     });
 

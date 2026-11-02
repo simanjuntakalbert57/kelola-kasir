@@ -14,6 +14,7 @@ export interface HistoryRow {
   status: string;
   total: number;
   itemCount: number;
+  employeeId: string;
   employeeName: string;
   sync: SyncBadge;
   /** Stored on this device (`false` = made on another device, read from the server). */
@@ -27,6 +28,7 @@ interface Row {
   method: string;
   status: string;
   total: number;
+  employee_id: string;
   employee_name: string;
   sync_state: string;
   items: number;
@@ -40,7 +42,7 @@ export async function listLocalHistory(
   q: { scope: HistoryScope; shiftId: string; timeZone: string; now?: Date },
 ): Promise<HistoryRow[]> {
   const now = q.now ?? new Date();
-  const base = `SELECT t.id, t.number, t.created_at, t.method, t.status, t.total, t.employee_name,
+  const base = `SELECT t.id, t.number, t.created_at, t.method, t.status, t.total, t.employee_id, t.employee_name,
       t.sync_state, (SELECT COALESCE(SUM(quantity), 0) FROM transaction_items i
                      WHERE i.transaction_id = t.id) AS items
     FROM transactions t`;
@@ -65,6 +67,7 @@ export async function listLocalHistory(
     status: r.status,
     total: r.total,
     itemCount: r.items,
+    employeeId: r.employee_id,
     employeeName: r.employee_name,
     sync: toBadge(r.sync_state),
     local: true,
@@ -93,6 +96,7 @@ export function mergeRemote(
         status: t.status,
         total: t.total,
         itemCount: t.item_count ?? 0,
+        employeeId: t.employee.id,
         employeeName: t.employee.name,
         sync: 'synced',
         local: false,
@@ -112,6 +116,17 @@ export interface SalesSummary {
   qrisCount: number;
   pendingVoidCount: number;
   pendingVoidAmount: number;
+  /** Paid sales per cashier, largest first. */
+  byEmployee: EmployeeSales[];
+}
+
+export interface EmployeeSales {
+  employeeId: string;
+  name: string;
+  transactionCount: number;
+  total: number;
+  cashTotal: number;
+  qrisTotal: number;
 }
 
 /** Totals from this device's rows (offline fallback): paid counts, a pending void is listed apart. */
@@ -125,7 +140,9 @@ export function summarizeRows(rows: readonly HistoryRow[]): SalesSummary {
     qrisCount: 0,
     pendingVoidCount: 0,
     pendingVoidAmount: 0,
+    byEmployee: [],
   };
+  const per = new Map<string, EmployeeSales>();
   for (const r of rows) {
     if (r.status === 'void_requested') {
       out.pendingVoidCount += 1;
@@ -133,6 +150,19 @@ export function summarizeRows(rows: readonly HistoryRow[]): SalesSummary {
     } else if (r.status === 'paid') {
       out.transactionCount += 1;
       out.totalSales += r.total;
+      const e = per.get(r.employeeId) ?? {
+        employeeId: r.employeeId,
+        name: r.employeeName,
+        transactionCount: 0,
+        total: 0,
+        cashTotal: 0,
+        qrisTotal: 0,
+      };
+      e.transactionCount += 1;
+      e.total += r.total;
+      if (r.method === 'cash') e.cashTotal += r.total;
+      else e.qrisTotal += r.total;
+      per.set(r.employeeId, e);
       if (r.method === 'cash') {
         out.cashSales += r.total;
         out.cashCount += 1;
@@ -142,6 +172,7 @@ export function summarizeRows(rows: readonly HistoryRow[]): SalesSummary {
       }
     }
   }
+  out.byEmployee = [...per.values()].sort((a, b) => b.total - a.total);
   return out;
 }
 
@@ -185,6 +216,14 @@ export const fromServerSummary = (s: {
   qris_count: number;
   pending_void_count: number;
   pending_void_amount: number;
+  by_employee: {
+    employee_id: string;
+    name: string;
+    transaction_count: number;
+    total: number;
+    cash_total: number;
+    qris_total: number;
+  }[];
 }): SalesSummary => ({
   transactionCount: s.transaction_count,
   totalSales: s.total_sales,
@@ -194,4 +233,12 @@ export const fromServerSummary = (s: {
   qrisCount: s.qris_count,
   pendingVoidCount: s.pending_void_count,
   pendingVoidAmount: s.pending_void_amount,
+  byEmployee: s.by_employee.map((e) => ({
+    employeeId: e.employee_id,
+    name: e.name,
+    transactionCount: e.transaction_count,
+    total: e.total,
+    cashTotal: e.cash_total,
+    qrisTotal: e.qris_total,
+  })),
 });

@@ -651,6 +651,14 @@ describe('GET /transactions/summary (cashier totals)', () => {
     qris_count: number;
     pending_void_count: number;
     pending_void_amount: number;
+    by_employee: {
+      employee_id: string;
+      name: string;
+      transaction_count: number;
+      total: number;
+      cash_total: number;
+      qris_total: number;
+    }[];
   }
   const summary = async (shop: Shop, scope: 'shift' | 'today') =>
     json<Summary>(await get(env, `/v1/transactions/summary?scope=${scope}`, shop.cashier.headers));
@@ -684,7 +692,7 @@ describe('GET /transactions/summary (cashier totals)', () => {
       .where(eq(transactions.id, deleted));
 
     for (const scope of ['shift', 'today'] as const) {
-      expect(await summary(shop, scope)).toEqual({
+      expect(await summary(shop, scope)).toMatchObject({
         scope,
         transaction_count: 2,
         total_sales: 35_000,
@@ -711,8 +719,21 @@ describe('GET /transactions/summary (cashier totals)', () => {
     await seed(shop, { total: 10_000 });
     await seed(shop, { total: 5_000, employeeId: budi.employeeId });
     await seed(other, { total: 1_000_000 });
-    expect((await summary(shop, 'today')).total_sales).toBe(15_000);
-    expect((await summary(other, 'today')).total_sales).toBe(1_000_000);
+    for (const scope of ['today', 'shift'] as const) {
+      const s = await summary(shop, scope);
+      expect(s.total_sales).toBe(15_000);
+      expect(s.by_employee.map((e) => [e.name, e.total, e.cash_total, e.qris_total])).toEqual([
+        ['Siti', 10_000, 10_000, 0],
+        ['Budi', 5_000, 5_000, 0],
+      ]);
+      // The per-cashier rows add up to the branch totals.
+      expect(s.by_employee.reduce((n, e) => n + e.total, 0)).toBe(s.total_sales);
+      expect(s.by_employee.reduce((n, e) => n + e.transaction_count, 0)).toBe(s.transaction_count);
+    }
+    const o = await summary(other, 'today');
+    expect(o.total_sales).toBe(1_000_000);
+    expect(o.by_employee).toHaveLength(1);
+    expect(o.by_employee.some((e) => e.employee_id === budi.employeeId)).toBe(false);
   });
 
   it('limits today to the WIB business day', async () => {
