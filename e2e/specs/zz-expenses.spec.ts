@@ -36,7 +36,7 @@ test.describe.serial('DEAR-137 cabang + pengeluaran (owner)', () => {
     await page.goto('/transaksi');
     await page.getByRole('button', { name: /Ganti cabang/ }).click();
     await expect(page.getByRole('option', { name: /Semua cabang/ })).toHaveCount(0);
-    await page.getByRole('option', { name: /Ragunan/ }).click();
+    await page.getByRole('option', { name: /JUS1/ }).click();
   });
 
   test('TC-EXP-02 tambah, ubah, hapus dan pulihkan pengeluaran @mobile', async ({ page }) => {
