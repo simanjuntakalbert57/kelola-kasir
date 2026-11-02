@@ -1,8 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
+import { bearer, call, ownerToken } from '../support/api.js';
 import { openAsOwner, rp } from '../support/ui.js';
 
 const MANAGER_EMAIL = 'manager@e2e.test';
 const DESCRIPTION = 'Mangga e2e 10 kg';
+
+/** The API half is DEAR-136: until it is deployed `/expense-categories` is a 404 and this whole file is skipped. */
+let apiReady = false;
+test.beforeAll(async () => {
+  const token = await ownerToken();
+  const { status } = await call('GET', '/expense-categories', {
+    headers: bearer(token),
+    expect: [200, 404],
+  });
+  apiReady = status === 200;
+});
+test.beforeEach(() => test.skip(!apiReady, 'expense API (DEAR-136) is not available yet'));
 
 /** Needs the multi-branch API (DEAR-136) and `run.sh` creating the second branch PLM for owner@e2e.test (DEAR-137). */
 async function hasBranchPicker(page: Page) {
