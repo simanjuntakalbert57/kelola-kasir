@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -158,58 +159,63 @@ export default function CloseShiftScreen() {
         title="Tutup shift"
         right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
       />
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled"
-      >
-        {!online || !fromServer ? (
-          <Banner tone="warn">
-            {pending > 0 ? `${pending} transaksi belum tersinkron. ` : ''}
-            Angka dari perangkat ini saja; ringkasan final dihitung server setelah tersinkron.
-          </Banner>
-        ) : null}
-        {totals ? <Summary totals={totals} /> : null}
-        <TextInput
-          testID="closing-note"
-          value={note}
-          onChangeText={setNote}
-          placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
-          placeholderTextColor={colors.muted}
-          maxLength={500}
-          style={styles.input}
-        />
-        {error ? <Banner tone="error">{error}</Banner> : null}
-      </ScrollView>
-      <View style={styles.footer}>
-        <View style={styles.box}>
-          <Text style={styles.label}>Uang kas aktual di laci</Text>
-          <Text testID="actual-cash" style={styles.amount}>
-            {formatRupiah(actual)}
-          </Text>
-          {entered ? (
-            <Text
-              testID="cash-diff"
-              style={{ color: diff === 0 ? colors.greenText : colors.warn, fontWeight: '800' }}
-            >
-              {diff === 0
-                ? 'Selisih Rp 0 (pas)'
-                : `Selisih ${diff < 0 ? '−' : '+'}${formatRupiah(Math.abs(diff))} (${diff < 0 ? 'kurang' : 'lebih'}). Catatan wajib.`}
+      {/* Targeting SDK 36 is edge-to-edge: the window no longer resizes, so lift the footer above the IME. */}
+      <KeyboardAvoidingView style={styles.avoid} behavior="padding">
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          {!online || !fromServer ? (
+            <Banner tone="warn">
+              {pending > 0 ? `${pending} transaksi belum tersinkron. ` : ''}
+              Angka dari perangkat ini saja; ringkasan final dihitung server setelah tersinkron.
+            </Banner>
+          ) : null}
+          {totals ? <Summary totals={totals} /> : null}
+          <TextInput
+            testID="closing-note"
+            value={note}
+            onChangeText={setNote}
+            placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
+            placeholderTextColor={colors.muted}
+            maxLength={500}
+            style={styles.input}
+          />
+          {error ? <Banner tone="error">{error}</Banner> : null}
+        </ScrollView>
+        <View style={styles.footer}>
+          <View style={styles.box}>
+            <Text style={styles.label}>Uang kas aktual di laci</Text>
+            <Text testID="actual-cash" style={styles.amount}>
+              {formatRupiah(actual)}
             </Text>
-          ) : (
-            <Text style={styles.label}>Hitung uang di laci lalu masukkan jumlahnya</Text>
+            {entered ? (
+              <Text
+                testID="cash-diff"
+                style={{ color: diff === 0 ? colors.greenText : colors.warn, fontWeight: '800' }}
+              >
+                {diff === 0
+                  ? 'Selisih Rp 0 (pas)'
+                  : `Selisih ${diff < 0 ? '−' : '+'}${formatRupiah(Math.abs(diff))} (${diff < 0 ? 'kurang' : 'lebih'}). Catatan wajib.`}
+              </Text>
+            ) : (
+              <Text style={styles.label}>Hitung uang di laci lalu masukkan jumlahnya</Text>
+            )}
+          </View>
+          {keyboardOpen ? null : (
+            <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
           )}
+          <Button
+            testID="close-submit"
+            label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
+            variant="accent"
+            large
+            disabled={!canSubmit}
+            onPress={() => void submit()}
+          />
         </View>
-        {keyboardOpen ? null : <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />}
-        <Button
-          testID="close-submit"
-          label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
-          variant="accent"
-          large
-          disabled={!canSubmit}
-          onPress={() => void submit()}
-        />
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -245,6 +251,7 @@ function Summary({ totals, actual }: { totals: ShiftTotals; actual?: number }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  avoid: { flex: 1 },
   scroll: { flex: 1 },
   body: { padding: space.s4, gap: space.s3 },
   footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
