@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
-import { EXPENSE_GROUP_LABELS } from '@kelola-kasir/contracts';
+import type { ExpenseGroup } from '@kelola-kasir/contracts';
 import type { Database } from '../../db/client.js';
 import { expenseCategories, expenses, outlets, users } from '../../db/schema.js';
 import { csvCell, neutralise, wibTimestamp } from '../transactions/export.js';
@@ -32,6 +32,14 @@ export const RECAP_HEADER = [
 ];
 
 type Cell = string | number | null;
+
+/** Kept here, not imported from contracts: the production image cannot load contracts' `.ts` as a value import. */
+const EXPENSE_GROUP_LABELS = {
+  hpp: 'Bahan jus (HPP)',
+  operasional: 'Operasional',
+  tetap: 'Tetap',
+  lainnya: 'Lainnya',
+} as const satisfies Record<ExpenseGroup, string>;
 const FUNDING_LABEL = { drawer: 'Kas laci cabang', owner: 'Uang owner' } as const;
 
 export type ExportQuery = Omit<ListQuery, 'cursor' | 'limit' | 'status' | 'outlet_scope'>;
