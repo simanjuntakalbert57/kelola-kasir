@@ -4,6 +4,10 @@ import { v7 as uuidv7 } from 'uuid';
 import {
   auditLogs,
   categories,
+  expenseCategories,
+  expenseHistory,
+  expenses,
+  outlets,
   products,
   shifts,
   transactionDeletions,
@@ -382,5 +386,127 @@ describe('owner soft delete (ADR-0019)', () => {
       env.handle.db.delete(transactionDeletions).where(eq(transactionDeletions.id, row?.id ?? '')),
     );
     expect(del?.code).toBe('23514');
+  });
+});
+
+describe('outlet expenses (ADR-0021)', () => {
+  async function outletWithCategories() {
+    const seeded = await seedOutlet(env);
+    const [owner] = await env.handle.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, seeded.ownerEmail));
+    if (!owner) throw new Error('owner not seeded');
+    const seededCount = await env.handle.db.execute<{ n: number }>(
+      sql`SELECT kk_seed_expense_categories(${seeded.outletId}) AS n`,
+    );
+    const cats = await env.handle.db
+      .select()
+      .from(expenseCategories)
+      .where(eq(expenseCategories.outletId, seeded.outletId));
+    const categoryId = cats[0]?.id;
+    if (!categoryId) throw new Error('categories not seeded');
+    return {
+      seeded,
+      ownerId: owner.id,
+      cats,
+      categoryId,
+      inserted: Number(seededCount.rows[0]?.n),
+    };
+  }
+
+  const expenseRow = (outletId: string, categoryId: string, userId: string) => ({
+    id: uuidv7(),
+    outletId,
+    categoryId,
+    spentOn: '2026-11-01',
+    description: 'Mangga 10 kg',
+    amount: 150_000,
+    fundingSource: 'drawer',
+    createdBy: userId,
+    updatedBy: userId,
+  });
+
+  it('seeds the 12 default categories once per outlet, and new outlets start without previous codes', async () => {
+    const { seeded, cats, inserted } = await outletWithCategories();
+    expect(inserted).toBe(12);
+    expect(cats.map((c) => c.categoryGroup).filter((g) => g === 'hpp')).toHaveLength(4);
+    const again = await env.handle.db.execute<{ n: number }>(
+      sql`SELECT kk_seed_expense_categories(${seeded.outletId}) AS n`,
+    );
+    expect(Number(again.rows[0]?.n)).toBe(0);
+    const [outlet] = await env.handle.db
+      .select({ previousCodes: outlets.previousCodes })
+      .from(outlets)
+      .where(eq(outlets.id, seeded.outletId));
+    expect(outlet?.previousCodes).toEqual([]);
+  });
+
+  it('only accepts a category of the same outlet and a positive amount', async () => {
+    const a = await outletWithCategories();
+    const b = await outletWithCategories();
+    const crossOutlet = await violation(() =>
+      env.handle.db.insert(expenses).values(expenseRow(a.seeded.outletId, b.categoryId, a.ownerId)),
+    );
+    expect(crossOutlet?.code).toBe('23503');
+    const zero = await violation(() =>
+      env.handle.db
+        .insert(expenses)
+        .values({ ...expenseRow(a.seeded.outletId, a.categoryId, a.ownerId), amount: 0 }),
+    );
+    expect(zero?.code).toBe('23514');
+    const dupName = await violation(() =>
+      env.handle.db
+        .insert(expenseCategories)
+        .values({ outletId: a.seeded.outletId, categoryGroup: 'hpp', name: 'BUAH' }),
+    );
+    expect(dupName?.code).toBe('23505');
+  });
+
+  it('never deletes an expense, freezes it while deleted, and keeps history append-only', async () => {
+    const { seeded, categoryId, ownerId } = await outletWithCategories();
+    const row = expenseRow(seeded.outletId, categoryId, ownerId);
+    await env.handle.db.insert(expenses).values(row);
+    const db = env.handle.db;
+
+    expect((await violation(() => db.delete(expenses).where(eq(expenses.id, row.id))))?.code).toBe(
+      '23514',
+    );
+    await db
+      .update(expenses)
+      .set({ deletedAt: new Date(), deletedBy: ownerId, deleteReason: 'salah input' })
+      .where(eq(expenses.id, row.id));
+    const frozen = await violation(() =>
+      db.update(expenses).set({ amount: 1 }).where(eq(expenses.id, row.id)),
+    );
+    expect(frozen?.code).toBe('23514');
+    await db
+      .update(expenses)
+      .set({ deletedAt: null, deletedBy: null, deleteReason: null })
+      .where(eq(expenses.id, row.id));
+    const moved = await violation(() =>
+      db.update(expenses).set({ source: 'cash_movement' }).where(eq(expenses.id, row.id)),
+    );
+    expect(moved?.code).toBe('23514');
+
+    await db.insert(expenseHistory).values({
+      outletId: seeded.outletId,
+      expenseId: row.id,
+      action: 'create',
+      actorUserId: ownerId,
+    });
+    const edited = await violation(() =>
+      db.update(expenseHistory).set({ reason: 'x' }).where(eq(expenseHistory.expenseId, row.id)),
+    );
+    expect(edited?.code).toBe('23514');
+    const noReason = await violation(() =>
+      db.insert(expenseHistory).values({
+        outletId: seeded.outletId,
+        expenseId: row.id,
+        action: 'delete',
+        actorUserId: ownerId,
+      }),
+    );
+    expect(noReason?.code).toBe('23514');
   });
 });

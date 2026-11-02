@@ -4,7 +4,8 @@
 --   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v code=JUS1 < reset-outlet-data.sql
 --
 -- Deleted for the outlet: transactions + items, payments, void requests, shifts, products, categories.
--- Kept: users, outlet, settings, members, employees, devices, sessions, notifications, idempotency keys, audit log.
+-- Kept: users, outlet, settings, members, employees, devices, sessions, notifications, idempotency keys, audit log,
+-- expenses and expense categories (ADR-0021; they are not sales data).
 -- Every row that is not deleted (all tables, all outlets) is fingerprinted (row count + md5) before the delete and
 -- compared afterwards; any difference or an unknown outlet code aborts the whole transaction. The guard triggers are
 -- disabled only inside the transaction. Tables are locked first so the API cannot add rows between snapshot and delete.
@@ -49,6 +50,9 @@ CREATE TEMP VIEW kept AS
   UNION ALL SELECT 'notification_prefs', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM notification_prefs x
   UNION ALL SELECT 'notification_log', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM notification_log x
   UNION ALL SELECT 'audit_logs', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM audit_logs x
+  UNION ALL SELECT 'expense_categories', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM expense_categories x
+  UNION ALL SELECT 'expenses', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM expenses x
+  UNION ALL SELECT 'expense_history', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) FROM expense_history x
   UNION ALL SELECT 'transactions (other outlets)', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), ''))
     FROM transactions x WHERE id NOT IN (SELECT id FROM d_tx)
   UNION ALL SELECT 'transaction_items (other outlets)', count(*), md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), ''))

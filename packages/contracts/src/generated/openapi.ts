@@ -26,7 +26,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rotate refresh token (cookie) and issue a new access token (O-01) */
+        /**
+         * Rotate refresh token (cookie) and issue a new access token (O-01)
+         * @description The new access token is bound to `outlet_id` when the user is still a member of it, otherwise to the primary
+         *     outlet (first `owner` membership by outlet code, else the first membership). The dashboard sends its last
+         *     selected outlet so a page reload keeps the branch (ADR-0020). A missing body is the same as no `outlet_id`.
+         */
         post: operations["ownerRefresh"];
         delete?: never;
         options?: never;
@@ -45,6 +50,30 @@ export interface paths {
         put?: never;
         /** Revoke the current owner refresh token (O-01) */
         post: operations["ownerLogout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/switch-outlet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch the active outlet of the owner session (ADR-0020)
+         * @description Issues a new access token bound to `outlet_id` with the caller's role in that outlet (an account may be `owner`
+         *     of one outlet and `manager` of another). The refresh cookie is not rotated; the next `POST /auth/refresh` keeps
+         *     the outlet when the dashboard sends it. The old access token stays valid until it expires (15 min) and keeps
+         *     pointing at the previous outlet, so the dashboard must replace it and drop outlet-scoped caches.
+         *     Not audited (navigation, not a change).
+         */
+        post: operations["switchOutlet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -974,6 +1003,191 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/expense-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Expense categories of the active outlet
+         * @description Ordered by group (`hpp`, `operasional`, `tetap`, `lainnya`), then `sort_order`, then name. Owner or manager.
+         */
+        get: operations["listExpenseCategories"];
+        put?: never;
+        /** Add an expense category to the active outlet (owner only) */
+        post: operations["createExpenseCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/expense-categories/{expense_category_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename, regroup, reorder, archive or unarchive an expense category (owner only)
+         * @description Categories are never deleted: `archived: true` hides it from the picker for new expenses, while existing
+         *     expenses keep it. Changing `group` also moves the past expenses of this category to the new group in the report.
+         */
+        patch: operations["updateExpenseCategory"];
+        trace?: never;
+    };
+    "/expenses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List expenses (Daftar pengeluaran), filterable, for one outlet or all branches
+         * @description Ordered by `spent_on` desc, then `created_at` desc. `date_from`/`date_to` filter on `spent_on`.
+         *     `status=deleted` lists expenses deleted **now** (Riwayat Hapus, owner only), ordered by `deleted_at` desc.
+         *     `summary` covers every row matching the filters, not only this page. `category_id` needs `outlet_scope=current`
+         *     (categories belong to one outlet); use `group` across branches. Owner or manager.
+         */
+        get: operations["listExpenses"];
+        put?: never;
+        /**
+         * Record an expense in the active outlet (Tambah pengeluaran)
+         * @description Owner or manager. The outlet is the active outlet of the token; to record for another branch, switch first.
+         *     `id` (UUIDv7, optional) makes the call idempotent: the same id with the same content answers `200` with the
+         *     stored expense; the same id with other content is `409 ID_REUSED`. Writes an `expense_history` row (`create`)
+         *     and `audit_logs` (`expense.created`) in the same database transaction.
+         */
+        post: operations["createExpense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/expenses/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export expenses as CSV or Excel
+         * @description Same filters as `GET /expenses` (active expenses only). Dates WIB, amounts whole Rupiah, CSV UTF-8 with BOM,
+         *     CRLF and formula-injection guard exactly like `GET /transactions/export`. Columns: `Tanggal, Cabang, Kelompok,
+         *     Kategori, Keterangan, Jumlah, Sumber dana, Ada nota, Dicatat oleh, Dicatat pada (WIB)`. The `.xlsx` file has a
+         *     second sheet `Rekap` with, per month of the period and per outlet: omzet, pengeluaran per kelompok, total
+         *     pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Both sheets apply the operations start
+         *     of each outlet like the report: expenses with `spent_on` before its `operations_started_on` are left out
+         *     unless `include_pre_operations=true` (`GET /expenses`, the list screen, never applies it). Audited as
+         *     `expenses.exported`. Owner or manager.
+         */
+        get: operations["exportExpenses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/expenses/{expense_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Expense detail with its history
+         * @description Looked up across every outlet where the caller is a member (so a row of "Semua cabang" opens without
+         *     switching); the caller's role in the expense's outlet applies. A deleted expense is visible to owners only.
+         */
+        get: operations["getExpense"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an expense (soft delete into Riwayat Hapus)
+         * @description Owner role in the expense's outlet only (`403` for a manager). Sets `deleted_*`, appends `expense_history`
+         *     (`delete`) and `audit_logs` (`expense.deleted`) in one database transaction. Idempotent like
+         *     `DELETE /transactions/{id}`: an already deleted expense answers `200`, the new reason is ignored.
+         */
+        delete: operations["deleteExpense"];
+        options?: never;
+        head?: never;
+        /**
+         * Correct an expense
+         * @description Owner or manager of the expense's outlet. Only sent fields change; `receipt_url: null` removes the receipt.
+         *     `category_id` must be an active category of the same outlet. A deleted expense cannot be edited
+         *     (`409 EXPENSE_DELETED`, restore it first). A no-op update answers `200` without a history row. Otherwise writes
+         *     `expense_history` (`update`, with `changes`) and `audit_logs` (`expense.updated`, before/after).
+         */
+        patch: operations["updateExpense"];
+        trace?: never;
+    };
+    "/expenses/{expense_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a deleted expense (owner only)
+         * @description Clears `deleted_*`, appends `expense_history` (`restore`, reason = note) and `audit_logs` (`expense.restored`). Not deleted → `200` without effect.
+         */
+        post: operations["restoreExpense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/expenses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Monthly expense recap per outlet with revenue and simple profit (Rekap bulanan)
+         * @description Per month of `month_from`..`month_to` and per outlet of the scope: expenses by group, category and funding
+         *     source, revenue (omzet) and `profit = revenue - expense_total` (laba sederhana, may be negative).
+         *     - Expenses: not deleted, month of `spent_on`.
+         *     - Revenue: exactly the rule of `GET /dashboard/summary` (status `paid` or `void_requested`, not deleted by the
+         *       owner, month of `client_created_at` in the outlet time zone), so the recap and the dashboard agree.
+         *     - Operations start (DEAR-140): by default each outlet counts revenue and expenses only from its
+         *       `operations_started_on` (`null` = no limit). The month of that date is partial, earlier months are zero, and
+         *       `counted_from` on the outlet cell says so. `include_pre_operations=true` counts everything. Months fully
+         *       after the start date are identical to `GET /dashboard/summary`.
+         *     - Every month and every outlet of the scope is present, with zeros when empty.
+         *     - Cells that combine outlets (`months[].total`, `total.total`) merge categories with the same group and name
+         *       (case-insensitive); their `category_id` is `null`.
+         *     Owner or manager; `outlet_scope=all` needs the owner role.
+         */
+        get: operations["getExpenseReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -988,7 +1202,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update store settings (O-10) */
+        /**
+         * Update store settings (O-10)
+         * @description Owner or manager, except `operations_started_on` which needs the owner role (DEAR-140).
+         */
         patch: operations["updateSettings"];
         trace?: never;
     };
@@ -1043,8 +1260,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10)
-         * @description The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to 2 MiB.
+         * Get a presigned upload URL for product image, logo, QRIS image or expense receipt (O-04, O-10, ADR-0021)
+         * @description The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to
+         *     2 MiB, and to 300 KiB for `expense_receipt` (the dashboard compresses receipts to at most 200 KB first).
+         *     Objects are keyed `<outlet_id>/<purpose>/<uuid>.<ext>`: the active outlet, or `outlet_id` when given (only for
+         *     `expense_receipt`, any outlet where the caller is a member, so an expense of another branch can get a receipt).
          */
         post: operations["createUpload"];
         delete?: never;
@@ -1185,7 +1405,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "TRANSACTION_NOT_DELETABLE" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "TRANSACTION_NOT_DELETABLE" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "EXPENSE_DELETED" | "EXPENSE_CATEGORY_ARCHIVED" | "EXPENSE_CATEGORY_NAME_TAKEN" | "INVALID_RECEIPT_URL" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1207,17 +1427,41 @@ export interface components {
             /** @example Asia/Jakarta */
             timezone: string;
         };
+        OwnerOutletRef: components["schemas"]["OutletRef"] & {
+            /**
+             * @description Role of the user in this outlet (ADR-0020)
+             * @enum {string}
+             */
+            role: "owner" | "manager";
+        } & components["schemas"]["OutletOperationsStart"];
+        OutletOperationsStart: {
+            /**
+             * Format: date
+             * @description First business day the branch really operates (DEAR-140, ADR-0021 §3). `GET /reports/expenses` and
+             *     `GET /expenses/export` count revenue and expenses from this date by default; earlier data (e.g. testing)
+             *     stays stored and visible in the transaction history. `null` = no limit. Set by the owner in
+             *     `PATCH /settings`.
+             * @example 2026-11-10
+             */
+            operations_started_on: string | null;
+        };
         OwnerSession: {
             access_token: string;
             /** @example 900 */
             expires_in: number;
+            /**
+             * Format: uuid
+             * @description Outlet the access token is bound to; one of `user.outlets` (ADR-0020)
+             */
+            active_outlet_id: string;
             user: {
                 /** Format: uuid */
                 id: string;
                 /** Format: email */
                 email: string;
                 name: string;
-                outlets: components["schemas"]["OutletRef"][];
+                /** @description Every outlet the user is a member of, ordered by code. The branch picker shows them; "Semua cabang" is offered when at least two have role `owner`. */
+                outlets: components["schemas"]["OwnerOutletRef"][];
             };
         };
         EmployeeSession: {
@@ -1737,6 +1981,200 @@ export interface components {
             /** @description Highest transaction number this device has sent; continue the daily sequence after it (ADR-0008) */
             last_number?: string | null;
         };
+        /**
+         * @description `hpp` = Bahan jus (HPP), `operasional` = Operasional, `tetap` = Tetap, `lainnya` = Lainnya (ADR-0021)
+         * @enum {string}
+         */
+        ExpenseGroup: "hpp" | "operasional" | "tetap" | "lainnya";
+        /**
+         * @description `drawer` = Kas laci cabang, `owner` = Uang owner (transfer/pribadi). Fase 1: informational only, shift cash is not affected.
+         * @enum {string}
+         */
+        ExpenseFundingSource: "drawer" | "owner";
+        ExpenseCategory: {
+            /** Format: uuid */
+            id: string;
+            group: components["schemas"]["ExpenseGroup"];
+            /** @example Buah */
+            name: string;
+            sort_order: number;
+            archived: boolean;
+        };
+        ExpenseCategoryInput: {
+            group: components["schemas"]["ExpenseGroup"];
+            /** @description Trimmed */
+            name: string;
+            /** @description Default after the last of its group */
+            sort_order?: number;
+        };
+        ExpenseCategoryUpdate: {
+            group?: components["schemas"]["ExpenseGroup"];
+            name?: string;
+            sort_order?: number;
+            archived?: boolean;
+        };
+        ExpenseInput: {
+            /**
+             * Format: uuid
+             * @description Optional client UUIDv7 for an idempotent create
+             */
+            id?: string;
+            /**
+             * Format: uuid
+             * @description Active category of the active outlet
+             */
+            category_id: string;
+            /**
+             * Format: date
+             * @description Business date (outlet time zone); not after today, not before 2020-01-01
+             */
+            spent_on: string;
+            /** @description Trimmed, e.g. "Mangga 10 kg" */
+            description: string;
+            /**
+             * Format: int64
+             * @description Integer Rupiah
+             */
+            amount: number;
+            funding_source: components["schemas"]["ExpenseFundingSource"];
+            /**
+             * Format: uri
+             * @description `public_url` of a `POST /uploads` with purpose `expense_receipt` for this outlet; stored as the object key
+             */
+            receipt_url?: string | null;
+        };
+        ExpenseUpdate: {
+            /** Format: uuid */
+            category_id?: string;
+            /** Format: date */
+            spent_on?: string;
+            description?: string;
+            /** Format: int64 */
+            amount?: number;
+            funding_source?: components["schemas"]["ExpenseFundingSource"];
+            /** Format: uri */
+            receipt_url?: string | null;
+        };
+        ExpenseDeleteInput: {
+            /** @description Trimmed before the length check */
+            reason: string;
+        };
+        Expense: {
+            /** Format: uuid */
+            id: string;
+            outlet: components["schemas"]["OutletRef"];
+            category: components["schemas"]["ExpenseCategory"];
+            /** Format: date */
+            spent_on: string;
+            description: string;
+            amount: components["schemas"]["Rupiah"];
+            funding_source: components["schemas"]["ExpenseFundingSource"];
+            /**
+             * Format: uri
+             * @description Stable `/v1/media/<key>` URL (ADR-0015)
+             */
+            receipt_url: string | null;
+            /**
+             * @description `dashboard` in Fase 1; `cash_movement` = recorded by a cashier from the drawer (Fase 2, DEAR-139)
+             * @enum {string}
+             */
+            source: "dashboard" | "cash_movement";
+            created_by: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            created_at: string;
+            updated_by: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Set while the expense is deleted; only owners see deleted expenses */
+            deleted: components["schemas"]["TransactionDeleted"] | null;
+        };
+        ExpenseHistoryEvent: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            action: "create" | "update" | "delete" | "restore";
+            /** @description `update` only: `{ "<field>": { "from": ..., "to": ... } }` with the `ExpenseUpdate` field names (`category_id` also carries the names) */
+            changes: {
+                [key: string]: {
+                    from: unknown;
+                    to: unknown;
+                };
+            } | null;
+            /** @description Delete reason or restore note */
+            reason: string | null;
+            actor: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ExpenseDetail: components["schemas"]["Expense"] & {
+            /** @description Oldest first */
+            history: components["schemas"]["ExpenseHistoryEvent"][];
+        };
+        ExpenseGroupTotals: {
+            hpp: components["schemas"]["Rupiah"];
+            operasional: components["schemas"]["Rupiah"];
+            tetap: components["schemas"]["Rupiah"];
+            lainnya: components["schemas"]["Rupiah"];
+        };
+        ExpenseReportCell: {
+            revenue: components["schemas"]["Rupiah"];
+            transaction_count: number;
+            expense_total: components["schemas"]["Rupiah"];
+            expense_count: number;
+            profit: components["schemas"]["SignedRupiah"];
+            by_group: components["schemas"]["ExpenseGroupTotals"];
+            by_funding_source: {
+                drawer: components["schemas"]["Rupiah"];
+                owner: components["schemas"]["Rupiah"];
+            };
+            /** @description Categories with at least one expense, ordered by group, then amount desc */
+            by_category: {
+                /**
+                 * Format: uuid
+                 * @description `null` in cells that combine outlets
+                 */
+                category_id: string | null;
+                group: components["schemas"]["ExpenseGroup"];
+                name: string;
+                amount: components["schemas"]["Rupiah"];
+                count: number;
+            }[];
+        };
+        ExpenseReportOutletCell: {
+            /** Format: uuid */
+            outlet_id: string;
+            /**
+             * Format: date
+             * @description `null` = the whole month (or period) of this cell is counted. Otherwise the outlet's
+             *     `operations_started_on`, which falls after the first day of the cell: only data from that date is
+             *     counted (a cell that ends before it is all zeros, "belum beroperasi"). Always `null` with
+             *     `include_pre_operations=true`.
+             */
+            counted_from: string | null;
+        } & components["schemas"]["ExpenseReportCell"];
+        ExpenseReport: {
+            /** @example 2026-11 */
+            month_from: string;
+            /** @example 2026-11 */
+            month_to: string;
+            /** @enum {string} */
+            outlet_scope: "current" | "all";
+            include_pre_operations: boolean;
+            /** @description Outlets of the scope, ordered by code */
+            outlets: (components["schemas"]["OutletRef"] & components["schemas"]["OutletOperationsStart"])[];
+            /** @description One entry per month, oldest first */
+            months: {
+                /** @example 2026-11 */
+                month: string;
+                per_outlet: components["schemas"]["ExpenseReportOutletCell"][];
+                total: components["schemas"]["ExpenseReportCell"];
+            }[];
+            /** @description The whole period */
+            total: {
+                per_outlet: components["schemas"]["ExpenseReportOutletCell"][];
+                total: components["schemas"]["ExpenseReportCell"];
+            };
+        };
         DashboardSummary: {
             revenue: components["schemas"]["Rupiah"];
             transaction_count: number;
@@ -1754,6 +2192,11 @@ export interface components {
         };
         OutletSettings: {
             outlet: components["schemas"]["OutletRef"];
+            /**
+             * Format: date
+             * @description See `OutletOperationsStart`. Always present for owner and manager tokens (DEAR-136); omitted for devices (`GET /settings`, `/sync/pull`), the cashier app does not use it. Owner role sets it here (DEAR-140).
+             */
+            operations_started_on?: string | null;
             display_name: string;
             address?: string | null;
             phone?: string | null;
@@ -1797,6 +2240,13 @@ export interface components {
             quick_cash_amounts?: components["schemas"]["Rupiah"][];
             /** @description Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned. */
             owner_pin?: string;
+            /**
+             * Format: date
+             * @description Owner role only (a manager sending this field gets `403 FORBIDDEN`, nothing is saved). 2020-01-01 to today
+             *     + 366 days (outlet time zone); `null` removes the limit. Stored on `outlets`, audited inside
+             *     `settings.updated` with before/after. Changing it changes the recap of past months on purpose.
+             */
+            operations_started_on?: string | null;
         };
         /** @description Notification types the owner receives on every registered browser. Shift summaries and daily digests come later. */
         NotificationPrefs: {
@@ -1954,6 +2404,23 @@ export interface components {
         DateFrom: string;
         /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
         DateTo: string;
+        ExpenseId: string;
+        ExpenseCategoryId: string;
+        /**
+         * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+         *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+         */
+        OutletScope: "current" | "all";
+        /**
+         * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+         *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+         *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+         */
+        IncludePreOperations: boolean;
+        /** @description First month, inclusive (`YYYY-MM`, outlet time zone). Default the current month. */
+        MonthFrom: string;
+        /** @description Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months. */
+        MonthTo: string;
         Cursor: string;
         Limit: number;
     };
@@ -1976,6 +2443,11 @@ export interface operations {
                     /** Format: email */
                     email: string;
                     password: string;
+                    /**
+                     * Format: uuid
+                     * @description Outlet to activate (the dashboard's last choice). Ignored when the user is not a member of it; then the primary outlet is used (ADR-0020).
+                     */
+                    outlet_id?: string;
                 };
             };
         };
@@ -2001,7 +2473,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    outlet_id?: string;
+                };
+            };
+        };
         responses: {
             /** @description New session */
             200: {
@@ -2032,6 +2511,44 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    switchOutlet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    outlet_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Session for the chosen outlet (same shape as login) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerSession"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `FORBIDDEN`: the user is not a member of that outlet */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     employeePinLogin: {
@@ -3756,6 +4273,424 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    listExpenseCategories: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Categories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExpenseCategory"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createExpenseCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCategoryInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `EXPENSE_CATEGORY_NAME_TAKEN` (an active category of this outlet has the same name, case-insensitive) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateExpenseCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_category_id: components["parameters"]["ExpenseCategoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCategoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `EXPENSE_CATEGORY_NAME_TAKEN` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listExpenses: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                category_id?: string;
+                group?: components["schemas"]["ExpenseGroup"];
+                funding_source?: components["schemas"]["ExpenseFundingSource"];
+                /** @description Text in the description */
+                q?: string;
+                status?: "active" | "deleted";
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Expenses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Expense"][];
+                        next_cursor: string | null;
+                        summary: {
+                            count: number;
+                            total_amount: components["schemas"]["Rupiah"];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseInput"];
+            };
+        };
+        responses: {
+            /** @description Replay of an earlier create with the same `id` and content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `ID_REUSED` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `EXPENSE_CATEGORY_ARCHIVED`, or `INVALID_RECEIPT_URL` (not an `expense_receipt` upload of this outlet). An unknown `category_id` or one of another outlet is `400 VALIDATION_ERROR`. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportExpenses: {
+        parameters: {
+            query: {
+                format: "csv" | "xlsx";
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                category_id?: string;
+                group?: components["schemas"]["ExpenseGroup"];
+                funding_source?: components["schemas"]["ExpenseFundingSource"];
+                /**
+                 * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+                 *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+                 *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+                 */
+                include_pre_operations?: components["parameters"]["IncludePreOperations"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: components["parameters"]["ExpenseId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Expense */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: components["parameters"]["ExpenseId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseDeleteInput"];
+            };
+        };
+        responses: {
+            /** @description Deleted (or already deleted) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: components["parameters"]["ExpenseId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `EXPENSE_DELETED` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `EXPENSE_CATEGORY_ARCHIVED` or `INVALID_RECEIPT_URL` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: components["parameters"]["ExpenseId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TransactionRestoreInput"];
+            };
+        };
+        responses: {
+            /** @description Restored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getExpenseReport: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description First month, inclusive (`YYYY-MM`, outlet time zone). Default the current month. */
+                month_from?: components["parameters"]["MonthFrom"];
+                /** @description Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months. */
+                month_to?: components["parameters"]["MonthTo"];
+                /**
+                 * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+                 *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+                 *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+                 */
+                include_pre_operations?: components["parameters"]["IncludePreOperations"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getSettings: {
         parameters: {
             query?: never;
@@ -3799,6 +4734,7 @@ export interface operations {
                     "application/json": components["schemas"]["OutletSettings"];
                 };
             };
+            403: components["responses"]["Forbidden"];
             /** @description `PIN_NOT_UNIQUE` (owner PIN equals an employee PIN) */
             409: {
                 headers: {
@@ -3915,15 +4851,21 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    purpose: "product_image" | "logo" | "qris_image";
+                    purpose: "product_image" | "logo" | "qris_image" | "expense_receipt";
                     /** @enum {string} */
                     content_type: "image/jpeg" | "image/png" | "image/webp";
+                    /** @description At most 307200 for `expense_receipt` */
                     size_bytes: number;
+                    /**
+                     * Format: uuid
+                     * @description `expense_receipt` only; default the active outlet
+                     */
+                    outlet_id?: string;
                 };
             };
         };
         responses: {
-            /** @description Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings payload afterwards. */
+            /** @description Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings/expense payload afterwards. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -3939,7 +4881,17 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description `FORBIDDEN`: `outlet_id` is not an outlet of the caller */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description `UPLOADS_NOT_CONFIGURED` (no object storage in this environment) */
             503: {
                 headers: {

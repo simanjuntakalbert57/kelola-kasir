@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { loadConfig } from '../config.js';
 import { createDb } from '../db/client.js';
 import { outletSettings, outlets } from '../db/schema.js';
@@ -39,10 +39,13 @@ async function main(): Promise<void> {
         .insert(outlets)
         .values({ code: outletCode, name: outletName })
         .returning();
-      if (outlet)
+      if (outlet) {
         await handle.db
           .insert(outletSettings)
           .values({ outletId: outlet.id, displayName: outletName });
+        // Default expense categories (ADR-0021); a no-op when the outlet already has some.
+        await handle.db.execute(sql`SELECT kk_seed_expense_categories(${outlet.id})`);
+      }
     }
     if (!outlet) throw new Error('failed to create outlet');
     const service = new OwnerAuthService({

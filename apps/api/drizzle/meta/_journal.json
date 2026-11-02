@@ -43,6 +43,20 @@
       "when": 1793367569608,
       "tag": "0005_transaction_soft_delete_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793554393364,
+      "tag": "0006_multi_outlet_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793554396297,
+      "tag": "0007_expenses_triggers",
+      "breakpoints": true
     }
   ]
 }
