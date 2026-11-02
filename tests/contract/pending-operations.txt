@@ -2,20 +2,3 @@
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
-# Multi-outlet + expenses (ADR-0020, ADR-0021): specified in DEAR-134, implemented in DEAR-136.
-# ownerLogin/ownerRefresh/createUpload exist but their contract changed (active_outlet_id, outlet roles, expense_receipt).
-ownerLogin  # POST /auth/login
-ownerRefresh  # POST /auth/refresh
-switchOutlet  # POST /auth/switch-outlet
-createUpload  # POST /uploads
-listExpenseCategories  # GET /expense-categories
-createExpenseCategory  # POST /expense-categories
-updateExpenseCategory  # PATCH /expense-categories/{expense_category_id}
-listExpenses  # GET /expenses
-createExpense  # POST /expenses
-exportExpenses  # GET /expenses/export
-getExpense  # GET /expenses/{expense_id}
-updateExpense  # PATCH /expenses/{expense_id}
-deleteExpense  # DELETE /expenses/{expense_id}
-restoreExpense  # POST /expenses/{expense_id}/restore
-getExpenseReport  # GET /reports/expenses

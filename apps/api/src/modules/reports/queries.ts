@@ -62,6 +62,9 @@ const inPeriod = (outletId: string, period: Pick<Period, 'from' | 'to'>) =>
 
 const counted = inArray(transactions.status, [...COUNTED_STATUSES]);
 
+/** Transactions that are revenue (omzet), shared with the expense recap so both agree with the dashboard. */
+export const revenuePredicate = () => and(isNull(transactions.deletedAt), counted);
+
 export interface SummaryTotals {
   revenue: number;
   transactionCount: number;
