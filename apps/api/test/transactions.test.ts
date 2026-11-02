@@ -1,6 +1,6 @@
 import { and, count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { auditLogs, transactionItems, transactions } from '../src/db/schema.js';
+import { auditLogs, transactionItems, transactions, users } from '../src/db/schema.js';
 import { pgError } from '../src/db/client.js';
 import { wibDate } from '../src/modules/transactions/access.js';
 import {
@@ -637,5 +637,133 @@ describe('receipt', () => {
     expect(Math.max(...receipt.share_text.split('\n').map((l) => l.length))).toBeLessThanOrEqual(
       32,
     );
+  });
+});
+
+describe('GET /transactions/summary (cashier totals)', () => {
+  interface Summary {
+    scope: string;
+    transaction_count: number;
+    total_sales: number;
+    total_cash_sales: number;
+    total_qris_sales: number;
+    cash_count: number;
+    qris_count: number;
+    pending_void_count: number;
+    pending_void_amount: number;
+    by_employee: {
+      employee_id: string;
+      name: string;
+      transaction_count: number;
+      total: number;
+      cash_total: number;
+      qris_total: number;
+    }[];
+  }
+  const summary = async (shop: Shop, scope: 'shift' | 'today') =>
+    json<Summary>(await get(env, `/v1/transactions/summary?scope=${scope}`, shop.cashier.headers));
+  const seed = (shop: Shop, o: Partial<Parameters<typeof seedTransaction>[1]> = {}) =>
+    seedTransaction(env, {
+      shiftId: shop.shiftId,
+      outletId: shop.seeded.outletId,
+      deviceId: shop.device.id,
+      employeeId: shop.cashier.employeeId,
+      total: 10_000,
+      ...o,
+    });
+
+  it('counts only paid, undeleted sales and reports pending voids separately', async () => {
+    const shop = await createShop(env);
+    await seed(shop, { total: 10_000 });
+    await seed(shop, { total: 25_000, method: 'qris' });
+    await seed(shop, { total: 7_000, status: 'void_requested' });
+    await seed(shop, { total: 99_000, status: 'voided' });
+    await seed(shop, { total: 99_000, status: 'cancelled' });
+    await seed(shop, { total: 99_000, status: 'pending', method: 'qris' });
+    const [owner] = await env.handle.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, shop.seeded.ownerEmail));
+    if (!owner) throw new Error('owner missing');
+    const deleted = await seed(shop, { total: 50_000 });
+    await env.handle.db
+      .update(transactions)
+      .set({ deletedAt: env.clock.now, deletedBy: owner.id, deleteReason: 'Salah input' })
+      .where(eq(transactions.id, deleted));
+
+    for (const scope of ['shift', 'today'] as const) {
+      expect(await summary(shop, scope)).toMatchObject({
+        scope,
+        transaction_count: 2,
+        total_sales: 35_000,
+        total_cash_sales: 10_000,
+        total_qris_sales: 25_000,
+        cash_count: 1,
+        qris_count: 1,
+        pending_void_count: 1,
+        pending_void_amount: 7_000,
+      });
+    }
+  });
+
+  it("includes other cashiers of the branch but never another branch's sales", async () => {
+    const shop = await createShop(env);
+    const other = await createShop(env);
+    const budi = await cashierSession(
+      env,
+      shop.seeded,
+      { token: shop.ownerToken },
+      shop.device,
+      'Budi',
+    );
+    await seed(shop, { total: 10_000 });
+    await seed(shop, { total: 5_000, employeeId: budi.employeeId });
+    await seed(other, { total: 1_000_000 });
+    for (const scope of ['today', 'shift'] as const) {
+      const s = await summary(shop, scope);
+      expect(s.total_sales).toBe(15_000);
+      expect(s.by_employee.map((e) => [e.name, e.total, e.cash_total, e.qris_total])).toEqual([
+        ['Siti', 10_000, 10_000, 0],
+        ['Budi', 5_000, 5_000, 0],
+      ]);
+      // The per-cashier rows add up to the branch totals.
+      expect(s.by_employee.reduce((n, e) => n + e.total, 0)).toBe(s.total_sales);
+      expect(s.by_employee.reduce((n, e) => n + e.transaction_count, 0)).toBe(s.transaction_count);
+    }
+    const o = await summary(other, 'today');
+    expect(o.total_sales).toBe(1_000_000);
+    expect(o.by_employee).toHaveLength(1);
+    expect(o.by_employee.some((e) => e.employee_id === budi.employeeId)).toBe(false);
+  });
+
+  it('limits today to the WIB business day', async () => {
+    const shop = await createShop(env);
+    const realNow = env.clock.now;
+    // 2026-03-11 00:30 WIB = 2026-03-10 17:30 UTC
+    env.clock.now = new Date('2026-03-10T17:30:00.000Z');
+    try {
+      await seed(shop, { total: 3_000, createdAt: new Date('2026-03-10T16:59:00.000Z') }); // 23:59 WIB, yesterday
+      await seed(shop, { total: 4_000, createdAt: new Date('2026-03-10T17:00:00.000Z') }); // 00:00 WIB, today
+      expect((await summary(shop, 'today')).total_sales).toBe(4_000);
+      expect((await summary(shop, 'shift')).total_sales).toBe(7_000);
+    } finally {
+      env.clock.now = realNow;
+    }
+  });
+
+  it('is zero for scope=shift without an open shift, and employee-only', async () => {
+    const shop = await createShop(env);
+    await seed(shop);
+    await post(env, `/v1/shifts/${shop.shiftId}/close`, shop.cashier.headers, {
+      actual_cash: 110_000,
+      closed_at: env.clock.now.toISOString(),
+    });
+    expect((await summary(shop, 'shift')).total_sales).toBe(0);
+    expect((await summary(shop, 'today')).total_sales).toBe(10_000);
+    const owner = await get(env, '/v1/transactions/summary', bearer(shop.ownerToken));
+    expect(owner.statusCode).toBe(403);
+    expect(
+      (await get(env, '/v1/transactions/summary?scope=month', shop.cashier.headers)).statusCode,
+    ).toBe(400);
   });
 });

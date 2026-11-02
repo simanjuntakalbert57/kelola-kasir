@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { z } from 'zod';
 import type { AppContext, Principal } from '../../context.js';
@@ -41,6 +41,8 @@ const listQuery = z.object({
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+
+const summaryQuery = z.object({ scope: z.enum(['shift', 'today']).default('shift') });
 
 const exportQuery = z.object({
   format: z.enum(['csv', 'xlsx']),
@@ -150,6 +152,104 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
         data: await toTransactionSummaries(db, page),
         next_cursor: rows.length > q.limit && last ? encodeCursor(last) : null,
       };
+    });
+
+    // Totals for the cashier's Riwayat card (DEAR-149). Computed here, never from a paged list.
+    app.get('/transactions/summary', { preHandler: guards.employee }, async (req) => {
+      const principal = requireEmployee(req);
+      const q = parse(summaryQuery, req.query);
+      const conditions: SQL[] = [
+        eq(transactions.outletId, principal.outletId),
+        isNull(transactions.deletedAt),
+      ];
+      if (q.scope === 'today') {
+        const today = wibDate(ctx.now());
+        conditions.push(
+          gte(transactions.clientCreatedAt, startOfBusinessDay(today)),
+          lt(transactions.clientCreatedAt, endOfBusinessDay(today)),
+        );
+      } else {
+        const [open] = await db
+          .select({ id: shifts.id })
+          .from(shifts)
+          .where(and(eq(shifts.outletId, principal.outletId), eq(shifts.status, 'open')))
+          .limit(1);
+        conditions.push(open ? eq(transactions.shiftId, open.id) : sql`false`);
+      }
+      const rows = await db
+        .select({
+          employeeId: transactions.employeeId,
+          status: transactions.status,
+          method: transactions.paymentMethod,
+          n: sql<number>`count(*)::int`,
+          amount: sql<string>`coalesce(sum(${transactions.total}), 0)::text`,
+        })
+        .from(transactions)
+        .where(and(...conditions, inArray(transactions.status, ['paid', 'void_requested'])))
+        .groupBy(transactions.employeeId, transactions.status, transactions.paymentMethod);
+
+      const out = {
+        scope: q.scope,
+        transaction_count: 0,
+        total_sales: 0,
+        total_cash_sales: 0,
+        total_qris_sales: 0,
+        cash_count: 0,
+        qris_count: 0,
+        pending_void_count: 0,
+        pending_void_amount: 0,
+        by_employee: [] as {
+          employee_id: string;
+          name: string;
+          transaction_count: number;
+          total: number;
+          cash_total: number;
+          qris_total: number;
+        }[],
+      };
+      const per = new Map<string, (typeof out.by_employee)[number]>();
+      for (const r of rows) {
+        const amount = Number(r.amount);
+        if (r.status === 'void_requested') {
+          out.pending_void_count += r.n;
+          out.pending_void_amount += amount;
+          continue;
+        }
+        out.transaction_count += r.n;
+        out.total_sales += amount;
+        const entry = per.get(r.employeeId) ?? {
+          employee_id: r.employeeId,
+          name: '',
+          transaction_count: 0,
+          total: 0,
+          cash_total: 0,
+          qris_total: 0,
+        };
+        entry.transaction_count += r.n;
+        entry.total += amount;
+        if (r.method === 'cash') entry.cash_total += amount;
+        else entry.qris_total += amount;
+        per.set(r.employeeId, entry);
+        if (r.method === 'cash') {
+          out.total_cash_sales += amount;
+          out.cash_count += r.n;
+        } else {
+          out.total_qris_sales += amount;
+          out.qris_count += r.n;
+        }
+      }
+      const ids = [...per.keys()];
+      const people = ids.length
+        ? await db
+            .select({ id: employees.id, name: employees.name })
+            .from(employees)
+            .where(inArray(employees.id, ids))
+        : [];
+      const names = new Map(people.map((e) => [e.id, e.name]));
+      out.by_employee = [...per.values()]
+        .map((e) => ({ ...e, name: names.get(e.employee_id) ?? '' }))
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+      return out;
     });
 
     // Registered before `/transactions/:transaction_id`; the static path wins either way.

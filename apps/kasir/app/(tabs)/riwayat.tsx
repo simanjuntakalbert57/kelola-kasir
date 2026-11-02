@@ -10,13 +10,16 @@ import { usePrinter } from '../../src/printing/PrinterProvider';
 import {
   canReprint,
   filterByMethod,
+  fromServerSummary,
   listLocalHistory,
   mergeRemote,
   STATUS_LABEL,
   storeRemoteStatuses,
+  summarizeRows,
   type HistoryRow,
   type HistoryScope,
   type MethodFilter,
+  type SalesSummary,
 } from '../../src/sales/history';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors, radius, space } from '../../src/theme';
@@ -40,6 +43,7 @@ export default function RiwayatScreen() {
   const [local, setLocal] = useState<HistoryRow[] | null>(null);
   const [remote, setRemote] = useState<TransactionSummary[]>([]);
   const [remoteFailed, setRemoteFailed] = useState(false);
+  const [serverSummary, setServerSummary] = useState<SalesSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const timeZone = paired?.outlet.timezone ?? 'Asia/Jakarta';
@@ -48,14 +52,23 @@ export default function RiwayatScreen() {
     if (!db || !shift) return;
     setLocal(await listLocalHistory(db, { scope, shiftId: shift.id, timeZone }));
     // Other devices' sales and owner decisions come from the server; offline we show this device only.
-    if (!session?.accessToken) return setRemoteFailed(true);
+    if (!session?.accessToken) {
+      setServerSummary(null);
+      return setRemoteFailed(true);
+    }
     try {
-      const res = await api.listTransactions(scope);
+      // Totals come from the server: the list above is paged and would undercount.
+      const [res, totals] = await Promise.all([
+        api.listTransactions(scope),
+        api.getTransactionsSummary(scope),
+      ]);
+      setServerSummary(fromServerSummary(totals));
       await storeRemoteStatuses(db, res.data);
       setRemote(res.data);
       setRemoteFailed(false);
       setLocal(await listLocalHistory(db, { scope, shiftId: shift.id, timeZone }));
     } catch {
+      setServerSummary(null);
       setRemoteFailed(true);
     }
   }, [api, db, session, shift, scope, timeZone]);
@@ -66,6 +79,11 @@ export default function RiwayatScreen() {
       void load();
     }, [load, pending]),
   );
+
+  // Offline: totals from this phone only, and the card says so.
+  const summary =
+    remoteFailed || !serverSummary ? (local ? summarizeRows(local) : null) : serverSummary;
+  const summaryLocalOnly = remoteFailed || !serverSummary;
 
   const rows = local ? filterByMethod(mergeRemote(local, remote), method) : null;
 
@@ -102,6 +120,14 @@ export default function RiwayatScreen() {
           onPress={() => setScope(scope === 'shift' ? 'today' : 'shift')}
         />
       </View>
+      {summary ? (
+        <SummaryCard
+          summary={summary}
+          scope={scope}
+          localOnly={summaryLocalOnly}
+          meId={session?.employeeId ?? null}
+        />
+      ) : null}
       {rows === null ? null : rows.length === 0 ? (
         <EmptyState
           icon="🧾"
@@ -178,7 +204,99 @@ export default function RiwayatScreen() {
   );
 }
 
+function SummaryCard({
+  summary,
+  scope,
+  localOnly,
+  meId,
+}: {
+  summary: SalesSummary;
+  scope: HistoryScope;
+  localOnly: boolean;
+  meId: string | null;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <View testID="summary-card" style={styles.summary}>
+      <Text style={styles.summaryLabel}>
+        {scope === 'shift' ? 'Penjualan shift ini' : 'Penjualan hari ini'}
+      </Text>
+      <Text testID="summary-total" style={styles.summaryTotal}>
+        {formatRupiah(summary.totalSales)}
+      </Text>
+      <Text style={styles.meta}>{summary.transactionCount} transaksi</Text>
+      <View style={styles.summaryMethods}>
+        <Text testID="summary-cash" style={styles.summaryMethod}>
+          Cash {formatRupiah(summary.cashSales)} ({summary.cashCount})
+        </Text>
+        <Text testID="summary-qris" style={styles.summaryMethod}>
+          QRIS {formatRupiah(summary.qrisSales)} ({summary.qrisCount})
+        </Text>
+      </View>
+      {summary.pendingVoidCount > 0 ? (
+        <Text testID="summary-pending-void" style={[styles.badge, { color: colors.warn }]}>
+          {summary.pendingVoidCount} void menunggu · {formatRupiah(summary.pendingVoidAmount)}
+        </Text>
+      ) : null}
+      {summary.byEmployee.length > 0 ? (
+        <View testID="summary-by-employee" style={styles.perEmployee}>
+          <Text style={styles.summaryLabel}>Per kasir</Text>
+          {summary.byEmployee.map((e) => (
+            <Pressable
+              key={e.employeeId}
+              testID={`summary-employee-${e.employeeId}`}
+              accessibilityRole="button"
+              onPress={() => setOpen(open === e.employeeId ? null : e.employeeId)}
+              style={styles.employeeRow}
+            >
+              <View style={styles.employeeLine}>
+                <Text style={styles.summaryMethod}>
+                  {e.name}
+                  {e.employeeId === meId ? ' (Anda)' : ''} · {e.transactionCount} transaksi
+                </Text>
+                <Text style={styles.amount}>{formatRupiah(e.total)}</Text>
+              </View>
+              {open === e.employeeId ? (
+                <Text style={styles.meta}>
+                  Cash {formatRupiah(e.cashTotal)} · QRIS {formatRupiah(e.qrisTotal)}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {localOnly ? (
+        <Text testID="summary-offline" style={[styles.badge, { color: colors.warn }]}>
+          Hanya dari HP ini (offline)
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  summary: {
+    marginHorizontal: space.s4,
+    marginBottom: space.s2,
+    padding: space.s4,
+    gap: space.s1,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  summaryLabel: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  summaryTotal: {
+    color: colors.greenText,
+    fontSize: 28,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  perEmployee: { gap: space.s1, marginTop: space.s2 },
+  employeeRow: { minHeight: 48, justifyContent: 'center' },
+  employeeLine: { flexDirection: 'row', justifyContent: 'space-between', gap: space.s3 },
+  summaryMethods: { flexDirection: 'row', gap: space.s4, flexWrap: 'wrap' },
+  summaryMethod: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   root: { flex: 1, backgroundColor: colors.bg },
   filters: { flexDirection: 'row', gap: space.s2, padding: space.s3, alignItems: 'center' },
   list: { padding: space.s4, gap: space.s2 },
