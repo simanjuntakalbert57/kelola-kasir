@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { v7 as uuidv7 } from 'uuid';
 import { bearer, call, ownerToken } from '../support/api.js';
 import { openAsOwner, rp } from '../support/ui.js';
 
@@ -32,7 +33,7 @@ test.describe.serial('DEAR-137 cabang + pengeluaran (owner)', () => {
     await page.getByRole('button', { name: /Ganti cabang/ }).click();
     await expect(page.getByRole('option', { name: /Semua cabang/ })).toBeVisible();
     await page.getByRole('option', { name: /Palmerah/ }).click();
-    await expect(page.getByRole('button', { name: /Cabang aktif: Palmerah/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Cabang aktif: .*Palmerah/ })).toBeVisible();
     await page.goto('/transaksi');
     await page.getByRole('button', { name: /Ganti cabang/ }).click();
     await expect(page.getByRole('option', { name: /Semua cabang/ })).toHaveCount(0);
@@ -86,7 +87,7 @@ test.describe.serial('DEAR-137 cabang + pengeluaran (owner)', () => {
 
   test('TC-EXP-03 Rekap menampilkan laba sederhana dan ekspor Excel', async ({ page }) => {
     await openAsOwner(page, '/pengeluaran/rekap');
-    await expect(page.getByText(/Laba sederhana|Rugi sederhana/)).toBeVisible();
+    await expect(page.getByText(/^(Laba|Rugi) sederhana$/)).toBeVisible();
     await expect(page.getByText(/Lunas \+ menunggu persetujuan batal/).first()).toBeVisible();
     // Pre-operations toggle makes Rekap equal Ringkasan for the same month.
     await page.getByLabel('Termasuk masa uji coba').check();
@@ -121,6 +122,31 @@ test.describe.serial('DEAR-137 cabang + pengeluaran (owner)', () => {
 });
 
 test.describe('DEAR-137 manager', () => {
+  // Own data (the primary branch JUS1, where manager@e2e.test works) so this test does not depend on TC-EXP-02..04.
+  test.beforeAll(async () => {
+    if (!apiReady) return;
+    const token = await ownerToken();
+    const { data } = await call<{ data: { id: string; name: string }[] }>(
+      'GET',
+      '/expense-categories',
+      { headers: bearer(token) },
+    );
+    const category = data.data[0];
+    if (!category) throw new Error('seed has no expense categories');
+    await call('POST', '/expenses', {
+      headers: bearer(token),
+      body: {
+        id: uuidv7(),
+        category_id: category.id,
+        spent_on: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+        description: 'Seed e2e manager',
+        amount: 50_000,
+        funding_source: 'drawer',
+        receipt_url: null,
+      },
+    });
+  });
+
   test('TC-EXP-05 manager: cabang terkunci, tanpa Hapus dan Kelola kategori, tanggal mulai read-only', async ({
     page,
   }) => {
