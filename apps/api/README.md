@@ -123,6 +123,23 @@ Reports count `paid` and `void_requested`; `voided`, `cancelled` and `pending` a
 `transaction.void_requested` / `void_approved` / `void_rejected` to the append-only `audit_logs` (actor, reason, time, channel)
 in the same DB transaction as the status change. A closed shift keeps its frozen totals even if one of its sales is voided later.
 
+### Multi-outlet and expenses (DEAR-136, ADR-0020/0021)
+
+| Endpoint                                                | Auth           | Notes                                                                                                                           |
+| ------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`, `/auth/refresh`                     | –, cookie      | Optional `outlet_id`; answers `active_outlet_id` and `user.outlets[].role` / `operations_started_on`                            |
+| `POST /auth/switch-outlet`                              | owner, manager | New access token for another outlet of the user (`403` if not a member); refresh cookie is not rotated, not audited             |
+| `GET/POST/PATCH /expense-categories`                    | owner, manager | Write is owner only; archive instead of delete; name unique per outlet (`409 EXPENSE_CATEGORY_NAME_TAKEN`)                      |
+| `GET/POST /expenses`, `GET/PATCH/DELETE /expenses/{id}` | owner, manager | `outlet_scope=all` = owners' outlets only (manager `403`); by-id looks across the caller's outlets with the role of that outlet |
+| `POST /expenses/{id}/restore`, `status=deleted`         | owner          | Soft delete with `expense_history`; every write is one DB transaction with `audit_logs`                                         |
+| `GET /expenses/export?format=csv\|xlsx`                 | owner, manager | `.xlsx` has a `Rekap` sheet; same formula-injection guard as the transaction export; audited as `expenses.exported`             |
+| `GET /reports/expenses`                                 | owner, manager | Monthly revenue (same rule as `/dashboard/summary`), expenses and simple profit; two aggregations, no per-outlet queries        |
+| `PATCH /settings` `operations_started_on`               | owner          | Recap and export count from this date by default (`include_pre_operations=true` ignores it); a manager sending it gets `403`    |
+
+After an outlet rename (`outlets.previous_codes`) transaction numbers with the old code stay valid, so phones paired before
+the rename keep syncing. Push notifications go to every browser of a user who owns the outlet of the sale, titled with the
+branch name when the user has two or more outlets.
+
 ## Design notes
 
 - **Employee PIN uniqueness**: argon2id hashes are salted, so uniqueness uses `pin_fingerprint = HMAC-SHA256(secret, outlet_id:pin)`

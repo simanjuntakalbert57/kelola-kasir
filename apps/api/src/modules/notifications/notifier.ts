@@ -124,18 +124,27 @@ export function createNotifier(deps: NotifierDeps): Notifier {
     );
   };
 
+  /**
+   * Active subscriptions of every user who is `owner` of `outletId`, whatever outlet the browser registered
+   * from (ADR-0020 §4). Preferences stay per (outlet, user). `branchCount` is how many outlets the user belongs
+   * to: with two or more, titles carry the branch name.
+   */
   async function recipients(
     outletId: string,
     category: Category,
     excludeUserId?: string,
-  ): Promise<string[]> {
+  ): Promise<{ id: string; multiBranch: boolean }[]> {
     const rows = await db
-      .select({ id: pushSubscriptions.id, prefs: notificationPrefs.prefs })
+      .select({
+        id: pushSubscriptions.id,
+        prefs: notificationPrefs.prefs,
+        branchCount: sql<number>`(select count(*)::int from ${outletMembers} m where m.user_id = ${pushSubscriptions.userId})`,
+      })
       .from(pushSubscriptions)
       .innerJoin(
         outletMembers,
         and(
-          eq(outletMembers.outletId, pushSubscriptions.outletId),
+          eq(outletMembers.outletId, outletId),
           eq(outletMembers.userId, pushSubscriptions.userId),
           eq(outletMembers.role, 'owner'),
         ),
@@ -144,20 +153,19 @@ export function createNotifier(deps: NotifierDeps): Notifier {
       .leftJoin(
         notificationPrefs,
         and(
-          eq(notificationPrefs.outletId, pushSubscriptions.outletId),
+          eq(notificationPrefs.outletId, outletId),
           eq(notificationPrefs.userId, pushSubscriptions.userId),
         ),
       )
       .where(
         and(
-          eq(pushSubscriptions.outletId, outletId),
           isNull(pushSubscriptions.revokedAt),
           excludeUserId ? ne(pushSubscriptions.userId, excludeUserId) : undefined,
         ),
       );
     return rows
       .filter((r) => (r.prefs as Partial<Record<Category, boolean>> | null)?.[category] !== false)
-      .map((r) => r.id);
+      .map((r) => ({ id: r.id, multiBranch: r.branchCount >= 2 }));
   }
 
   async function enqueue(
@@ -167,17 +175,24 @@ export function createNotifier(deps: NotifierDeps): Notifier {
     payload: PushPayload,
     excludeUserId?: string,
   ): Promise<void> {
-    const subscriptionIds = await recipients(outletId, categoryOf(event), excludeUserId);
-    if (subscriptionIds.length === 0) return;
+    const targets = await recipients(outletId, categoryOf(event), excludeUserId);
+    if (targets.length === 0) return;
+    const [outlet] = await db
+      .select({ name: outlets.name })
+      .from(outlets)
+      .where(eq(outlets.id, outletId));
+    const branchPayload: PushPayload = outlet
+      ? { ...payload, title: `${outlet.name} · ${payload.title}` }
+      : payload;
     await db
       .insert(notificationLog)
       .values(
-        subscriptionIds.map((subscriptionId) => ({
+        targets.map((t) => ({
           outletId,
-          subscriptionId,
+          subscriptionId: t.id,
           event,
           entityId,
-          payload,
+          payload: t.multiBranch ? branchPayload : payload,
           ttlSeconds: EVENT_TTL_SEC,
           nextAttemptAt: now(),
         })),

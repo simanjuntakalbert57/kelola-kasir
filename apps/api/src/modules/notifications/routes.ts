@@ -128,7 +128,6 @@ export function notificationRoutes(
         .from(pushSubscriptions)
         .where(
           and(
-            eq(pushSubscriptions.outletId, principal.outletId),
             eq(pushSubscriptions.userId, principal.id),
             or(isNull(pushSubscriptions.revokedAt), eq(pushSubscriptions.revokedReason, 'gone')),
           ),
@@ -170,17 +169,16 @@ export function notificationRoutes(
               ),
             )
             .for('update');
-          if (
-            existing &&
-            existing.userId === principal.id &&
-            existing.outletId === principal.outletId
-          ) {
+          // The same user re-registering a browser from another branch is an update (ADR-0020 §4);
+          // `outlet_id` then only records where it was registered from.
+          if (existing && existing.userId === principal.id) {
             const [updated] = await tx
               .update(pushSubscriptions)
               .set({
                 p256dh: body.keys.p256dh,
                 auth: body.keys.auth,
                 label: body.label,
+                outletId: principal.outletId,
                 userAgent,
                 lastSeenAt: at,
                 updatedAt: at,
@@ -209,11 +207,7 @@ export function notificationRoutes(
             .select()
             .from(pushSubscriptions)
             .where(
-              and(
-                eq(pushSubscriptions.outletId, principal.outletId),
-                eq(pushSubscriptions.userId, principal.id),
-                isNull(pushSubscriptions.revokedAt),
-              ),
+              and(eq(pushSubscriptions.userId, principal.id), isNull(pushSubscriptions.revokedAt)),
             )
             .orderBy(asc(pushSubscriptions.lastSeenAt), asc(pushSubscriptions.createdAt));
           const overflow = active.filter((s) => s.id !== row.id);
@@ -254,13 +248,7 @@ export function notificationRoutes(
         const [sub] = await db
           .select()
           .from(pushSubscriptions)
-          .where(
-            and(
-              eq(pushSubscriptions.id, id),
-              eq(pushSubscriptions.userId, principal.id),
-              eq(pushSubscriptions.outletId, principal.outletId),
-            ),
-          );
+          .where(and(eq(pushSubscriptions.id, id), eq(pushSubscriptions.userId, principal.id)));
         if (!sub) throw errors.notFound('Subscription not found');
         if (!sub.revokedAt) await revoke(sub, 'user', { type: 'user', id: principal.id });
         return reply.status(204).send();
@@ -277,13 +265,7 @@ export function notificationRoutes(
         const [sub] = await db
           .select()
           .from(pushSubscriptions)
-          .where(
-            and(
-              eq(pushSubscriptions.id, id),
-              eq(pushSubscriptions.userId, principal.id),
-              eq(pushSubscriptions.outletId, principal.outletId),
-            ),
-          );
+          .where(and(eq(pushSubscriptions.id, id), eq(pushSubscriptions.userId, principal.id)));
         if (!sub || (sub.revokedAt && sub.revokedReason !== 'gone')) {
           throw errors.notFound('Subscription not found');
         }
