@@ -14,6 +14,9 @@ import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { DeletedTransactionsPage } from './pages/DeletedTransactionsPage';
 import { DevicesPage } from './pages/DevicesPage';
+import { ExpenseCategoriesPage } from './pages/ExpenseCategoriesPage';
+import { ExpenseReportPage } from './pages/ExpenseReportPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -110,6 +113,9 @@ const routeTree = root.addChildren([
     page('/', DashboardPage),
     transactions,
     page('/transaksi/dihapus', DeletedTransactionsPage),
+    page('/pengeluaran', ExpensesPage),
+    page('/pengeluaran/rekap', ExpenseReportPage),
+    page('/pengeluaran/kategori', ExpenseCategoriesPage),
     page('/produk', ProductsPage),
     page('/produk/impor', ProductImportPage),
     page('/pegawai', EmployeesPage),
