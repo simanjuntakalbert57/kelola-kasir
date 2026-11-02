@@ -107,6 +107,13 @@ export function amountError(amount: number | null): string | undefined {
   return undefined;
 }
 
+/** "Albert (Owner)" / "Budi (Manajer)": who did it, for the owner's audit view (DEAR-143). */
+export function actorLabel(actor: Expense['created_by']): string {
+  if (actor.role === 'owner') return `${actor.name} (Owner)`;
+  if (actor.role === 'manager') return `${actor.name} (Manajer)`;
+  return actor.name;
+}
+
 export function deleteReasonError(reason: string): string | undefined {
   const n = reason.trim().length;
   if (n < EXPENSE_DELETE_REASON.min) return `Alasan minimal ${EXPENSE_DELETE_REASON.min} karakter.`;

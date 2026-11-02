@@ -185,8 +185,8 @@ export function expenseRoutes(ctx: AppContext, guards: Guards) {
       return service.update({ principal, ip: req.ip }, id, body);
     });
 
-    // Owner role is checked per expense outlet inside the service (a user can be owner of one outlet and
-    // manager of another).
+    // Owner or manager of the expense's outlet (DEAR-143); restore stays owner-only. Both are checked per
+    // expense outlet inside the service (a user can be owner of one outlet and manager of another).
     app.delete('/expenses/:expense_id', { preHandler: guards.owner }, async (req) => {
       const principal = requireUser(req);
       const { expense_id: id } = parse(expenseParams, req.params);

@@ -1763,10 +1763,12 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
     delete:
       tags: [expenses]
-      summary: Delete an expense (soft delete into Riwayat Hapus)
+      summary: Delete an expense (owner or manager; soft delete into Riwayat Hapus)
       description: |
-        Owner role in the expense's outlet only (`403` for a manager). Sets `deleted_*`, appends `expense_history`
-        (`delete`) and `audit_logs` (`expense.deleted`) in one database transaction. Idempotent like
+        Owner or manager role in the expense's outlet (DEAR-143); an expense of an outlet where the caller is not a
+        member is `404`. Sets `deleted_*`, appends `expense_history` (`delete`) and `audit_logs` (`expense.deleted`,
+        `meta.role` = the deleter's role) in one database transaction. Restoring and Riwayat Hapus stay owner-only,
+        so a manager's delete is visible to the owner (`deleted.deleted_by.role`) and reversible. Idempotent like
         `DELETE /transactions/{id}`: an already deleted expense answers `200`, the new reason is ignored.
       operationId: deleteExpense
       security: [{ ownerAuth: [] }]
@@ -2979,6 +2981,23 @@ components:
       required: [reason]
       properties:
         reason: { type: string, minLength: 5, maxLength: 200, description: Trimmed before the length check }
+    ExpenseActorRef:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role:
+          type: [string, 'null']
+          enum: [owner, manager, null]
+          description: Current role of the user in the expense's outlet; `null` once they are no longer a member
+    ExpenseDeleted:
+      type: object
+      required: [deleted_at, deleted_by, reason]
+      properties:
+        deleted_at: { type: string, format: date-time }
+        deleted_by: { $ref: '#/components/schemas/ExpenseActorRef' }
+        reason: { type: string }
     Expense:
       type: object
       required: [id, outlet, category, spent_on, description, amount, funding_source, receipt_url, source, created_by, created_at, updated_by, updated_at, deleted]
@@ -2995,12 +3014,12 @@ components:
           type: string
           enum: [dashboard, cash_movement]
           description: '`dashboard` in Fase 1; `cash_movement` = recorded by a cashier from the drawer (Fase 2, DEAR-139)'
-        created_by: { $ref: '#/components/schemas/UserRef' }
+        created_by: { $ref: '#/components/schemas/ExpenseActorRef' }
         created_at: { type: string, format: date-time }
-        updated_by: { $ref: '#/components/schemas/UserRef' }
+        updated_by: { $ref: '#/components/schemas/ExpenseActorRef' }
         updated_at: { type: string, format: date-time }
         deleted:
-          oneOf: [{ $ref: '#/components/schemas/TransactionDeleted' }, { type: 'null' }]
+          oneOf: [{ $ref: '#/components/schemas/ExpenseDeleted' }, { type: 'null' }]
           description: Set while the expense is deleted; only owners see deleted expenses
     ExpenseHistoryEvent:
       type: object
@@ -3018,7 +3037,7 @@ components:
               from: {}
               to: {}
         reason: { type: [string, 'null'], description: Delete reason or restore note }
-        actor: { $ref: '#/components/schemas/UserRef' }
+        actor: { $ref: '#/components/schemas/ExpenseActorRef' }
         created_at: { type: string, format: date-time }
     ExpenseDetail:
       allOf:

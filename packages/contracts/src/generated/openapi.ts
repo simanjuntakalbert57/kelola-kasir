@@ -1118,9 +1118,11 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete an expense (soft delete into Riwayat Hapus)
-         * @description Owner role in the expense's outlet only (`403` for a manager). Sets `deleted_*`, appends `expense_history`
-         *     (`delete`) and `audit_logs` (`expense.deleted`) in one database transaction. Idempotent like
+         * Delete an expense (owner or manager; soft delete into Riwayat Hapus)
+         * @description Owner or manager role in the expense's outlet (DEAR-143); an expense of an outlet where the caller is not a
+         *     member is `404`. Sets `deleted_*`, appends `expense_history` (`delete`) and `audit_logs` (`expense.deleted`,
+         *     `meta.role` = the deleter's role) in one database transaction. Restoring and Riwayat Hapus stay owner-only,
+         *     so a manager's delete is visible to the owner (`deleted.deleted_by.role`) and reversible. Idempotent like
          *     `DELETE /transactions/{id}`: an already deleted expense answers `200`, the new reason is ignored.
          */
         delete: operations["deleteExpense"];
@@ -2059,6 +2061,22 @@ export interface components {
             /** @description Trimmed before the length check */
             reason: string;
         };
+        ExpenseActorRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /**
+             * @description Current role of the user in the expense's outlet; `null` once they are no longer a member
+             * @enum {string|null}
+             */
+            role: "owner" | "manager" | null;
+        };
+        ExpenseDeleted: {
+            /** Format: date-time */
+            deleted_at: string;
+            deleted_by: components["schemas"]["ExpenseActorRef"];
+            reason: string;
+        };
         Expense: {
             /** Format: uuid */
             id: string;
@@ -2079,14 +2097,14 @@ export interface components {
              * @enum {string}
              */
             source: "dashboard" | "cash_movement";
-            created_by: components["schemas"]["UserRef"];
+            created_by: components["schemas"]["ExpenseActorRef"];
             /** Format: date-time */
             created_at: string;
-            updated_by: components["schemas"]["UserRef"];
+            updated_by: components["schemas"]["ExpenseActorRef"];
             /** Format: date-time */
             updated_at: string;
             /** @description Set while the expense is deleted; only owners see deleted expenses */
-            deleted: components["schemas"]["TransactionDeleted"] | null;
+            deleted: components["schemas"]["ExpenseDeleted"] | null;
         };
         ExpenseHistoryEvent: {
             /** Format: uuid */
@@ -2102,7 +2120,7 @@ export interface components {
             } | null;
             /** @description Delete reason or restore note */
             reason: string | null;
-            actor: components["schemas"]["UserRef"];
+            actor: components["schemas"]["ExpenseActorRef"];
             /** Format: date-time */
             created_at: string;
         };

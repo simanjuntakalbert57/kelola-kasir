@@ -37,7 +37,7 @@ const categories = [
   { id: 'c-es', group: 'hpp', name: 'Es batu', sort_order: 2, archived: false },
   { id: 'c-listrik', group: 'operasional', name: 'Listrik', sort_order: 1, archived: false },
 ];
-const user = { id: 'u1', name: 'Albert' };
+const user = { id: 'u1', name: 'Albert', role: 'owner' };
 const expense = (over: Record<string, unknown> = {}) => ({
   id: 'e1',
   outlet: { id: RGN, code: 'RGN', name: 'Ragunan', timezone: 'Asia/Jakarta' },
@@ -125,7 +125,7 @@ describe('branch picker', () => {
     expect(screen.getByRole('option', { name: /Ragunan/ })).toBeInTheDocument();
   });
 
-  it('locks the picker for a manager and hides delete and category management', async () => {
+  it('locks the picker for a manager and hides category management', async () => {
     setup(managerSession, {
       'GET /expenses/e1': () => json({ ...expense(), history: [] }),
     });
@@ -138,7 +138,34 @@ describe('branch picker', () => {
     expect(screen.queryByRole('link', { name: 'Kelola kategori' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Detail Buah/ }));
     await screen.findByRole('button', { name: 'Ubah' });
-    expect(screen.queryByRole('button', { name: 'Hapus' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pulihkan' })).not.toBeInTheDocument();
+  });
+
+  it('lets a manager delete with a reason (DEAR-143) but not open Riwayat Hapus', async () => {
+    let deleted = false;
+    const calls = setup(managerSession, {
+      'GET /expenses': () => list(deleted ? [] : [expense()]),
+      'GET /expenses/e1': () => json({ ...expense(), history: [] }),
+      'DELETE /expenses/e1': () => {
+        deleted = true;
+        return json(expense());
+      },
+    });
+    renderApp('/pengeluaran');
+    await screen.findByText('Mangga 10 kg');
+    expect(screen.queryByText(/Riwayat Hapus/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Detail Buah/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Hapus' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Hapus pengeluaran ini?' });
+    expect(within(dialog).getByText(/Owner tetap bisa melihat dan memulihkannya/)).toBeVisible();
+    await userEvent.type(within(dialog).getByLabelText('Alasan menghapus'), 'Nota dobel');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hapus' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.key === 'DELETE /expenses/e1')?.body).toEqual({
+        reason: 'Nota dobel',
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText('Mangga 10 kg')).not.toBeInTheDocument());
   });
 });
 
@@ -289,6 +316,49 @@ describe('expenses list and form', () => {
         reason: 'abcde salah input',
       }),
     );
+  });
+
+  it('shows the owner who deleted it and their role in Riwayat Hapus', async () => {
+    const budi = { id: 'u2', name: 'Budi', role: 'manager' };
+    const gone = expense({
+      deleted: { deleted_at: '2026-11-02T05:00:00Z', deleted_by: budi, reason: 'Nota dobel' },
+    });
+    const calls = setup(twoBranches, {
+      // The request being answered is the last one recorded.
+      'GET /expenses': () =>
+        list(calls.at(-1)?.key.includes('status=deleted') ? [gone] : [expense()]),
+      'GET /expenses/e1': () =>
+        json({
+          ...gone,
+          history: [
+            {
+              id: 'h1',
+              action: 'create',
+              changes: null,
+              reason: null,
+              actor: user,
+              created_at: gone.created_at,
+            },
+            {
+              id: 'h2',
+              action: 'delete',
+              changes: null,
+              reason: 'Nota dobel',
+              actor: budi,
+              created_at: '2026-11-02T05:00:00Z',
+            },
+          ],
+        }),
+    });
+    renderApp('/pengeluaran');
+    await screen.findByText('Mangga 10 kg');
+    await userEvent.click(screen.getByLabelText(/Riwayat Hapus/));
+    expect(await screen.findByText(/Dihapus Budi \(Manajer\): “Nota dobel”/)).toBeVisible();
+    expect(calls.some((c) => c.key.includes('status=deleted'))).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: /Detail Buah/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Detail pengeluaran' });
+    expect(within(dialog).getByText(/Dihapus oleh Budi \(Manajer\)/)).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Pulihkan' })).toBeVisible();
   });
 
   it('explains an archived category error', async () => {

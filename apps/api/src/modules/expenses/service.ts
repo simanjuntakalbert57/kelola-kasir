@@ -298,18 +298,30 @@ export class ExpenseService {
         rows.flatMap((r) => [r.createdBy, r.updatedBy, ...(r.deletedBy ? [r.deletedBy] : [])]),
       ),
     ];
-    const [outletRows, categoryRows, userRows] = await Promise.all([
+    const [outletRows, categoryRows, userRows, memberRows] = await Promise.all([
       this.db.select().from(outlets).where(inArray(outlets.id, outletIds)),
       this.db.select().from(expenseCategories).where(inArray(expenseCategories.id, categoryIds)),
       this.db
         .select({ id: users.id, name: users.name })
         .from(users)
         .where(inArray(users.id, userIds)),
+      this.db
+        .select()
+        .from(outletMembers)
+        .where(
+          and(inArray(outletMembers.outletId, outletIds), inArray(outletMembers.userId, userIds)),
+        ),
     ]);
     const outletById = new Map(outletRows.map((o) => [o.id, o]));
     const categoryById = new Map(categoryRows.map((c) => [c.id, c]));
     const userById = new Map(userRows.map((u) => [u.id, u]));
-    const ref = (id: string) => ({ id, name: userById.get(id)?.name ?? '' });
+    const roleOf = new Map(memberRows.map((m) => [`${m.outletId}:${m.userId}`, m.role as Role]));
+    // `role` = the user's current role in the expense's outlet (null once they are no longer a member).
+    const ref = (id: string, outletId: string) => ({
+      id,
+      name: userById.get(id)?.name ?? '',
+      role: roleOf.get(`${outletId}:${id}`) ?? null,
+    });
     return rows.map((r) => {
       const outlet = outletById.get(r.outletId);
       const category = categoryById.get(r.categoryId);
@@ -324,15 +336,15 @@ export class ExpenseService {
         funding_source: r.fundingSource as (typeof FUNDING_SOURCES)[number],
         receipt_url: this.receiptUrl(r.receiptImageKey),
         source: r.source as 'dashboard' | 'cash_movement',
-        created_by: ref(r.createdBy),
+        created_by: ref(r.createdBy, r.outletId),
         created_at: r.createdAt.toISOString(),
-        updated_by: ref(r.updatedBy),
+        updated_by: ref(r.updatedBy, r.outletId),
         updated_at: r.updatedAt.toISOString(),
         deleted:
           r.deletedAt && r.deletedBy
             ? {
                 deleted_at: r.deletedAt.toISOString(),
-                deleted_by: ref(r.deletedBy),
+                deleted_by: ref(r.deletedBy, r.outletId),
                 reason: r.deleteReason ?? '',
               }
             : null,
@@ -350,20 +362,27 @@ export class ExpenseService {
     const [dto, history] = await Promise.all([
       this.toExpense(row),
       this.db
-        .select({ h: expenseHistory, actor: users.name })
+        .select({ h: expenseHistory, actor: users.name, role: outletMembers.role })
         .from(expenseHistory)
         .innerJoin(users, eq(users.id, expenseHistory.actorUserId))
+        .leftJoin(
+          outletMembers,
+          and(
+            eq(outletMembers.outletId, expenseHistory.outletId),
+            eq(outletMembers.userId, expenseHistory.actorUserId),
+          ),
+        )
         .where(eq(expenseHistory.expenseId, row.id))
         .orderBy(asc(expenseHistory.createdAt), asc(expenseHistory.id)),
     ]);
     return {
       ...dto,
-      history: history.map(({ h, actor }) => ({
+      history: history.map(({ h, actor, role }) => ({
         id: h.id,
         action: h.action as 'create' | 'update' | 'delete' | 'restore',
         changes: (h.changes as Record<string, { from: unknown; to: unknown }> | null) ?? null,
         reason: h.reason,
-        actor: { id: h.actorUserId, name: actor },
+        actor: { id: h.actorUserId, name: actor, role: (role as Role | null) ?? null },
         created_at: h.createdAt.toISOString(),
       })),
     };
@@ -593,11 +612,14 @@ export class ExpenseService {
     return this.toExpense(row);
   }
 
+  /**
+   * Owner or manager of the expense's outlet (DEAR-143); restoring and Riwayat Hapus stay owner-only, so a
+   * manager's delete is always visible to the owner and reversible.
+   */
   async remove(actor: Actor, id: string, reason: string) {
     const { principal } = actor;
     const row = await this.db.transaction(async (tx) => {
       const { row: before, role } = await this.findForMember(tx, principal, id, true);
-      if (role !== 'owner') throw errors.forbidden('Only the owner can delete expenses');
       if (before.deletedAt) return before; // idempotent: keep the first reason and history
       const at = this.now();
       const [after] = await tx
@@ -623,7 +645,7 @@ export class ExpenseService {
         entityId: id,
         before: this.snapshot(before),
         after: this.snapshot(after),
-        meta: actor.ip ? { ip: actor.ip } : {},
+        meta: { role, ...(actor.ip ? { ip: actor.ip } : {}) },
       });
       return after;
     });
