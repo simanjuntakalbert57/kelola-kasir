@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Tabs } from 'expo-router';
 import { Text, type ColorValue } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { badgeLabel, itemCount } from '../../src/sales/cart';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors } from '../../src/theme';
@@ -12,6 +13,7 @@ const icon = (glyph: string) =>
 
 export default function TabsLayout() {
   const { cart } = useSales();
+  const insets = useSafeAreaInsets();
   const count = itemCount(cart);
   const badge = badgeLabel(count);
   const keranjangOptions = useMemo(
@@ -35,7 +37,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.greenText,
         tabBarInactiveTintColor: colors.muted,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, height: 64 },
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.line,
+          // Keep the bar above the Android system navigation bar / iOS home indicator.
+          height: 64 + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
         sceneStyle: { backgroundColor: colors.bg },
       }}
