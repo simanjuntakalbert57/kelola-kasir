@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import webpush from 'web-push';
 import { writeFileSync } from 'node:fs';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
+import { sql } from 'drizzle-orm';
 import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { outletSettings, outlets } from '../db/schema.js';
@@ -37,16 +39,21 @@ async function main(): Promise<void> {
   const sessionFile = process.env['CONTRACT_SESSION_FILE'];
   if (!sessionFile) throw new Error('CONTRACT_SESSION_FILE is required');
 
+  const vapid = webpush.generateVAPIDKeys();
   const config = {
     ...loadConfig({
       ...process.env,
+      // Throwaway VAPID keys so the notification endpoints are exercised; sending is stubbed below.
+      VAPID_PUBLIC_KEY: vapid.publicKey,
+      VAPID_PRIVATE_KEY: vapid.privateKey,
+      VAPID_SUBJECT: 'https://contract.test',
       NODE_ENV: 'test',
       // Dummy object storage so POST /uploads is exercised; presigning is local, nothing is ever sent there.
       STORAGE_ENDPOINT: 'https://storage.contract.test',
       STORAGE_BUCKET: 'contract',
       STORAGE_ACCESS_KEY_ID: 'contract-access-key',
       STORAGE_SECRET_ACCESS_KEY: 'contract-secret-key',
-      STORAGE_PUBLIC_BASE_URL: 'https://cdn.contract.test',
+      API_PUBLIC_BASE_URL: 'https://api.contract.test',
       LOG_LEVEL: process.env['LOG_LEVEL'] ?? 'warn',
       // The fuzzer sends hundreds of login/pair requests: rate limits would only add noise.
       RATE_LIMIT_LOGIN_MAX: '100000',
@@ -55,7 +62,12 @@ async function main(): Promise<void> {
   };
   const handle = createDb(config.databaseUrl);
   await runMigrations(handle.db);
-  const app = await buildApp({ config, db: handle.db });
+  // Never contact a real push service from the contract test.
+  const app = await buildApp({
+    config,
+    db: handle.db,
+    pushClient: { send: () => Promise.resolve({ ok: true as const, status: 201 }) },
+  });
 
   const [outlet] = await handle.db
     .insert(outlets)
@@ -167,6 +179,27 @@ async function main(): Promise<void> {
           : { id: randomUUID(), method },
     };
   };
+  // Default expense categories and one expense, so the expense operations reach their logic (ADR-0021).
+  await handle.db.execute(sql`select kk_seed_expense_categories(${outlet.id}::uuid)`);
+  const expenseCategories = await app.inject({
+    method: 'GET',
+    url: '/v1/expense-categories',
+    headers: ownerAuth,
+  });
+  const expenseCategory = expenseCategories.json<{ data: { id: string }[] }>().data[0];
+  if (!expenseCategory) throw new Error('expense category seed failed');
+  const expense = await call(
+    'POST',
+    '/v1/expenses',
+    {
+      category_id: expenseCategory.id,
+      spent_on: new Date().toISOString().slice(0, 10),
+      description: 'Mangga 10 kg',
+      amount: 150000,
+      funding_source: 'owner',
+    },
+    ownerAuth,
+  );
   const cashSale = await call('POST', '/v1/transactions', sale('cash', 1), employeeAuth);
   const qrisSale = await call('POST', '/v1/transactions', sale('qris', 2), employeeAuth);
 
@@ -179,6 +212,8 @@ async function main(): Promise<void> {
       shift_id: shift['id'],
       category_id: category['id'],
       product_id: product['id'],
+      expense_category_id: expenseCategory.id,
+      expense_id: expense['id'],
       sale_product_id: saleProduct['id'],
       sale_product_name: saleProduct['name'],
       transaction_id: cashSale['id'],

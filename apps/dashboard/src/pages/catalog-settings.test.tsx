@@ -49,7 +49,7 @@ describe('Produk', () => {
     await userEvent.type(within(dialog).getByLabelText('Nama produk'), 'Jus Alpukat');
     await userEvent.type(within(dialog).getByLabelText('Harga (Rp)'), '15.000');
     expect(within(dialog).getByText('Rp15.000')).toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Simpan' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Simpan produk' }));
     await vi.waitFor(() =>
       expect(calls.find((c) => c.key === 'POST /products')?.body).toEqual({
         name: 'Jus Alpukat',
@@ -68,7 +68,7 @@ describe('Produk', () => {
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText('Nama produk'), 'X');
     await userEvent.type(within(dialog).getByLabelText('Harga (Rp)'), '15000,50');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Simpan' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Simpan produk' }));
     expect(await within(dialog).findByText(/angka bulat Rupiah/)).toBeInTheDocument();
     expect(calls.some((c) => c.key === 'POST /products')).toBe(false);
   });
@@ -89,7 +89,6 @@ describe('Produk', () => {
   });
 
   it('explains why a non-empty category cannot be deleted', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockApi({
       ...base,
       'GET /products': () => json({ data: [product] }),
@@ -97,6 +96,9 @@ describe('Produk', () => {
     });
     renderApp('/produk');
     await userEvent.click(await screen.findByRole('button', { name: 'Hapus kategori Jus Buah' }));
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ya, hapus' }),
+    );
     expect(await screen.findByText(/Kategori masih berisi produk/)).toBeInTheDocument();
   });
 });
@@ -129,7 +131,7 @@ describe('Pengaturan toko', () => {
     await userEvent.clear(footer);
     await userEvent.type(footer, 'Sampai jumpa!');
     expect(within(preview).getByText('Sampai jumpa!')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Simpan perubahan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Simpan pengaturan' }));
     await vi.waitFor(() =>
       expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toMatchObject({
         display_name: 'Jus Albert',
@@ -138,7 +140,7 @@ describe('Pengaturan toko', () => {
         phone: null,
       }),
     );
-    expect(await screen.findByText('Pengaturan tersimpan.')).toBeInTheDocument();
+    expect(await screen.findByText('Tersimpan')).toBeInTheDocument();
   });
 
   it('blocks saving a QRIS embed without a QRIS code', async () => {
@@ -148,7 +150,7 @@ describe('Pengaturan toko', () => {
       'PATCH /settings': () => json(settings),
     });
     renderApp('/pengaturan');
-    await userEvent.click(await screen.findByRole('button', { name: 'Simpan perubahan' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan pengaturan' }));
     expect(await screen.findByText(/Kode QRIS wajib diisi/)).toBeInTheDocument();
     expect(calls.find((c) => c.key === 'PATCH /settings')).toBeUndefined();
   });
@@ -160,7 +162,7 @@ describe('Pengaturan toko', () => {
       'PATCH /settings': () => problem(422, 'INVALID_QRIS_PAYLOAD'),
     });
     renderApp('/pengaturan');
-    await userEvent.click(await screen.findByRole('button', { name: 'Simpan perubahan' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan pengaturan' }));
     expect(await screen.findByText(/Kode QRIS tidak valid/)).toBeInTheDocument();
   });
 
@@ -179,18 +181,84 @@ describe('Pengaturan toko', () => {
     renderApp('/pengaturan');
     const file = new File(['png'], 'qris.png', { type: 'image/png' });
     await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
-    expect(await screen.findByText(/Kode QRIS terisi otomatis/)).toBeInTheDocument();
+    expect(await screen.findByText(/Gambar & kode QRIS tersimpan/)).toBeInTheDocument();
     expect(screen.getByLabelText('Kode QRIS')).toHaveValue('QRIS-PAYLOAD');
     expect(calls.find((c) => c.key === 'POST /settings/qris/decode')?.body).toEqual({
       image_base64: 'cG5n',
     });
-    await userEvent.click(screen.getByRole('button', { name: 'Simpan perubahan' }));
-    await vi.waitFor(() =>
-      expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toMatchObject({
-        qris_static_image_url: 'https://cdn.test/qris.png',
-        qris_static_payload: 'QRIS-PAYLOAD',
-      }),
+    // Persisted right after decoding, without pressing "Simpan pengaturan".
+    expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toEqual({
+      qris_static_image_url: 'https://cdn.test/qris.png',
+      qris_static_payload: 'QRIS-PAYLOAD',
+    });
+  });
+
+  it('saves the logo right after upload and keeps it after a remount', async () => {
+    let stored = { ...settings } as Record<string, unknown>;
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(stored),
+      'PATCH /settings': (b) => {
+        stored = { ...stored, ...(b as object) };
+        return json(stored);
+      },
+    });
+    const first = renderApp('/pengaturan');
+    const file = new File(['png'], 'logo.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Logo'), file);
+    expect(await screen.findByText('Logo tersimpan.')).toBeInTheDocument();
+    expect(calls.find((c) => c.key === 'PATCH /settings')?.body).toEqual({
+      logo_url: 'https://cdn.test/qris.png',
+    });
+    first.unmount();
+    renderApp('/pengaturan');
+    expect(await screen.findByAltText('Pratinjau Logo')).toHaveAttribute(
+      'src',
+      'https://cdn.test/qris.png',
     );
+  });
+
+  it('does not save the QRIS image when it cannot be read', async () => {
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+      'POST /settings/qris/decode': () => problem(422, 'INVALID_QRIS_PAYLOAD'),
+      'PATCH /settings': () => json(settings),
+    });
+    renderApp('/pengaturan');
+    const file = new File(['png'], 'qris.png', { type: 'image/png' });
+    await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
+    expect(await screen.findByText(/Gambar QRIS belum tersimpan/)).toBeInTheDocument();
+    expect(calls.find((c) => c.key === 'PATCH /settings')).toBeUndefined();
+    expect(screen.queryByText(/Gambar tersimpan/)).toBeNull();
+  });
+
+  it('warns before leaving with unsaved changes', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json(settings),
+    });
+    renderApp('/pengaturan');
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    await userEvent.type(await screen.findByLabelText('Alamat'), 'x');
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+  });
+
+  it('shows an alert above the save button listing invalid fields', async () => {
+    mockApi({
+      'POST /auth/refresh': () => json(session),
+      'GET /settings': () => json({ ...settings, qris_static_image_url: 'https://x.test/q.png' }),
+    });
+    renderApp('/pengaturan');
+    await userEvent.click(await screen.findByRole('button', { name: 'Simpan pengaturan' }));
+    expect(
+      await screen.findByText(/Ada isian yang perlu diperbaiki: Kode QRIS/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Kode QRIS')).toHaveFocus();
   });
 
   it('asks for a manual code when the image cannot be read', async () => {
@@ -203,6 +271,7 @@ describe('Pengaturan toko', () => {
     const file = new File(['png'], 'qris.png', { type: 'image/png' });
     await userEvent.upload(await screen.findByLabelText('Gambar QRIS'), file);
     expect(await screen.findByText(/isi kode QRIS secara manual/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Gambar tersimpan/)).toBeNull();
     expect(screen.getByLabelText('Kode QRIS')).toHaveValue('');
   });
 

@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OutletSettings } from '@kelola-kasir/contracts';
+import { Check } from 'lucide-react';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
@@ -11,13 +12,19 @@ import {
   Button,
   Card,
   CheckboxField,
+  ConfirmDialog,
+  ErrorState,
   Field,
+  NoticeCard,
   PageHeader,
   Skeleton,
   TextareaField,
 } from '../components/ui';
+import { ThemeCard } from '../components/ThemeToggle';
+import { useAuth } from '../auth/AuthProvider';
+import { formatDate } from '../lib/expenses';
 import { ApiError, api, patch, post } from '../lib/api';
-import { errorMessage } from '../lib/format';
+import { useUnsavedWarning } from '../lib/useUnsavedWarning';
 
 const KEY = ['settings'] as const;
 
@@ -36,6 +43,7 @@ const schema = z
     qris_static_image_url: z.string().nullable(),
     qris_static_payload: z.string(),
     qris_embed_amount: z.boolean(),
+    operations_started_on: z.string(),
   })
   .superRefine((v, ctx) => {
     // The API rejects every QRIS sale (503) when the shop has no QRIS code, so an image alone is not enough.
@@ -59,6 +67,7 @@ const toForm = (s: OutletSettings): Form => ({
   qris_static_image_url: s.qris_static_image_url ?? null,
   qris_static_payload: s.qris_static_payload ?? '',
   qris_embed_amount: s.qris_embed_amount ?? false,
+  operations_started_on: s.operations_started_on ?? '',
 });
 
 function toBase64(file: File): Promise<string> {
@@ -76,10 +85,23 @@ interface DecodedQris {
   is_static: boolean;
 }
 
+const FIELD_LABELS: Partial<Record<keyof Form, string>> = {
+  display_name: 'Nama toko',
+  address: 'Alamat',
+  phone: 'Telepon',
+  receipt_header: 'Header struk',
+  receipt_footer: 'Footer struk',
+  qris_static_payload: 'Kode QRIS',
+};
+
 const blankToNull = (v: string) => (v.trim() === '' ? null : v.trim());
 
 function SettingsForm({ settings }: { settings: OutletSettings }) {
   const qc = useQueryClient();
+  const { role, activeOutlet } = useAuth();
+  // Only the owner may change the start date; a manager that sends it gets 403 and nothing is saved (ADR-0021 §3).
+  const isOwner = role === 'owner';
+  const [confirmDate, setConfirmDate] = useState<Form | null>(null);
   const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: toForm(settings) });
   const save = useMutation({
     mutationFn: (v: Form) =>
@@ -93,6 +115,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
         qris_static_image_url: v.qris_static_image_url,
         qris_static_payload: blankToNull(v.qris_static_payload),
         qris_embed_amount: v.qris_embed_amount,
+        ...(isOwner ? { operations_started_on: v.operations_started_on || null } : {}),
       }),
     onSuccess: async (updated) => {
       qc.setQueryData(KEY, updated);
@@ -100,10 +123,50 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     },
   });
   const [decodeNote, setDecodeNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [logoNotice, setLogoNotice] = useState<string | null>(null);
+  const [invalidLabels, setInvalidLabels] = useState<string[]>([]);
   const errors = form.formState.errors;
+  useUnsavedWarning(form.formState.isDirty);
+
+  /** Saves just these fields right away and marks them as clean, so an upload survives a refresh. */
+  async function persist(body: Partial<Record<keyof Form, string | boolean | null>>) {
+    const updated = await patch<OutletSettings>('/settings', body);
+    qc.setQueryData(KEY, updated);
+    const saved = toForm(updated);
+    for (const key of Object.keys(body) as (keyof Form)[]) {
+      form.resetField(key, { defaultValue: saved[key] });
+    }
+  }
+
+  async function changeLogo(url: string | null) {
+    setLogoNotice(null);
+    await persist({ logo_url: url });
+    setLogoNotice(url ? 'Logo tersimpan.' : 'Logo dihapus.');
+  }
+
+  async function changeQrisImage(url: string | null) {
+    setDecodeNote(null);
+    if (url) {
+      // Not saved yet: the API rejects an image without a QRIS code, so decodeQris saves it once it has one.
+      form.setValue('qris_static_image_url', url, { shouldDirty: true });
+      return;
+    }
+    const noCode = form.getValues('qris_static_payload').trim() === '';
+    await persist({
+      qris_static_image_url: null,
+      ...(noCode ? { qris_embed_amount: false } : {}),
+    });
+    setDecodeNote({ ok: true, text: 'Gambar QRIS dihapus.' });
+  }
+
+  function onInvalid(errs: typeof errors) {
+    const keys = Object.keys(errs) as (keyof Form)[];
+    setInvalidLabels(keys.map((k) => FIELD_LABELS[k] ?? k));
+    if (keys[0]) form.setFocus(keys[0]);
+  }
 
   /** Fills "Kode QRIS" from the uploaded image; on failure the owner is asked to type it. */
-  async function decodeQris(file: File) {
+  async function decodeQris(file: File, imageUrl: string) {
     setDecodeNote(null);
     try {
       const res = await post<DecodedQris>('/settings/qris/decode', {
@@ -112,7 +175,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
       if (!res.is_static) {
         setDecodeNote({
           ok: false,
-          text: 'QRIS pada gambar ini sudah berisi nominal (dinamis). Gunakan QRIS statis toko, atau isi kode QRIS secara manual.',
+          text: 'QRIS pada gambar ini sudah berisi nominal (dinamis). Gambar QRIS belum tersimpan. Gunakan QRIS statis toko, atau isi kode QRIS secara manual lalu tekan Simpan pengaturan.',
         });
         return;
       }
@@ -120,17 +183,21 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
         shouldDirty: true,
         shouldValidate: true,
       });
+      await persist({
+        qris_static_image_url: imageUrl,
+        qris_static_payload: res.qris_static_payload,
+      });
       setDecodeNote({
         ok: true,
-        text: `Kode QRIS terisi otomatis dari gambar (${res.qris_merchant_name}).`,
+        text: `Gambar & kode QRIS tersimpan (${res.qris_merchant_name}).`,
       });
     } catch (e) {
       const unreadable = e instanceof ApiError && e.code === 'INVALID_QRIS_PAYLOAD';
       setDecodeNote({
         ok: false,
         text: unreadable
-          ? 'Kode QRIS tidak terbaca dari gambar. Isi kode QRIS secara manual, atau unggah gambar yang lebih jelas (PNG/JPG).'
-          : 'Gambar tersimpan, tetapi kode QRIS belum bisa dibaca otomatis. Isi kode QRIS secara manual.',
+          ? 'Kode QRIS tidak terbaca dari gambar. Gambar QRIS belum tersimpan. Isi kode QRIS secara manual, lalu tekan Simpan pengaturan.'
+          : 'Gambar QRIS belum tersimpan. Isi kode QRIS, lalu tekan Simpan pengaturan.',
       });
     }
   }
@@ -149,23 +216,26 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
 
   return (
     <form
-      onSubmit={(e) => void form.handleSubmit((v) => save.mutateAsync(v).catch(() => undefined))(e)}
+      onSubmit={(e) => {
+        setInvalidLabels([]);
+        void form.handleSubmit((v) => {
+          if (isOwner && v.operations_started_on !== (settings.operations_started_on ?? '')) {
+            setConfirmDate(v);
+            return undefined;
+          }
+          return save.mutateAsync(v).catch(() => undefined);
+        }, onInvalid)(e);
+      }}
       noValidate
-      className="grid gap-4 lg:grid-cols-[1fr_20rem]"
+      className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
     >
       <div className="space-y-4">
         {save.error ? (
           <Alert>
-            {badQris ? 'Kode QRIS tidak valid. Periksa kembali isinya.' : errorMessage(save.error)}
+            {badQris
+              ? 'Kode QRIS tidak valid. Periksa kembali isinya.'
+              : 'Gagal menyimpan. Coba lagi ya.'}
           </Alert>
-        ) : null}
-        {save.isSuccess && !form.formState.isDirty ? (
-          <p
-            role="status"
-            className="rounded-[12px] bg-brand-tint px-3.5 py-2 text-sm font-semibold text-brand-text"
-          >
-            Pengaturan tersimpan.
-          </p>
         ) : null}
         <Card>
           <h2 className="mb-3 text-lg">Toko</h2>
@@ -189,9 +259,25 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 label="Logo"
                 purpose="logo"
                 value={field.value}
-                onChange={field.onChange}
+                onChange={changeLogo}
+                notice={logoNotice}
               />
             )}
+          />
+        </Card>
+        <Card>
+          <h2 className="mb-3 text-lg">Cabang</h2>
+          <Field
+            label="Tanggal mulai operasional"
+            type="date"
+            disabled={!isOwner}
+            hint={
+              isOwner
+                ? 'Rekap omzet, pengeluaran, dan laba dihitung mulai tanggal ini. Transaksi sebelumnya tetap ada di Riwayat transaksi. Boleh dikosongkan.'
+                : 'Hanya pemilik yang bisa mengubahnya. Rekap omzet, pengeluaran, dan laba dihitung mulai tanggal ini.'
+            }
+            error={errors.operations_started_on?.message}
+            {...form.register('operations_started_on')}
           />
         </Card>
         <Card>
@@ -222,18 +308,20 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 label="Gambar QRIS"
                 purpose="qris_image"
                 value={field.value}
-                onChange={field.onChange}
+                onChange={changeQrisImage}
                 onUploaded={decodeQris}
+                hint={
+                  form.formState.dirtyFields.qris_static_image_url
+                    ? 'Belum tersimpan. Isi kode QRIS lalu tekan Simpan pengaturan.'
+                    : undefined
+                }
               />
             )}
           />
           {decodeNote ? (
-            <p
-              role={decodeNote.ok ? 'status' : 'alert'}
-              className={`-mt-2 mb-3 text-[13px] ${decodeNote.ok ? 'text-brand-text' : 'text-danger'}`}
-            >
-              {decodeNote.text}
-            </p>
+            <div role={decodeNote.ok ? 'status' : 'alert'} className="-mt-1">
+              <NoticeCard kind="info">{decodeNote.text}</NoticeCard>
+            </div>
           ) : null}
           <TextareaField
             label="Kode QRIS"
@@ -247,10 +335,53 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
             {...form.register('qris_embed_amount')}
           />
         </Card>
-        <Button type="submit" variant="primary" disabled={save.isPending}>
-          Simpan perubahan
-        </Button>
+        <div className="sticky bottom-20 z-[5] rounded-3xl bg-surface p-3 shadow-up md:bottom-4">
+          {invalidLabels.length > 0 ? (
+            <Alert>Ada isian yang perlu diperbaiki: {invalidLabels.join(', ')}.</Alert>
+          ) : null}
+          <div className="flex items-center gap-3">
+            <Button
+              type="submit"
+              variant="primary"
+              className="flex-1 sm:flex-none"
+              disabled={save.isPending}
+            >
+              Simpan pengaturan
+            </Button>
+            {save.isSuccess && !form.formState.isDirty ? (
+              <p
+                role="status"
+                className="flex items-center gap-1 text-sm font-extrabold text-ok-ink"
+              >
+                <Check size={18} aria-hidden="true" />
+                Tersimpan
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
+      {confirmDate ? (
+        <ConfirmDialog
+          title="Ubah tanggal mulai?"
+          confirmLabel="Ubah tanggal"
+          tone="primary"
+          pending={save.isPending}
+          onConfirm={() => {
+            const v = confirmDate;
+            void save
+              .mutateAsync(v)
+              .catch(() => undefined)
+              .finally(() => setConfirmDate(null));
+          }}
+          onClose={() => setConfirmDate(null)}
+        >
+          Ubah tanggal mulai {activeOutlet?.name ?? 'cabang'} ke{' '}
+          {confirmDate.operations_started_on
+            ? formatDate(confirmDate.operations_started_on)
+            : 'kosong (tanpa batas)'}
+          ? Angka Rekap akan dihitung ulang. Data lama tidak dihapus.
+        </ConfirmDialog>
+      ) : null}
       <aside aria-label="Pratinjau struk" className="lg:sticky lg:top-4 lg:self-start">
         <h2 className="mb-2 text-lg">Pratinjau struk</h2>
         <ReceiptPreview
@@ -272,16 +403,17 @@ export function SettingsPage() {
   });
   return (
     <>
-      <PageHeader title="Pengaturan toko" />
+      <PageHeader title="Pengaturan toko" subtitle="Tampil di struk dan aplikasi kasir" />
       {isPending ? <Skeleton /> : null}
       {error ? (
-        <Alert>
-          Gagal memuat pengaturan.{' '}
-          <button type="button" className="underline" onClick={() => void refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, pengaturannya belum kebuka. Coba lagi ya"
+          onRetry={() => void refetch()}
+        />
       ) : null}
+      <div className="mb-4">
+        <ThemeCard />
+      </div>
       {data ? <SettingsForm settings={data} /> : null}
     </>
   );

@@ -17,7 +17,10 @@ const loginBody = z.object({
     .max(254)
     .regex(/^[^@\s]+@[^@\s]+$/, 'Invalid email'),
   password: z.string().min(8).max(200),
+  outlet_id: uuid.optional(),
 });
+const refreshBody = z.object({ outlet_id: uuid.optional() });
+const switchOutletBody = z.object({ outlet_id: uuid });
 const pinLoginBody = z.object({
   employee_id: uuid,
   pin: z.string().regex(/^[0-9]{6}$/, 'PIN must be 6 digits'),
@@ -44,7 +47,12 @@ export function authRoutes(ctx: AppContext, guards: Guards) {
       },
       async (req, reply) => {
         const body = parse(loginBody, req.body);
-        const result = await owner.login(body.email, body.password, clientIp(ctx.config, req));
+        const result = await owner.login(
+          body.email,
+          body.password,
+          clientIp(ctx.config, req),
+          body.outlet_id,
+        );
         void reply.setCookie(REFRESH_COOKIE, result.refreshToken, {
           ...refreshCookieOptions,
           maxAge: ctx.config.refreshTtlSec,
@@ -54,12 +62,19 @@ export function authRoutes(ctx: AppContext, guards: Guards) {
     );
 
     app.post('/auth/refresh', async (req, reply) => {
-      const result = await owner.refresh(req.cookies[REFRESH_COOKIE]);
+      const body = parse(refreshBody, req.body);
+      const result = await owner.refresh(req.cookies[REFRESH_COOKIE], body.outlet_id);
       void reply.setCookie(REFRESH_COOKIE, result.refreshToken, {
         ...refreshCookieOptions,
         maxAge: ctx.config.refreshTtlSec,
       });
       return result.session;
+    });
+
+    app.post('/auth/switch-outlet', { preHandler: guards.owner }, async (req) => {
+      const principal = requireUser(req);
+      const body = parse(switchOutletBody, req.body);
+      return owner.switchOutlet(principal.id, body.outlet_id);
     });
 
     app.post('/auth/logout', { preHandler: guards.owner }, async (req, reply) => {

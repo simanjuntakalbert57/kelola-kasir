@@ -125,8 +125,8 @@ test.describe('QRIS: gambar + "Tanamkan nominal" wajib berkode (TC-QRS-11, TC-SE
     await openAsOwner(page, '/pengaturan', QRIS_OWNER_EMAIL);
     await expect(page.getByLabel('Nama toko')).toBeVisible();
     await page.getByLabel('Alamat').fill('Jl. Uji QRIS 1');
-    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
-    await expect(page.getByText('Pengaturan tersimpan.')).toBeVisible();
+    await page.getByRole('button', { name: 'Simpan pengaturan' }).click();
+    await expect(page.getByText('Tersimpan')).toBeVisible();
     await expect(page.getByText(/500|Internal|undefined/)).toHaveCount(0);
     await expect(page.getByLabel('Tanamkan nominal ke QRIS')).toBeEnabled(); // QRIS terpasang (gambar + kode)
   });
@@ -139,8 +139,8 @@ test.describe('QRIS: gambar + "Tanamkan nominal" wajib berkode (TC-QRS-11, TC-SE
     await expect(embed).toBeEnabled();
     await page.getByLabel('Kode QRIS', { exact: true }).fill('');
     await expect(embed).toBeDisabled();
-    await page.getByRole('button', { name: 'Simpan perubahan' }).click();
+    await page.getByRole('button', { name: 'Simpan pengaturan' }).click();
     await expect(page.getByText(/Kode QRIS wajib diisi/)).toBeVisible();
-    await expect(page.getByText('Pengaturan tersimpan.')).toHaveCount(0);
+    await expect(page.getByText('Tersimpan')).toHaveCount(0);
   });
 });

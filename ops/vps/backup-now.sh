@@ -5,8 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Backups stay off until AGE_RECIPIENT is set (owner deferred them during UAT, DEAR-19). Required before go-live.
+# BACKUP_REQUIRED=1 (deploy workflow, before every rollout) makes that a failure instead of a skip.
 if [[ -z "$(sed -n 's/^AGE_RECIPIENT=//p' .env | tail -n 1)" ]]; then
   echo "backup skipped: AGE_RECIPIENT is empty in .env (backups not configured yet)" >&2
+  [[ "${BACKUP_REQUIRED:-}" == 1 ]] && exit 1
   exit 0
 fi
 # Host network for the build: Docker's default bridge has no working DNS on the VPS (DEAR-33).

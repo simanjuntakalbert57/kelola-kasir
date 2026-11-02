@@ -1,5 +1,5 @@
 import { PassThrough, Readable } from 'node:stream';
-import { and, asc, eq, gt, gte, inArray, lt, or, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lt, or, type SQL } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import type { Database } from '../../db/client.js';
 import { transactionItems, transactions } from '../../db/schema.js';
@@ -72,6 +72,7 @@ async function* exportRows(db: Database, f: ExportFilter): AsyncGenerator<Cell[]
   let cursor: { t: Date; id: string } | undefined;
   for (;;) {
     const conditions: SQL[] = [eq(transactions.outletId, f.outletId)];
+    conditions.push(isNull(transactions.deletedAt));
     if (f.from) conditions.push(gte(transactions.clientCreatedAt, f.from));
     if (f.to) conditions.push(lt(transactions.clientCreatedAt, f.to));
     if (f.employeeId) conditions.push(eq(transactions.employeeId, f.employeeId));

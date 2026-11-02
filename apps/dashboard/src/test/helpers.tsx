@@ -18,6 +18,7 @@ export function problem(status: number, code: string, title = 'Error'): Response
 export const session = {
   access_token: 'tok',
   expires_in: 900,
+  active_outlet_id: '22222222-2222-4222-8222-222222222222',
   user: {
     id: '11111111-1111-4111-8111-111111111111',
     email: 'albert@contoh.com',
@@ -28,13 +29,15 @@ export const session = {
         code: 'JUS1',
         name: 'Jus Albert',
         timezone: 'Asia/Jakarta',
+        role: 'owner' as const,
+        operations_started_on: null,
       },
     ],
   },
 };
 
 /** Stubs `fetch`; `routes` maps "METHOD /path" to a handler result. Unmatched calls fail the test. */
-export function mockApi(routes: Record<string, (body: unknown) => Response>) {
+export function mockApi(routes: Record<string, (body: unknown) => Response | Promise<Response>>) {
   const calls: { key: string; body: unknown }[] = [];
   vi.stubGlobal(
     'fetch',
@@ -42,7 +45,12 @@ export function mockApi(routes: Record<string, (body: unknown) => Response>) {
       const path = String(input).replace(/^.*\/v1/, '');
       const key = `${init?.method ?? 'GET'} ${path}`;
       const route = key.split('?', 1)[0] ?? key;
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      const body =
+        init?.body instanceof FormData
+          ? Object.fromEntries(init.body.entries())
+          : init?.body
+            ? JSON.parse(String(init.body))
+            : undefined;
       calls.push({ key, body });
       const handler = routes[key] ?? routes[route];
       if (!handler) throw new Error(`Unmocked request: ${key}`);

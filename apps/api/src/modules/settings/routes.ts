@@ -2,12 +2,13 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
-import { employees, outletSettings, users } from '../../db/schema.js';
+import { employees, outletSettings, outlets, users } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { pinFingerprint } from '../../lib/crypto.js';
 import { hashSecret } from '../../lib/passwords.js';
 import { decodeQrFromImage } from '../../lib/qr-image.js';
 import { parseQris, QrisError } from '../../lib/qris.js';
+import { addDays, dateInZone } from '../../lib/time.js';
 import { imageUrlSchema } from '../../lib/urls.js';
 import { parse } from '../../lib/validate.js';
 import { requestOutletId, requireUser, type Guards } from '../../plugins/auth.js';
@@ -21,7 +22,7 @@ const rupiah = z.number().int().min(1).max(100_000_000);
 
 export function settingsRoutes(ctx: AppContext, guards: Guards) {
   const { db, config } = ctx;
-  const url = imageUrlSchema(config.storage?.publicBaseUrl);
+  const url = imageUrlSchema(config.storage);
   const text = (max: number) =>
     z
       .string()
@@ -42,6 +43,7 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
       offline_login_enabled: z.boolean(),
       quick_cash_amounts: z.array(rupiah).max(6),
       owner_pin: z.string().regex(/^[0-9]{6}$/, 'PIN must be 6 digits'),
+      operations_started_on: z.iso.date().nullable(),
     })
     .partial()
     .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field' });
@@ -49,12 +51,16 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
   return async (app: FastifyInstance): Promise<void> => {
     app.get('/settings', { preHandler: guards.ownerOrDevice }, async (req) => {
       const { outlet, settings } = await loadSettings(db, requestOutletId(req));
-      return toSettings(outlet, settings);
+      return toSettings(outlet, settings, { includeOperationsStart: Boolean(req.principal) });
     });
 
     app.patch('/settings', { preHandler: guards.owner }, async (req) => {
       const principal = requireUser(req);
       const body = parse(updateBody, req.body);
+      // Only the owner role sets the start of operations; checked before anything is saved.
+      if (body.operations_started_on !== undefined && principal.role !== 'owner') {
+        throw errors.forbidden('Only the owner can change operations_started_on');
+      }
 
       let qris: { payload: string | null; merchantName: string | null } | undefined;
       if (body.qris_static_payload !== undefined) {
@@ -74,7 +80,24 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
       const ownerPinHash = body.owner_pin ? await hashSecret(body.owner_pin) : undefined;
 
       return db.transaction(async (tx) => {
-        const { outlet, settings: before } = await loadSettings(tx, principal.outletId);
+        const { outlet: outletBefore, settings: before } = await loadSettings(
+          tx,
+          principal.outletId,
+        );
+        if (body.operations_started_on) {
+          const today = dateInZone(ctx.now(), outletBefore.timezone);
+          if (
+            body.operations_started_on < '2020-01-01' ||
+            body.operations_started_on > addDays(today, 366)
+          ) {
+            throw errors.validation([
+              {
+                path: 'operations_started_on',
+                message: 'Date must be between 2020-01-01 and one year from today',
+              },
+            ]);
+          }
+        }
 
         // The image and "embed amount" only make sense with a valid code: every QRIS sale needs the
         // payload, so reject the combination here and not only in the dashboard.
@@ -90,6 +113,17 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
             'QRIS payload required',
             'A QRIS image or qris_embed_amount requires a valid qris_static_payload; decode the image with POST /settings/qris/decode or enter the code manually',
           );
+        }
+
+        let outlet = outletBefore;
+        if (body.operations_started_on !== undefined) {
+          const [updated] = await tx
+            .update(outlets)
+            .set({ operationsStartedOn: body.operations_started_on })
+            .where(eq(outlets.id, principal.outletId))
+            .returning();
+          if (!updated) throw new Error('failed to update outlet');
+          outlet = updated;
         }
 
         if (body.owner_pin) {
@@ -164,8 +198,8 @@ export function settingsRoutes(ctx: AppContext, guards: Guards) {
             .where(eq(employees.outletId, principal.outletId));
         }
 
-        const view = toSettings(outlet, before);
-        const next = toSettings(outlet, row);
+        const view = toSettings(outletBefore, before, { includeOperationsStart: true });
+        const next = toSettings(outlet, row, { includeOperationsStart: true });
         const changed = (Object.keys(next) as (keyof typeof next)[]).filter(
           (k) => JSON.stringify(view[k]) !== JSON.stringify(next[k]),
         );

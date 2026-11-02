@@ -18,3 +18,10 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0012](0012-vps-hosting.md) | Hosting API + PostgreSQL di VPS (Rumahweb) (Docker Compose + Caddy), backup harian ke R2/B2 | Accepted (akses APK diubah 0014) |
 | [0013](0013-review-to-qa-via-mention.md) | Alur review → QA: Tech Lead mention QA setelah merge + deploy staging | Accepted |
 | [0014](0014-kasir-via-pages-proxy.md) | Aplikasi kasir lewat proxy Cloudflare Pages `/v1`, tanpa domain API berbayar | Accepted |
+| [0015](0015-private-media-bucket.md) | Bucket media privat, gambar disajikan lewat `GET /v1/media/*` (redirect presigned GET) | Accepted (menggantikan bagian media publik di 0011) |
+| [0016](0016-telegram-transaction-notifications.md) | Notifikasi transaksi & void ke Telegram owner (outbox `notification_log`, dispatcher in-process) | Superseded by 0017 |
+| [0017](0017-web-push-transaction-notifications.md) | Notifikasi transaksi & void di laptop owner lewat Web Push dashboard (Service Worker + VAPID) | Accepted (menggantikan 0016) |
+| [0018](0018-product-import-csv-xlsx.md) | Impor produk CSV/XLSX: pratinjau tanpa state + simpan dengan unggah ulang file dan `import_token` | Accepted |
+| [0019](0019-owner-transaction-soft-delete.md) | Owner hapus transaksi: soft delete (`deleted_*`) + tabel riwayat `transaction_deletions` + pulihkan; query wajib `deleted_at IS NULL` | Accepted |
+| [0020](0020-multi-outlet-owner.md) | Multi-cabang: token owner terikat 1 outlet aktif + `POST /auth/switch-outlet`; `outlet_scope=all` untuk laporan; rename outlet dengan `previous_codes` | Accepted |
+| [0021](0021-outlet-expenses.md) | Pengeluaran per cabang: `expense_categories` + `expenses` (soft delete + `expense_history`), rekap bulanan & laba sederhana, siap Fase 2 kas laci | Accepted |

@@ -137,7 +137,8 @@ export function createPaymentService(ctx: AppContext): PaymentService {
 
   return {
     async get(outletId, paymentId) {
-      return db.transaction(async (tx) => {
+      let paidTransactionId: string | undefined;
+      const result = await db.transaction(async (tx) => {
         const { payment, transaction } = await lockPayment(tx, outletId, paymentId);
         if (payment.status !== 'pending' || payment.method !== 'qris') return payment;
         const now = ctx.now();
@@ -146,8 +147,10 @@ export function createPaymentService(ctx: AppContext): PaymentService {
         } else if (payment.confirmationMode === 'auto') {
           // Auto mode: ask the provider (poll fallback next to the webhook).
           const status = await providerOf(payment).getStatus(payment);
-          if (status === 'paid') await markPaid(tx, payment, transaction, now, null);
-          else if (status === 'expired' || status === 'failed') {
+          if (status === 'paid') {
+            await markPaid(tx, payment, transaction, now, null);
+            paidTransactionId = transaction.id;
+          } else if (status === 'expired' || status === 'failed') {
             await expire(tx, payment, transaction, now);
           }
         } else {
@@ -156,10 +159,13 @@ export function createPaymentService(ctx: AppContext): PaymentService {
         const [fresh] = await tx.select().from(payments).where(eq(payments.id, paymentId));
         return fresh ?? payment;
       });
+      if (paidTransactionId) ctx.notifier.onTransactionPaid(paidTransactionId);
+      return result;
     },
 
     async confirm(outletId, paymentId, employeeId, ip) {
       let notPending: string | undefined;
+      let paidNow = false;
       const transactionId = await db.transaction(async (tx) => {
         const { payment, transaction } = await lockPayment(tx, outletId, paymentId);
         if (payment.method !== 'qris' || payment.confirmationMode !== 'manual') {
@@ -181,6 +187,7 @@ export function createPaymentService(ctx: AppContext): PaymentService {
           return transaction.id;
         }
         await markPaid(tx, payment, transaction, now, employeeId);
+        paidNow = true;
         await writeAudit(tx, {
           outletId,
           actor: { type: 'employee', id: employeeId },
@@ -195,6 +202,7 @@ export function createPaymentService(ctx: AppContext): PaymentService {
       if (notPending) {
         throw errors.conflict('PAYMENT_NOT_PENDING', 'Payment is not pending', notPending);
       }
+      if (paidNow) ctx.notifier.onTransactionPaid(transactionId);
       return transactionId;
     },
 

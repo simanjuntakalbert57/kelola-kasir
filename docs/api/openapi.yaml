@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.3.0-draft
+  version: 0.6.0-draft
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -15,6 +15,9 @@ info:
     - Cursor pagination: `cursor` + `limit` (default 50, max 200).
     - Products have no variants/options: one product = one price. A transaction item is product + quantity + price snapshot.
     - One open shift per outlet, shared by every paired device; each transaction records the employee who created it.
+    - Multi-outlet (ADR-0020): an owner access token is bound to ONE active outlet (`OwnerSession.active_outlet_id`);
+      every endpoint works on that outlet. Switch with `POST /auth/switch-outlet`. Only endpoints that document
+      `outlet_scope=all` aggregate over every outlet where the caller has the `owner` role.
     Feature tags (P-xx / O-xx) refer to the PRD.
 servers:
   - url: https://kelola-kasir.pages.dev/v1
@@ -52,8 +55,12 @@ tags:
     description: Owner reports
   - name: settings
     description: Store settings (receipt header/footer, QRIS)
+  - name: expenses
+    description: Outlet expenses, expense categories and the monthly expense & profit report (ADR-0021)
   - name: uploads
     description: Presigned uploads for images
+  - name: notifications
+    description: Owner laptop notifications via Web Push for paid transactions and voids (ADR-0017)
 
 security: []
 
@@ -74,6 +81,10 @@ paths:
               properties:
                 email: { type: string, format: email }
                 password: { type: string, minLength: 8 }
+                outlet_id:
+                  type: string
+                  format: uuid
+                  description: Outlet to activate (the dashboard's last choice). Ignored when the user is not a member of it; then the primary outlet is used (ADR-0020).
       responses:
         '200':
           description: Logged in. Refresh token is set as cookie `kk_refresh` (`HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`, no `Domain`). The dashboard must call the API same-origin through the `/v1` proxy (ADR-0011).
@@ -88,7 +99,19 @@ paths:
     post:
       tags: [auth]
       summary: Rotate refresh token (cookie) and issue a new access token (O-01)
+      description: |
+        The new access token is bound to `outlet_id` when the user is still a member of it, otherwise to the primary
+        outlet (first `owner` membership by outlet code, else the first membership). The dashboard sends its last
+        selected outlet so a page reload keeps the branch (ADR-0020). A missing body is the same as no `outlet_id`.
       operationId: ownerRefresh
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                outlet_id: { type: string, format: uuid }
       responses:
         '200':
           description: New session
@@ -105,6 +128,40 @@ paths:
       responses:
         '204': { description: Logged out }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/switch-outlet:
+    post:
+      tags: [auth]
+      summary: Switch the active outlet of the owner session (ADR-0020)
+      description: |
+        Issues a new access token bound to `outlet_id` with the caller's role in that outlet (an account may be `owner`
+        of one outlet and `manager` of another). The refresh cookie is not rotated; the next `POST /auth/refresh` keeps
+        the outlet when the dashboard sends it. The old access token stays valid until it expires (15 min) and keeps
+        pointing at the previous outlet, so the dashboard must replace it and drop outlet-scoped caches.
+        Not audited (navigation, not a change).
+      operationId: switchOutlet
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outlet_id]
+              properties:
+                outlet_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Session for the chosen outlet (same shape as login)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: '`FORBIDDEN`: the user is not a member of that outlet'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /auth/pin-login:
     post:
       tags: [auth]
@@ -556,6 +613,110 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /products/import/template:
+    get:
+      tags: [catalog]
+      summary: Download the product import template (DEAR-111, ADR-0018)
+      description: |
+        Generated on the fly with the same columns the parser expects: `nama, kategori, harga, favorit, aktif`.
+        XLSX has a `Produk` sheet (frozen header + 2 example rows, `harga` formatted `#,##0`, `ya,tidak` list validation
+        on `favorit`/`aktif`) and a `Petunjuk` sheet. CSV is UTF-8 with a BOM, `;` separator and CRLF line ends so it
+        opens in columns in Indonesian-locale Excel. Sent with `Content-Disposition: attachment;
+        filename="template-impor-produk.<format>"` and `Cache-Control: no-store`. Owner role only.
+      operationId: getProductImportTemplate
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [xlsx, csv] } }
+      responses:
+        '200':
+          description: Template file
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /products/import/preview:
+    post:
+      tags: [catalog]
+      summary: Check an import file without saving anything (dry-run) (DEAR-111, ADR-0018)
+      description: |
+        Parses and validates the file and matches every row against the outlet's live (not deleted) products by name
+        (trimmed, whitespace collapsed, case-insensitive). Nothing is written. Row-level problems are reported in
+        `rows[].errors` with a `200`; only file-level problems are a `Problem`. `import_token` is returned only when
+        `summary.error = 0` and `summary.create + summary.update > 0`; pass it with the **same file** to `commit`
+        within 30 minutes. Format comes from the file name extension plus magic bytes, not the part `Content-Type`.
+        The file is processed in memory only and never stored or logged. Owner role only; rate limited (20/min per
+        user, shared with `commit`).
+      operationId: previewProductImport
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ProductImportPreviewRequest' }
+      responses:
+        '200':
+          description: Preview (may contain row errors)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImportPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/ImportFileTooLarge' }
+        '415': { $ref: '#/components/responses/ImportUnsupportedFile' }
+        '422': { $ref: '#/components/responses/ImportFileInvalid' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /products/import/commit:
+    post:
+      tags: [catalog]
+      summary: Save a previewed import, all rows or nothing (DEAR-111, ADR-0018)
+      description: |
+        Send the same file again with the `import_token` from `preview`. The server re-parses and re-validates it with
+        the same rules, verifies the token (file hash, user, outlet, expiry) and checks, under a per-outlet lock, that
+        the catalog has not changed since the preview. Then, in one database transaction, it creates new categories,
+        creates and updates products, and writes the audit log (`product.imported`, plus `product.price_changed` per
+        price change). Products are never deleted; `is_sold_out`, `image_url` and `sort_order` of existing products
+        are never touched. Changes reach the cashier app through `/sync/pull`. Owner role only.
+      operationId: commitProductImport
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ProductImportCommitRequest' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductImportResult' }
+        '400':
+          description: '`VALIDATION_ERROR` (missing field) or `IMPORT_TOKEN_INVALID` (malformed, wrong signature, or issued for another file/user/outlet)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`IMPORT_STALE`: the token expired or the catalog changed since the preview; preview again'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '413': { $ref: '#/components/responses/ImportFileTooLarge' }
+        '415': { $ref: '#/components/responses/ImportUnsupportedFile' }
+        '422':
+          description: |
+            File-level problem (`IMPORT_FILE_UNREADABLE`, `IMPORT_COLUMNS_INVALID`, `IMPORT_TOO_MANY_ROWS`) or
+            `IMPORT_HAS_ERRORS` (the file has row errors; nothing was saved)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   # ---------------------------------------------------------------- shifts
   /shifts:
     get:
@@ -697,6 +858,7 @@ paths:
       description: |
         Employees: results are restricted to their outlet and `scope` (the open shift or today, WIB);
         `date_from`/`date_to`/`employee_id` are ignored. Owner: all filters apply.
+        Transactions deleted by the owner (ADR-0019) are never listed; see `GET /transactions/deleted`.
       operationId: listTransactions
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters:
@@ -778,7 +940,7 @@ paths:
         prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
         (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
         Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
-        Harga satuan, Total baris, Catatan` (one row per item).
+        Harga satuan, Total baris, Catatan` (one row per item). Transactions deleted by the owner (ADR-0019) are never exported.
       operationId: exportTransactions
       security: [{ ownerAuth: [] }]
       parameters:
@@ -800,10 +962,46 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /transactions/deleted:
+    get:
+      tags: [transactions]
+      summary: Deletion history (Riwayat Hapus) — transactions deleted by the owner (ADR-0019)
+      description: |
+        Only transactions that are deleted **now** are listed (a restored transaction leaves this list; its delete and
+        restore stay in `deletion_history` of `GET /transactions/{transaction_id}` and in `audit_logs`).
+        Ordered by `deleted_at` descending. `date_from`/`date_to` are inclusive WIB business dates applied to
+        `date_field`: the delete time (default) or the transaction time (`client_created_at`). Owner role only;
+        a manager or employee gets `403`.
+      operationId: listDeletedTransactions
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: date_field, in: query, schema: { type: string, enum: [deleted_at, client_created_at], default: deleted_at } }
+        - { name: q, in: query, description: Transaction number or customer label, schema: { type: string } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Deleted transactions (without items; open the detail for items and payments)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DeletedTransactionSummary' } }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /transactions/{transaction_id}:
     get:
       tags: [transactions]
       summary: Transaction detail with items and payments (P-09, O-03)
+      description: |
+        A transaction deleted by the owner (ADR-0019) is `404` for employees. The owner still gets it, with `deleted`
+        set and the full `deletion_history`, so Riwayat Hapus can open its detail.
       operationId: getTransaction
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -815,6 +1013,70 @@ paths:
               schema: { $ref: '#/components/schemas/Transaction' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [transactions]
+      summary: Owner deletes a transaction (soft delete into Riwayat Hapus, ADR-0019)
+      description: |
+        Soft delete: the transaction, its items and payments stay in the database with `deleted_at`, `deleted_by` and
+        `delete_reason`, and a `delete` row is appended to its deletion history. From then on it is excluded from the
+        transaction list, dashboard, reports, export, shift sales and notifications. Recorded in `audit_logs`
+        (`transaction.deleted`, before/after snapshot) in the same database transaction.
+
+        - Owner role only (`403` for a manager, employee or device).
+        - `pending` and `void_requested` transactions cannot be deleted (`409 TRANSACTION_NOT_DELETABLE`): finish the
+          payment or the void decision first. Any other status (`paid`, `voided`, `cancelled`) can be deleted.
+        - Idempotent: deleting an already deleted transaction answers `200` with the current state; the new `reason` is
+          ignored and no history row is added.
+        - A cashier device re-sending the same transaction (`POST /transactions` or `/sync/push`) never brings it back.
+      operationId: deleteTransaction
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionDeleteInput' }
+      responses:
+        '200':
+          description: Deleted (or already deleted); the transaction with `deleted` set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`TRANSACTION_NOT_DELETABLE` (status `pending` or `void_requested`)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /transactions/{transaction_id}/restore:
+    post:
+      tags: [transactions]
+      summary: Owner restores a deleted transaction (ADR-0019)
+      description: |
+        Clears `deleted_at`, `deleted_by` and `delete_reason` and appends a `restore` row to the deletion history; the
+        transaction counts again everywhere it did before. Recorded in `audit_logs` (`transaction.restored`) in the same
+        database transaction. Owner role only. Idempotent: restoring a transaction that is not deleted answers `200`
+        and adds nothing.
+      operationId: restoreTransaction
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransactionId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionRestoreInput' }
+      responses:
+        '200':
+          description: Restored (or was not deleted); the transaction with `deleted` = null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /transactions/{transaction_id}/receipt:
     get:
       tags: [transactions]
@@ -823,6 +1085,7 @@ paths:
         Used for digital receipts and reprints from the history screen. The cashier app formats
         ESC/POS itself from local data + cached settings, so printing also works offline;
         this endpoint is the online source for reprints on another device and for the dashboard preview.
+        A transaction deleted by the owner (ADR-0019) is `404`.
       operationId: getReceipt
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -845,6 +1108,7 @@ paths:
           audit log. A pending request of an employee on the same transaction is approved with it. Repeating the call is harmless.
         Every void is written to the append-only `audit_logs` (`transaction.void_requested`, `transaction.void_approved`)
         with actor, reason and time, in the same database transaction as the status change.
+        A transaction deleted by the owner (ADR-0019) is `404`.
       operationId: createVoidRequest
       security: [{ employeeAuth: [], deviceAuth: [] }, { ownerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/TransactionId' }]
@@ -1250,6 +1514,337 @@ paths:
                         revenue: { $ref: '#/components/schemas/Rupiah' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ---------------------------------------------------------------- expenses (ADR-0021)
+  /expense-categories:
+    get:
+      tags: [expenses]
+      summary: Expense categories of the active outlet
+      description: Ordered by group (`hpp`, `operasional`, `tetap`, `lainnya`), then `sort_order`, then name. Owner or manager.
+      operationId: listExpenseCategories
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: include_archived, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ExpenseCategory' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [expenses]
+      summary: Add an expense category to the active outlet (owner only)
+      operationId: createExpenseCategory
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCategoryInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseCategory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`EXPENSE_CATEGORY_NAME_TAKEN` (an active category of this outlet has the same name, case-insensitive)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /expense-categories/{expense_category_id}:
+    patch:
+      tags: [expenses]
+      summary: Rename, regroup, reorder, archive or unarchive an expense category (owner only)
+      description: |
+        Categories are never deleted: `archived: true` hides it from the picker for new expenses, while existing
+        expenses keep it. Changing `group` also moves the past expenses of this category to the new group in the report.
+      operationId: updateExpenseCategory
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ExpenseCategoryId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCategoryUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseCategory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`EXPENSE_CATEGORY_NAME_TAKEN`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /expenses:
+    get:
+      tags: [expenses]
+      summary: List expenses (Daftar pengeluaran), filterable, for one outlet or all branches
+      description: |
+        Ordered by `spent_on` desc, then `created_at` desc. `date_from`/`date_to` filter on `spent_on`.
+        `status=deleted` lists expenses deleted **now** (Riwayat Hapus, owner only), ordered by `deleted_at` desc.
+        `summary` covers every row matching the filters, not only this page. `category_id` needs `outlet_scope=current`
+        (categories belong to one outlet); use `group` across branches. Owner or manager.
+      operationId: listExpenses
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: group, in: query, schema: { $ref: '#/components/schemas/ExpenseGroup' } }
+        - { name: funding_source, in: query, schema: { $ref: '#/components/schemas/ExpenseFundingSource' } }
+        - { name: q, in: query, description: Text in the description, schema: { type: string, maxLength: 100 } }
+        - { name: status, in: query, schema: { type: string, enum: [active, deleted], default: active } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Expenses
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor, summary]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Expense' } }
+                  next_cursor: { type: [string, 'null'] }
+                  summary:
+                    type: object
+                    required: [count, total_amount]
+                    properties:
+                      count: { type: integer }
+                      total_amount: { $ref: '#/components/schemas/Rupiah' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [expenses]
+      summary: Record an expense in the active outlet (Tambah pengeluaran)
+      description: |
+        Owner or manager. The outlet is the active outlet of the token; to record for another branch, switch first.
+        `id` (UUIDv7, optional) makes the call idempotent: the same id with the same content answers `200` with the
+        stored expense; the same id with other content is `409 ID_REUSED`. Writes an `expense_history` row (`create`)
+        and `audit_logs` (`expense.created`) in the same database transaction.
+      operationId: createExpense
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '200':
+          description: Replay of an earlier create with the same `id` and content
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`ID_REUSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`EXPENSE_CATEGORY_ARCHIVED`, or `INVALID_RECEIPT_URL` (not an `expense_receipt` upload of this outlet). An unknown `category_id` or one of another outlet is `400 VALIDATION_ERROR`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /expenses/export:
+    get:
+      tags: [expenses]
+      summary: Export expenses as CSV or Excel
+      description: |
+        Same filters as `GET /expenses` (active expenses only). Dates WIB, amounts whole Rupiah, CSV UTF-8 with BOM,
+        CRLF and formula-injection guard exactly like `GET /transactions/export`. Columns: `Tanggal, Cabang, Kelompok,
+        Kategori, Keterangan, Jumlah, Sumber dana, Ada nota, Dicatat oleh, Dicatat pada (WIB)`. The `.xlsx` file has a
+        second sheet `Rekap` with, per month of the period and per outlet: omzet, pengeluaran per kelompok, total
+        pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Both sheets apply the operations start
+        of each outlet like the report: expenses with `spent_on` before its `operations_started_on` are left out
+        unless `include_pre_operations=true` (`GET /expenses`, the list screen, never applies it). Audited as
+        `expenses.exported`. Owner or manager.
+      operationId: exportExpenses
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [csv, xlsx] } }
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: group, in: query, schema: { $ref: '#/components/schemas/ExpenseGroup' } }
+        - { name: funding_source, in: query, schema: { $ref: '#/components/schemas/ExpenseFundingSource' } }
+        - $ref: '#/components/parameters/IncludePreOperations'
+      responses:
+        '200':
+          description: File stream
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /expenses/{expense_id}:
+    get:
+      tags: [expenses]
+      summary: Expense detail with its history
+      description: |
+        Looked up across every outlet where the caller is a member (so a row of "Semua cabang" opens without
+        switching); the caller's role in the expense's outlet applies. A deleted expense is visible to owners only.
+      operationId: getExpense
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ExpenseId' }]
+      responses:
+        '200':
+          description: Expense
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [expenses]
+      summary: Correct an expense
+      description: |
+        Owner or manager of the expense's outlet. Only sent fields change; `receipt_url: null` removes the receipt.
+        `category_id` must be an active category of the same outlet. A deleted expense cannot be edited
+        (`409 EXPENSE_DELETED`, restore it first). A no-op update answers `200` without a history row. Otherwise writes
+        `expense_history` (`update`, with `changes`) and `audit_logs` (`expense.updated`, before/after).
+      operationId: updateExpense
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ExpenseId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`EXPENSE_DELETED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`EXPENSE_CATEGORY_ARCHIVED` or `INVALID_RECEIPT_URL`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [expenses]
+      summary: Delete an expense (owner or manager; soft delete into Riwayat Hapus)
+      description: |
+        Owner or manager role in the expense's outlet (DEAR-143); an expense of an outlet where the caller is not a
+        member is `404`. Sets `deleted_*`, appends `expense_history` (`delete`) and `audit_logs` (`expense.deleted`,
+        `meta.role` = the deleter's role) in one database transaction. Restoring and Riwayat Hapus stay owner-only,
+        so a manager's delete is visible to the owner (`deleted.deleted_by.role`) and reversible. Idempotent like
+        `DELETE /transactions/{id}`: an already deleted expense answers `200`, the new reason is ignored.
+      operationId: deleteExpense
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ExpenseId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseDeleteInput' }
+      responses:
+        '200':
+          description: Deleted (or already deleted)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /expenses/{expense_id}/restore:
+    post:
+      tags: [expenses]
+      summary: Restore a deleted expense (owner only)
+      description: Clears `deleted_*`, appends `expense_history` (`restore`, reason = note) and `audit_logs` (`expense.restored`). Not deleted → `200` without effect.
+      operationId: restoreExpense
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ExpenseId' }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionRestoreInput' }
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/expenses:
+    get:
+      tags: [reports, expenses]
+      summary: Monthly expense recap per outlet with revenue and simple profit (Rekap bulanan)
+      description: |
+        Per month of `month_from`..`month_to` and per outlet of the scope: expenses by group, category and funding
+        source, revenue (omzet) and `profit = revenue - expense_total` (laba sederhana, may be negative).
+        - Expenses: not deleted, month of `spent_on`.
+        - Revenue: exactly the rule of `GET /dashboard/summary` (status `paid` or `void_requested`, not deleted by the
+          owner, month of `client_created_at` in the outlet time zone), so the recap and the dashboard agree.
+        - Operations start (DEAR-140): by default each outlet counts revenue and expenses only from its
+          `operations_started_on` (`null` = no limit). The month of that date is partial, earlier months are zero, and
+          `counted_from` on the outlet cell says so. `include_pre_operations=true` counts everything. Months fully
+          after the start date are identical to `GET /dashboard/summary`.
+        - Every month and every outlet of the scope is present, with zeros when empty.
+        - Cells that combine outlets (`months[].total`, `total.total`) merge categories with the same group and name
+          (case-insensitive); their `category_id` is `null`.
+        Owner or manager; `outlet_scope=all` needs the owner role.
+      operationId: getExpenseReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/MonthFrom'
+        - $ref: '#/components/parameters/MonthTo'
+        - $ref: '#/components/parameters/IncludePreOperations'
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseReport' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   # ---------------------------------------------------------------- settings & uploads
   /settings:
     get:
@@ -1267,6 +1862,7 @@ paths:
     patch:
       tags: [settings]
       summary: Update store settings (O-10)
+      description: Owner or manager, except `operations_started_on` which needs the owner role (DEAR-140).
       operationId: updateSettings
       security: [{ ownerAuth: [] }]
       requestBody:
@@ -1287,6 +1883,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409':
           description: '`PIN_NOT_UNIQUE` (owner PIN equals an employee PIN)'
           content:
@@ -1328,11 +1925,43 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /media/{key}:
+    get:
+      tags: [uploads]
+      operationId: getMedia
+      summary: Stable image URL (private bucket)
+      description: >
+        No authentication (`<img>` cannot send a bearer token). Redirects (302) to a presigned GET that
+        expires in 10 minutes; `Cache-Control: private, max-age=300`. `key` is `<outletId>/<purpose>/<uuid>.<ext>`
+        as returned in `public_url` by `POST /uploads`; any other key is 404 (ADR-0015).
+      security: []
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string }, description: Object key (may contain slashes). }
+      responses:
+        '302':
+          description: Redirect to the presigned download URL.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+            Cache-Control: { schema: { type: string } }
+        '404':
+          description: Key is not a key issued by this API.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`UPLOADS_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /uploads:
     post:
       tags: [uploads]
-      summary: Get a presigned upload URL for product image, logo or QRIS image (O-04, O-10)
-      description: 'The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to 2 MiB.'
+      summary: Get a presigned upload URL for product image, logo, QRIS image or expense receipt (O-04, O-10, ADR-0021)
+      description: |
+        The `PUT` to `upload_url` must send the same `Content-Type` that was requested (it is signed). Size is limited to
+        2 MiB, and to 300 KiB for `expense_receipt` (the dashboard compresses receipts to at most 200 KB first).
+        Objects are keyed `<outlet_id>/<purpose>/<uuid>.<ext>`: the active outlet, or `outlet_id` when given (only for
+        `expense_receipt`, any outlet where the caller is a member, so an expense of another branch can get a receipt).
       operationId: createUpload
       security: [{ ownerAuth: [] }]
       requestBody:
@@ -1343,12 +1972,13 @@ paths:
               type: object
               required: [purpose, content_type, size_bytes]
               properties:
-                purpose: { type: string, enum: [product_image, logo, qris_image] }
+                purpose: { type: string, enum: [product_image, logo, qris_image, expense_receipt] }
                 content_type: { type: string, enum: [image/jpeg, image/png, image/webp] }
-                size_bytes: { type: integer, maximum: 2097152 }
+                size_bytes: { type: integer, minimum: 1, maximum: 2097152, description: 'At most 307200 for `expense_receipt`' }
+                outlet_id: { type: string, format: uuid, description: '`expense_receipt` only; default the active outlet' }
       responses:
         '201':
-          description: Presigned PUT URL; use `public_url` in the product/settings payload afterwards.
+          description: Presigned PUT URL; use `public_url` (stable `/v1/media/<key>` URL on the API) in the product/settings/expense payload afterwards.
           content:
             application/json:
               schema:
@@ -1358,12 +1988,187 @@ paths:
                   upload_url: { type: string, format: uri }
                   public_url: { type: string, format: uri }
                   expires_at: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403':
+          description: '`FORBIDDEN`: `outlet_id` is not an outlet of the caller'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '503':
           description: '`UPLOADS_NOT_CONFIGURED` (no object storage in this environment)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- notifications (ADR-0017)
+  /notifications/push/config:
+    get:
+      tags: [notifications]
+      summary: Web Push configuration (VAPID public key)
+      description: |
+        `configured: false` means VAPID keys are not set on this server; the dashboard shows a "not available yet"
+        state and hides the actions. The public key is not secret; pass it as `applicationServerKey` to
+        `PushManager.subscribe({ userVisibleOnly: true, ... })`. Owner role only.
+      operationId: getPushConfig
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Push configuration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushConfig' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /notifications/push/subscriptions:
+    get:
+      tags: [notifications]
+      summary: Browsers registered for notifications by the signed-in owner in this outlet
+      description: |
+        Subscriptions revoked by the owner (or replaced / over the limit) are omitted. Subscriptions the push service
+        reported as gone (404/410) are listed with `status: expired` so the browser can offer "register again".
+        The push endpoint and keys are never returned.
+      operationId: listPushSubscriptions
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Registered browsers, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PushSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [notifications]
+      summary: Register (or refresh) this browser's push subscription
+      description: |
+        Upsert by `endpoint`. Body is `PushSubscription.toJSON()` plus a display `label`. The same active endpoint
+        of the same owner returns 200 with the existing id (keys, label and last_seen_at are refreshed). An endpoint
+        that belongs to another user is revoked as `replaced` and a new subscription is created (201). At most
+        10 active subscriptions per owner per outlet; registering an 11th revokes the least recently seen one.
+        `endpoint` must be an `https:` URL of a known push service (FCM, Mozilla, WNS, Apple), otherwise
+        `INVALID_PUSH_SUBSCRIPTION` (anti-SSRF). Max 20 calls per 10 minutes per owner.
+      operationId: createPushSubscription
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PushSubscriptionInput' }
+      responses:
+        '200':
+          description: Existing subscription refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushSubscription' }
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PushSubscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED` (no VAPID keys on this server)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /notifications/push/subscriptions/{id}:
+    delete:
+      tags: [notifications]
+      summary: Revoke a registered browser
+      description: Idempotent. The browser should also call `PushSubscription.unsubscribe()` when it revokes itself.
+      operationId: deletePushSubscription
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revoked (or already revoked) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /notifications/push/subscriptions/{id}/test:
+    post:
+      tags: [notifications]
+      summary: Send a test notification to one registered browser
+      description: |
+        Sent synchronously (5 s timeout, TTL 60 s) so the dashboard can tell the outcomes apart. If the push service
+        answers 404/410 the subscription becomes `expired` and the API returns 410 `NOTIFICATION_SUBSCRIPTION_GONE`.
+        Max 1 call per 5 seconds per subscription.
+      operationId: sendPushTest
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Accepted by the push service
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result: { type: string, enum: [sent] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: '`NOTIFICATION_SUBSCRIPTION_GONE` (push service no longer knows this browser; register again)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502':
+          description: '`PUSH_DELIVERY_FAILED` (push service error or timeout)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`NOTIFICATIONS_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /notifications/prefs:
+    get:
+      tags: [notifications]
+      summary: Notification types of the signed-in owner in this outlet (all registered browsers)
+      operationId: getNotificationPrefs
+      security: [{ ownerAuth: [] }]
+      responses:
+        '200':
+          description: Current preferences (defaults to everything on)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPrefs' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [notifications]
+      summary: Turn notification types on or off
+      operationId: updateNotificationPrefs
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPrefsInput' }
+      responses:
+        '200':
+          description: Updated preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPrefs' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   securitySchemes:
@@ -1394,6 +2199,25 @@ components:
     VoidRequestId: { name: void_request_id, in: path, required: true, schema: { type: string, format: uuid } }
     DateFrom: { name: date_from, in: query, description: Inclusive business date (WIB) (2000-01-01 to 2099-12-31), schema: { type: string, format: date } }
     DateTo: { name: date_to, in: query, description: Inclusive business date (WIB) (2000-01-01 to 2099-12-31), schema: { type: string, format: date } }
+    ExpenseId: { name: expense_id, in: path, required: true, schema: { type: string, format: uuid } }
+    ExpenseCategoryId: { name: expense_category_id, in: path, required: true, schema: { type: string, format: uuid } }
+    OutletScope:
+      name: outlet_scope
+      in: query
+      description: |
+        `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+        ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+      schema: { type: string, enum: [current, all], default: current }
+    IncludePreOperations:
+      name: include_pre_operations
+      in: query
+      description: |
+        `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+        that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+        (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+      schema: { type: boolean, default: false }
+    MonthFrom: { name: month_from, in: query, description: 'First month, inclusive (`YYYY-MM`, outlet time zone). Default the current month.', schema: { type: string, pattern: '^20[0-9]{2}-(0[1-9]|1[0-2])$' } }
+    MonthTo: { name: month_to, in: query, description: 'Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months.', schema: { type: string, pattern: '^20[0-9]{2}-(0[1-9]|1[0-2])$' } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
 
@@ -1425,6 +2249,24 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     TooManyRequests:
       description: Rate limited
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ImportFileTooLarge:
+      description: '`IMPORT_FILE_TOO_LARGE` (over 2 MiB)'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ImportUnsupportedFile:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: not a `.csv` or `.xlsx` file'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ImportFileInvalid:
+      description: |
+        `IMPORT_FILE_UNREADABLE` (corrupt, empty, `.xls`, macro-enabled, or too large when unzipped),
+        `IMPORT_COLUMNS_INVALID` (required column missing or duplicated; `errors[].path` = column name) or
+        `IMPORT_TOO_MANY_ROWS` (more than 500 non-empty data rows)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1472,6 +2314,11 @@ components:
         - INVALID_QRIS_PAYLOAD
         - QRIS_PAYLOAD_REQUIRED
         - UPLOADS_NOT_CONFIGURED
+        # notifications (ADR-0017, planned)
+        - NOTIFICATIONS_NOT_CONFIGURED
+        - INVALID_PUSH_SUBSCRIPTION
+        - NOTIFICATION_SUBSCRIPTION_GONE
+        - PUSH_DELIVERY_FAILED
         # shifts
         - SHIFT_ALREADY_OPEN
         - SHIFT_CLOSED
@@ -1494,8 +2341,23 @@ components:
         # voids
         - TRANSACTION_NOT_VOIDABLE
         - VOID_ALREADY_DECIDED
+        # owner delete (ADR-0019)
+        - TRANSACTION_NOT_DELETABLE
         - INVALID_OWNER_PIN
         - OWNER_PIN_LOCKED
+        # expenses (ADR-0021)
+        - EXPENSE_DELETED
+        - EXPENSE_CATEGORY_ARCHIVED
+        - EXPENSE_CATEGORY_NAME_TAKEN
+        - INVALID_RECEIPT_URL
+        # product import (ADR-0018)
+        - IMPORT_FILE_TOO_LARGE
+        - IMPORT_FILE_UNREADABLE
+        - IMPORT_COLUMNS_INVALID
+        - IMPORT_TOO_MANY_ROWS
+        - IMPORT_HAS_ERRORS
+        - IMPORT_TOKEN_INVALID
+        - IMPORT_STALE
     Problem:
       type: object
       required: [type, title, status, code]
@@ -1521,12 +2383,37 @@ components:
         code: { type: string, examples: [JUS1] }
         name: { type: string }
         timezone: { type: string, examples: [Asia/Jakarta] }
+    OwnerOutletRef:
+      allOf:
+        - $ref: '#/components/schemas/OutletRef'
+        - type: object
+          required: [role]
+          properties:
+            role: { type: string, enum: [owner, manager], description: Role of the user in this outlet (ADR-0020) }
+        - $ref: '#/components/schemas/OutletOperationsStart'
+    OutletOperationsStart:
+      type: object
+      required: [operations_started_on]
+      properties:
+        operations_started_on:
+          type: [string, 'null']
+          format: date
+          description: |
+            First business day the branch really operates (DEAR-140, ADR-0021 §3). `GET /reports/expenses` and
+            `GET /expenses/export` count revenue and expenses from this date by default; earlier data (e.g. testing)
+            stays stored and visible in the transaction history. `null` = no limit. Set by the owner in
+            `PATCH /settings`.
+          examples: ['2026-11-10']
     OwnerSession:
       type: object
-      required: [access_token, expires_in, user]
+      required: [access_token, expires_in, active_outlet_id, user]
       properties:
         access_token: { type: string }
         expires_in: { type: integer, examples: [900] }
+        active_outlet_id:
+          type: string
+          format: uuid
+          description: Outlet the access token is bound to; one of `user.outlets` (ADR-0020)
         user:
           type: object
           required: [id, email, name, outlets]
@@ -1534,7 +2421,10 @@ components:
             id: { type: string, format: uuid }
             email: { type: string, format: email }
             name: { type: string }
-            outlets: { type: array, items: { $ref: '#/components/schemas/OutletRef' } }
+            outlets:
+              type: array
+              description: 'Every outlet the user is a member of, ordered by code. The branch picker shows them; "Semua cabang" is offered when at least two have role `owner`.'
+              items: { $ref: '#/components/schemas/OwnerOutletRef' }
     EmployeeSession:
       type: object
       required: [access_token, expires_in, employee]
@@ -1626,6 +2516,101 @@ components:
         products: { type: array, items: { $ref: '#/components/schemas/Product' } }
         cursor: { type: string, description: Use as `cursor` for the next `/sync/pull` }
 
+    ProductImportPreviewRequest:
+      type: object
+      required: [file]
+      properties:
+        file: { type: string, contentEncoding: binary, description: '`.csv` (UTF-8, `;`/`,`/tab separated) or `.xlsx`, at most 2 MiB' }
+    ProductImportCommitRequest:
+      type: object
+      required: [file, import_token]
+      properties:
+        file: { type: string, contentEncoding: binary, description: The same file that was previewed }
+        import_token: { type: string, maxLength: 200 }
+    ProductImportAction:
+      type: string
+      enum: [create, update, unchanged, error]
+      description: |
+        `create` = new product, `update` = existing product (same name) gets new values, `unchanged` = existing product
+        already has these values, `error` = row cannot be imported (see `errors`).
+    ProductImportColumn:
+      type: string
+      enum: [nama, kategori, harga, favorit, aktif]
+    ProductImportRowErrorCode:
+      type: string
+      enum: [REQUIRED, TOO_LONG, UNSAFE_TEXT, INVALID_PRICE, INVALID_BOOLEAN, FORMULA_NOT_ALLOWED, DUPLICATE_IN_FILE, AMBIGUOUS_MATCH]
+      description: |
+        `UNSAFE_TEXT` = text starts with `= + - @`; `FORMULA_NOT_ALLOWED` = XLSX formula without a stored value (or an
+        error value); `DUPLICATE_IN_FILE` = another row has the same name; `AMBIGUOUS_MATCH` = more than one existing
+        product has this name.
+    ProductImportRowError:
+      type: object
+      required: [column, code, message]
+      properties:
+        column: { oneOf: [{ $ref: '#/components/schemas/ProductImportColumn' }, { type: 'null' }], description: '`null` when the error is about the whole row' }
+        code: { $ref: '#/components/schemas/ProductImportRowErrorCode' }
+        message: { type: string, description: 'Indonesian text ready to show, e.g. "Harga harus angka bulat, contoh 15000 atau Rp15.000"' }
+    ProductImportRow:
+      type: object
+      required: [row, action, name, category, price, is_favorite, is_active, product_id, category_is_new, changes, errors]
+      properties:
+        row: { type: integer, minimum: 1, description: Spreadsheet row number as shown in Excel (header is usually row 1) }
+        action: { $ref: '#/components/schemas/ProductImportAction' }
+        name: { type: [string, 'null'], description: Normalized name (null when missing) }
+        category: { type: [string, 'null'], description: Normalized category name (null when missing) }
+        price: { oneOf: [{ $ref: '#/components/schemas/Rupiah' }, { type: 'null' }], description: Parsed price; null when missing or invalid }
+        is_favorite: { type: [boolean, 'null'], description: 'Value that will be saved; null only for error rows where it could not be read' }
+        is_active: { type: [boolean, 'null'], description: 'Value that will be saved; null only for error rows where it could not be read' }
+        product_id: { type: [string, 'null'], format: uuid, description: Existing product for `update`/`unchanged` }
+        category_is_new: { type: boolean, description: The category does not exist yet and will be created }
+        changes:
+          type: array
+          description: 'For `update`: the fields that change, with old and new values'
+          items:
+            type: object
+            required: [field, before, after]
+            properties:
+              field: { type: string, enum: [price, category, is_favorite, is_active] }
+              before: { type: [integer, string, boolean], description: 'Rupiah for `price`, category name for `category`' }
+              after: { type: [integer, string, boolean] }
+        errors: { type: array, items: { $ref: '#/components/schemas/ProductImportRowError' } }
+    ProductImportWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, enum: [UNKNOWN_COLUMN, ENCODING_FALLBACK] }
+        message: { type: string }
+    ProductImportPreview:
+      type: object
+      required: [format, file_sha256, summary, new_categories, rows, warnings, import_token, expires_at]
+      properties:
+        format: { type: string, enum: [csv, xlsx] }
+        file_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        summary:
+          type: object
+          required: [total, create, update, unchanged, error]
+          properties:
+            total: { type: integer, description: Non-empty data rows }
+            create: { type: integer }
+            update: { type: integer }
+            unchanged: { type: integer }
+            error: { type: integer }
+        new_categories: { type: array, items: { type: string }, description: 'Categories that will be created, in file order' }
+        rows: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/ProductImportRow' }, description: Every non-empty data row in file order }
+        warnings: { type: array, items: { $ref: '#/components/schemas/ProductImportWarning' } }
+        import_token:
+          type: [string, 'null']
+          description: Present only when there are no errors and something to save. Valid 30 minutes, only with this exact file.
+        expires_at: { type: [string, 'null'], format: date-time }
+    ProductImportResult:
+      type: object
+      required: [created, updated, unchanged, categories_created]
+      properties:
+        created: { type: integer }
+        updated: { type: integer }
+        unchanged: { type: integer }
+        categories_created: { type: integer }
+
     ShiftStatus:
       type: string
       enum: [open, closed]
@@ -1666,6 +2651,10 @@ components:
         unsynced_hint: { type: boolean, description: True when the device reported queued mutations at close time }
         late_transaction_count: { type: integer, description: Synced transactions created after `closed_at` (not in expected_cash) }
         late_cash_amount: { $ref: '#/components/schemas/Rupiah' }
+        deleted_count:
+          type: integer
+          description: 'Paid transactions of this shift that the owner deleted (ADR-0019), shown as "N transaksi dihapus (Rp X)". Not in the sales totals above'
+        deleted_amount: { $ref: '#/components/schemas/Rupiah', description: Sum of `total` of those deleted transactions }
         by_employee:
           type: array
           description: Per-cashier breakdown; the shift is shared but each transaction is recorded under its cashier
@@ -1793,6 +2782,55 @@ components:
             payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
             void_request: { oneOf: [{ $ref: '#/components/schemas/VoidRequest' }, { type: 'null' }] }
             server_received_at: { type: string, format: date-time }
+            deleted:
+              oneOf: [{ $ref: '#/components/schemas/TransactionDeleted' }, { type: 'null' }]
+              description: Set while the owner has deleted the transaction (ADR-0019); only owners ever see a deleted transaction
+            deletion_history:
+              type: array
+              description: Owner only; every delete and restore, oldest first. Omitted for employees.
+              items: { $ref: '#/components/schemas/TransactionDeletionEvent' }
+    TransactionDeleteInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 200
+          description: Required; trimmed before the length check (e.g. "transaksi uji coba", "dobel input")
+    TransactionRestoreInput:
+      type: object
+      properties:
+        note: { type: string, maxLength: 200, description: Optional note kept in the deletion history }
+    UserRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    TransactionDeleted:
+      type: object
+      required: [deleted_at, deleted_by, reason]
+      properties:
+        deleted_at: { type: string, format: date-time }
+        deleted_by: { $ref: '#/components/schemas/UserRef' }
+        reason: { type: string }
+    TransactionDeletionEvent:
+      type: object
+      required: [id, action, reason, actor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, enum: [delete, restore] }
+        reason: { type: [string, 'null'], description: 'Delete reason, or the optional restore note' }
+        actor: { $ref: '#/components/schemas/UserRef' }
+        created_at: { type: string, format: date-time }
+    DeletedTransactionSummary:
+      allOf:
+        - $ref: '#/components/schemas/TransactionSummary'
+        - type: object
+          required: [deleted]
+          properties:
+            deleted: { $ref: '#/components/schemas/TransactionDeleted' }
     Receipt:
       type: object
       required: [store, cashier_name, transaction]
@@ -1882,6 +2920,215 @@ components:
         device_revoked: { type: boolean, description: 'When true the app must wipe local credentials. A revoked device is normally answered with 401 `DEVICE_REVOKED` before this is reached.' }
         last_number: { type: [string, 'null'], description: Highest transaction number this device has sent; continue the daily sequence after it (ADR-0008) }
 
+    ExpenseGroup:
+      type: string
+      enum: [hpp, operasional, tetap, lainnya]
+      description: '`hpp` = Bahan jus (HPP), `operasional` = Operasional, `tetap` = Tetap, `lainnya` = Lainnya (ADR-0021)'
+    ExpenseFundingSource:
+      type: string
+      enum: [drawer, owner]
+      description: '`drawer` = Kas laci cabang, `owner` = Uang owner (transfer/pribadi). Fase 1: informational only, shift cash is not affected.'
+    ExpenseCategory:
+      type: object
+      required: [id, group, name, sort_order, archived]
+      properties:
+        id: { type: string, format: uuid }
+        group: { $ref: '#/components/schemas/ExpenseGroup' }
+        name: { type: string, examples: [Buah] }
+        sort_order: { type: integer }
+        archived: { type: boolean }
+    ExpenseCategoryInput:
+      type: object
+      required: [group, name]
+      properties:
+        group: { $ref: '#/components/schemas/ExpenseGroup' }
+        name: { type: string, minLength: 1, maxLength: 40, description: Trimmed }
+        sort_order: { type: integer, minimum: 0, maximum: 10000, description: Default after the last of its group }
+    ExpenseCategoryUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        group: { $ref: '#/components/schemas/ExpenseGroup' }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        sort_order: { type: integer, minimum: 0, maximum: 10000 }
+        archived: { type: boolean }
+    ExpenseInput:
+      type: object
+      required: [category_id, spent_on, description, amount, funding_source]
+      properties:
+        id: { type: string, format: uuid, description: Optional client UUIDv7 for an idempotent create }
+        category_id: { type: string, format: uuid, description: Active category of the active outlet }
+        spent_on: { type: string, format: date, description: 'Business date (outlet time zone); not after today, not before 2020-01-01' }
+        description: { type: string, minLength: 1, maxLength: 200, description: 'Trimmed, e.g. "Mangga 10 kg"' }
+        amount: { type: integer, format: int64, minimum: 1, maximum: 1000000000, description: Integer Rupiah }
+        funding_source: { $ref: '#/components/schemas/ExpenseFundingSource' }
+        receipt_url:
+          type: [string, 'null']
+          format: uri
+          description: '`public_url` of a `POST /uploads` with purpose `expense_receipt` for this outlet; stored as the object key'
+    ExpenseUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        category_id: { type: string, format: uuid }
+        spent_on: { type: string, format: date }
+        description: { type: string, minLength: 1, maxLength: 200 }
+        amount: { type: integer, format: int64, minimum: 1, maximum: 1000000000 }
+        funding_source: { $ref: '#/components/schemas/ExpenseFundingSource' }
+        receipt_url: { type: [string, 'null'], format: uri }
+    ExpenseDeleteInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 5, maxLength: 200, description: Trimmed before the length check }
+    ExpenseActorRef:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role:
+          type: [string, 'null']
+          enum: [owner, manager, null]
+          description: Current role of the user in the expense's outlet; `null` once they are no longer a member
+    ExpenseDeleted:
+      type: object
+      required: [deleted_at, deleted_by, reason]
+      properties:
+        deleted_at: { type: string, format: date-time }
+        deleted_by: { $ref: '#/components/schemas/ExpenseActorRef' }
+        reason: { type: string }
+    Expense:
+      type: object
+      required: [id, outlet, category, spent_on, description, amount, funding_source, receipt_url, source, created_by, created_at, updated_by, updated_at, deleted]
+      properties:
+        id: { type: string, format: uuid }
+        outlet: { $ref: '#/components/schemas/OutletRef' }
+        category: { $ref: '#/components/schemas/ExpenseCategory' }
+        spent_on: { type: string, format: date }
+        description: { type: string }
+        amount: { $ref: '#/components/schemas/Rupiah' }
+        funding_source: { $ref: '#/components/schemas/ExpenseFundingSource' }
+        receipt_url: { type: [string, 'null'], format: uri, description: 'Stable `/v1/media/<key>` URL (ADR-0015)' }
+        source:
+          type: string
+          enum: [dashboard, cash_movement]
+          description: '`dashboard` in Fase 1; `cash_movement` = recorded by a cashier from the drawer (Fase 2, DEAR-139)'
+        created_by: { $ref: '#/components/schemas/ExpenseActorRef' }
+        created_at: { type: string, format: date-time }
+        updated_by: { $ref: '#/components/schemas/ExpenseActorRef' }
+        updated_at: { type: string, format: date-time }
+        deleted:
+          oneOf: [{ $ref: '#/components/schemas/ExpenseDeleted' }, { type: 'null' }]
+          description: Set while the expense is deleted; only owners see deleted expenses
+    ExpenseHistoryEvent:
+      type: object
+      required: [id, action, changes, reason, actor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, enum: [create, update, delete, restore] }
+        changes:
+          type: [object, 'null']
+          description: '`update` only: `{ "<field>": { "from": ..., "to": ... } }` with the `ExpenseUpdate` field names (`category_id` also carries the names)'
+          additionalProperties:
+            type: object
+            required: [from, to]
+            properties:
+              from: {}
+              to: {}
+        reason: { type: [string, 'null'], description: Delete reason or restore note }
+        actor: { $ref: '#/components/schemas/ExpenseActorRef' }
+        created_at: { type: string, format: date-time }
+    ExpenseDetail:
+      allOf:
+        - $ref: '#/components/schemas/Expense'
+        - type: object
+          required: [history]
+          properties:
+            history: { type: array, description: Oldest first, items: { $ref: '#/components/schemas/ExpenseHistoryEvent' } }
+    ExpenseGroupTotals:
+      type: object
+      required: [hpp, operasional, tetap, lainnya]
+      properties:
+        hpp: { $ref: '#/components/schemas/Rupiah' }
+        operasional: { $ref: '#/components/schemas/Rupiah' }
+        tetap: { $ref: '#/components/schemas/Rupiah' }
+        lainnya: { $ref: '#/components/schemas/Rupiah' }
+    ExpenseReportCell:
+      type: object
+      required: [revenue, transaction_count, expense_total, expense_count, profit, by_group, by_funding_source, by_category]
+      properties:
+        revenue: { $ref: '#/components/schemas/Rupiah' }
+        transaction_count: { type: integer }
+        expense_total: { $ref: '#/components/schemas/Rupiah' }
+        expense_count: { type: integer }
+        profit: { $ref: '#/components/schemas/SignedRupiah' }
+        by_group: { $ref: '#/components/schemas/ExpenseGroupTotals' }
+        by_funding_source:
+          type: object
+          required: [drawer, owner]
+          properties:
+            drawer: { $ref: '#/components/schemas/Rupiah' }
+            owner: { $ref: '#/components/schemas/Rupiah' }
+        by_category:
+          type: array
+          description: Categories with at least one expense, ordered by group, then amount desc
+          items:
+            type: object
+            required: [category_id, group, name, amount, count]
+            properties:
+              category_id: { type: [string, 'null'], format: uuid, description: '`null` in cells that combine outlets' }
+              group: { $ref: '#/components/schemas/ExpenseGroup' }
+              name: { type: string }
+              amount: { $ref: '#/components/schemas/Rupiah' }
+              count: { type: integer }
+    ExpenseReportOutletCell:
+      allOf:
+        - type: object
+          required: [outlet_id, counted_from]
+          properties:
+            outlet_id: { type: string, format: uuid }
+            counted_from:
+              type: [string, 'null']
+              format: date
+              description: |
+                `null` = the whole month (or period) of this cell is counted. Otherwise the outlet's
+                `operations_started_on`, which falls after the first day of the cell: only data from that date is
+                counted (a cell that ends before it is all zeros, "belum beroperasi"). Always `null` with
+                `include_pre_operations=true`.
+        - $ref: '#/components/schemas/ExpenseReportCell'
+    ExpenseReport:
+      type: object
+      required: [month_from, month_to, outlet_scope, include_pre_operations, outlets, months, total]
+      properties:
+        month_from: { type: string, examples: ['2026-11'] }
+        month_to: { type: string, examples: ['2026-11'] }
+        outlet_scope: { type: string, enum: [current, all] }
+        include_pre_operations: { type: boolean }
+        outlets:
+          type: array
+          description: 'Outlets of the scope, ordered by code'
+          items:
+            allOf:
+              - $ref: '#/components/schemas/OutletRef'
+              - $ref: '#/components/schemas/OutletOperationsStart'
+        months:
+          type: array
+          description: One entry per month, oldest first
+          items:
+            type: object
+            required: [month, per_outlet, total]
+            properties:
+              month: { type: string, examples: ['2026-11'] }
+              per_outlet: { type: array, items: { $ref: '#/components/schemas/ExpenseReportOutletCell' } }
+              total: { $ref: '#/components/schemas/ExpenseReportCell' }
+        total:
+          type: object
+          description: The whole period
+          required: [per_outlet, total]
+          properties:
+            per_outlet: { type: array, items: { $ref: '#/components/schemas/ExpenseReportOutletCell' } }
+            total: { $ref: '#/components/schemas/ExpenseReportCell' }
     DashboardSummary:
       type: object
       required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count]
@@ -1905,6 +3152,7 @@ components:
       required: [outlet, display_name, qris_mode]
       properties:
         outlet: { $ref: '#/components/schemas/OutletRef' }
+        operations_started_on: { type: [string, 'null'], format: date, description: 'See `OutletOperationsStart`. Always present for owner and manager tokens (DEAR-136); omitted for devices (`GET /settings`, `/sync/pull`), the cashier app does not use it. Owner role sets it here (DEAR-140).' }
         display_name: { type: string }
         address: { type: [string, 'null'] }
         phone: { type: [string, 'null'] }
@@ -1936,3 +3184,65 @@ components:
         offline_login_enabled: { type: boolean }
         quick_cash_amounts: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Rupiah' } }
         owner_pin: { type: string, pattern: '^[0-9]{6}$', description: 'Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned.' }
+        operations_started_on:
+          type: [string, 'null']
+          format: date
+          description: |
+            Owner role only (a manager sending this field gets `403 FORBIDDEN`, nothing is saved). 2020-01-01 to today
+            + 366 days (outlet time zone); `null` removes the limit. Stored on `outlets`, audited inside
+            `settings.updated` with before/after. Changing it changes the recap of past months on purpose.
+
+    NotificationPrefs:
+      type: object
+      description: Notification types the owner receives on every registered browser. Shift summaries and daily digests come later.
+      required: [transaction, void]
+      properties:
+        transaction: { type: boolean, description: 'Paid transactions (`transaction.paid`) and offline batch summaries (`transaction.batch`)' }
+        void: { type: boolean, description: 'Void requested and approved (`void.requested`, `void.approved`); rejected voids are not notified' }
+    NotificationPrefsInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        transaction: { type: boolean }
+        void: { type: boolean }
+    PushConfig:
+      type: object
+      required: [configured, vapid_public_key]
+      properties:
+        configured: { type: boolean, description: False when the server has no VAPID keys; all push actions are unavailable. }
+        vapid_public_key: { type: [string, 'null'], pattern: '^[A-Za-z0-9_-]{87}$', description: 'Base64url P-256 public key (65 bytes); null when not configured' }
+    PushSubscriptionStatus:
+      type: string
+      enum: [active, expired]
+      description: '`expired` = the push service reported the browser gone (404/410); register again from that browser.'
+    PushSubscription:
+      type: object
+      required: [id, label, status, created_at, last_delivered_at]
+      properties:
+        id: { type: string, format: uuid, description: 'Store in localStorage to mark "this browser" in the list.' }
+        label: { type: string, examples: ['Chrome di Windows'] }
+        status: { $ref: '#/components/schemas/PushSubscriptionStatus' }
+        created_at: { type: string, format: date-time }
+        last_delivered_at: { type: [string, 'null'], format: date-time }
+    PushSubscriptionInput:
+      type: object
+      required: [endpoint, keys, label]
+      description: '`PushSubscription.toJSON()` from the browser plus a display label.'
+      properties:
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 1024
+          pattern: '^https://'
+          description: 'Push service URL. Host must be an allowed push service (fcm.googleapis.com, *.push.services.mozilla.com, *.notify.windows.com, *.push.apple.com, ...). Never echoed back or logged.'
+          examples: ['https://fcm.googleapis.com/fcm/send/dXJsLXNhZmUtdG9rZW4']
+        expirationTime: { type: [number, 'null'], description: Ignored. }
+        keys:
+          type: object
+          required: [p256dh, auth]
+          additionalProperties: false
+          properties:
+            p256dh: { type: string, pattern: '^[A-Za-z0-9_-]{87}$', description: 'Base64url, 65 bytes decoded' }
+            auth: { type: string, pattern: '^[A-Za-z0-9_-]{22}$', description: 'Base64url, 16 bytes decoded' }
+        label: { type: string, minLength: 1, maxLength: 60, description: 'e.g. "Chrome di Windows", derived from the User-Agent by the dashboard' }

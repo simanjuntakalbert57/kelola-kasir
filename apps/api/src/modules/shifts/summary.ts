@@ -34,6 +34,9 @@ export interface ShiftTotals {
   lateCount: number;
   lateCashAmount: number;
   qrisManualConfirmedCount: number;
+  /** Paid transactions of the shift that the owner has deleted right now (ADR-0019). */
+  deletedCount: number;
+  deletedAmount: number;
   byEmployee: {
     employeeId: string;
     transactionCount: number;
@@ -44,6 +47,22 @@ export interface ShiftTotals {
 
 /** Sales counted in the shift: `paid`, plus `void_requested` until the owner decides (TDD §3.2). */
 const COUNTED = ['paid', 'void_requested'];
+
+/**
+ * SQL predicate: transaction alias `t` does not count in the shift's sales (ADR-0019 §4). The
+ * delete state is read as of `cutoff` (the close time) from the append-only history, so a
+ * transaction deleted before the close stays out even after it is restored, and one deleted after
+ * the close stays in; the numbers recorded at close are never changed by a delete or restore.
+ * Late transactions (created after the cutoff) and open shifts use the current state.
+ */
+function excludedAtCutoff(cutoff: Date | null) {
+  if (!cutoff) return sql`t.deleted_at is not null`;
+  const at = sql`${cutoff.toISOString()}::timestamptz`;
+  return sql`(case when t.client_created_at > ${at} then t.deleted_at is not null else coalesce((
+    select d.action = 'delete' from transaction_deletions d
+    where d.transaction_id = t.id and d.created_at <= ${at}
+    order by d.created_at desc, d.id desc limit 1), false) end)`;
+}
 
 /**
  * Aggregate the shift's transactions. Only transactions created at or before `cutoff` (the close
@@ -71,7 +90,7 @@ export async function computeShiftTotals(
     from (
       select t.employee_id, t.payment_method, t.status, t.total, ${lateExpr} as late
       from transactions t
-      where t.shift_id = ${shift.id}
+      where t.shift_id = ${shift.id} and not ${excludedAtCutoff(cutoff)}
     ) x
     group by employee_id, payment_method, status, late
   `);
@@ -96,6 +115,8 @@ export async function computeShiftTotals(
     lateCount: 0,
     lateCashAmount: 0,
     qrisManualConfirmedCount: 0,
+    deletedCount: 0,
+    deletedAmount: 0,
     byEmployee: [],
   };
   const per = new Map<string, ShiftTotals['byEmployee'][number]>();
@@ -151,12 +172,29 @@ export async function computeShiftTotals(
         eq(payments.status, 'paid'),
         eq(payments.confirmationMode, 'manual'),
         sql`${transactions.status} IN ('paid', 'void_requested')`,
+        sql`not exists (select 1 from transactions t where t.id = ${transactions.id} and ${excludedAtCutoff(cutoff)})`,
         cutoff
           ? sql`${transactions.clientCreatedAt} <= ${cutoff.toISOString()}::timestamptz`
           : sql`true`,
       ),
     );
   totals.qrisManualConfirmedCount = manual?.n ?? 0;
+
+  const [deleted] = await db
+    .select({
+      n: sql<number>`count(*)::int`,
+      amount: sql<string>`coalesce(sum(${transactions.total}), 0)::text`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.shiftId, shift.id),
+        eq(transactions.status, 'paid'),
+        sql`${transactions.deletedAt} is not null`,
+      ),
+    );
+  totals.deletedCount = deleted?.n ?? 0;
+  totals.deletedAmount = Number(deleted?.amount ?? 0);
   return totals;
 }
 
@@ -241,6 +279,8 @@ export async function buildShiftSummary(db: DbOrTx, shift: ShiftRow) {
     unsynced_hint: (shift.unsyncedCount ?? 0) > 0,
     late_transaction_count: totals.lateCount,
     late_cash_amount: totals.lateCashAmount,
+    deleted_count: totals.deletedCount,
+    deleted_amount: totals.deletedAmount,
     by_employee: totals.byEmployee.flatMap((e) => {
       const employee = people.get(e.employeeId);
       return employee

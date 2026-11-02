@@ -12,11 +12,15 @@ export interface OutletRef {
   code: string;
   name: string;
   timezone: string;
+  /** Role of the user in this outlet (ADR-0020). */
+  role: 'owner' | 'manager';
+  operations_started_on: string | null;
 }
 
 export interface OwnerSession {
   access_token: string;
   expires_in: number;
+  active_outlet_id: string;
   user: { id: string; email: string; name: string; outlets: OutletRef[] };
 }
 
@@ -26,36 +30,63 @@ export interface OwnerLoginResult {
 }
 
 export class OwnerAuthService {
-  constructor(private readonly ctx: AppContext) {}
+  constructor(private readonly ctx: Omit<AppContext, 'notifier'>) {}
 
-  private async memberships(userId: string) {
-    return (
-      this.ctx.db
-        .select({
-          outlet: {
-            id: outlets.id,
-            code: outlets.code,
-            name: outlets.name,
-            timezone: outlets.timezone,
-          },
-          role: outletMembers.role,
-        })
-        .from(outletMembers)
-        .innerJoin(outlets, eq(outlets.id, outletMembers.outletId))
-        .where(eq(outletMembers.userId, userId))
-        // 'manager' < 'owner' alphabetically, so sort the owner role first via the code afterwards.
-        .orderBy(asc(outlets.code))
-    );
+  private async memberships(userId: string): Promise<OutletRef[]> {
+    const rows = await this.ctx.db
+      .select({
+        id: outlets.id,
+        code: outlets.code,
+        name: outlets.name,
+        timezone: outlets.timezone,
+        role: outletMembers.role,
+        operationsStartedOn: outlets.operationsStartedOn,
+      })
+      .from(outletMembers)
+      .innerJoin(outlets, eq(outlets.id, outletMembers.outletId))
+      .where(eq(outletMembers.userId, userId))
+      .orderBy(asc(outlets.code));
+    return rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      timezone: r.timezone,
+      role: r.role as 'owner' | 'manager',
+      operations_started_on: r.operationsStartedOn,
+    }));
   }
 
-  private async buildSession(user: { id: string; email: string; name: string }, familyId: string) {
+  /** Session bound to `preferredOutletId` when the user is a member of it, else to the primary outlet. */
+  private async signSession(
+    user: { id: string; email: string; name: string },
+    preferredOutletId: string | undefined,
+    strict = false,
+  ): Promise<OwnerSession> {
     const memberships = await this.memberships(user.id);
-    const primary = memberships.find((m) => m.role === 'owner') ?? memberships[0];
-    if (!primary) throw errors.forbidden('This account is not a member of any outlet');
+    const preferred = preferredOutletId
+      ? memberships.find((m) => m.id === preferredOutletId)
+      : undefined;
+    if (strict && !preferred) throw errors.forbidden('You are not a member of that outlet');
+    const active = preferred ?? memberships.find((m) => m.role === 'owner') ?? memberships[0];
+    if (!active) throw errors.forbidden('This account is not a member of any outlet');
     const access = await this.ctx.tokens.signOwner(
-      { sub: user.id, oid: primary.outlet.id, role: primary.role as 'owner' | 'manager' },
+      { sub: user.id, oid: active.id, role: active.role },
       this.ctx.config.ownerAccessTtlSec,
     );
+    return {
+      access_token: access,
+      expires_in: this.ctx.config.ownerAccessTtlSec,
+      active_outlet_id: active.id,
+      user: { id: user.id, email: user.email, name: user.name, outlets: memberships },
+    };
+  }
+
+  private async buildSession(
+    user: { id: string; email: string; name: string },
+    familyId: string,
+    outletId?: string,
+  ) {
+    const session = await this.signSession(user, outletId);
     const refreshToken = randomToken();
     const now = this.ctx.now();
     await this.ctx.db.insert(refreshTokens).values({
@@ -65,20 +96,22 @@ export class OwnerAuthService {
       createdAt: now,
       expiresAt: new Date(now.getTime() + this.ctx.config.refreshTtlSec * 1000),
     });
-    const session: OwnerSession = {
-      access_token: access,
-      expires_in: this.ctx.config.ownerAccessTtlSec,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        outlets: memberships.map((m) => m.outlet),
-      },
-    };
     return { session, refreshToken };
   }
 
-  async login(email: string, password: string, ip: string): Promise<OwnerLoginResult> {
+  /** New access token for another outlet of the user. The refresh cookie is not rotated (ADR-0020). */
+  async switchOutlet(userId: string, outletId: string): Promise<OwnerSession> {
+    const [user] = await this.ctx.db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user || !user.isActive) throw errors.unauthorized('Account is no longer active');
+    return this.signSession(user, outletId, true);
+  }
+
+  async login(
+    email: string,
+    password: string,
+    ip: string,
+    outletId?: string,
+  ): Promise<OwnerLoginResult> {
     const { db, config } = this.ctx;
     const now = this.ctx.now();
     const [found] = await db
@@ -147,11 +180,11 @@ export class OwnerAuthService {
         .set({ failedLoginCount: 0, lockedUntil: null })
         .where(eq(users.id, found.id));
     }
-    return this.buildSession(found, randomUUID());
+    return this.buildSession(found, randomUUID(), outletId);
   }
 
   /** Rotate a refresh token. Reusing an already-rotated token revokes the whole family. */
-  async refresh(rawToken: string | undefined): Promise<OwnerLoginResult> {
+  async refresh(rawToken: string | undefined, outletId?: string): Promise<OwnerLoginResult> {
     if (!rawToken) throw errors.unauthorized('Missing refresh token');
     const { db } = this.ctx;
     const now = this.ctx.now();
@@ -179,7 +212,7 @@ export class OwnerAuthService {
 
     const [user] = await db.select().from(users).where(eq(users.id, outcome.row.userId)).limit(1);
     if (!user || !user.isActive) throw errors.unauthorized('Account is no longer active');
-    return this.buildSession(user, outcome.row.familyId);
+    return this.buildSession(user, outcome.row.familyId, outletId);
   }
 
   /** Revoke the whole refresh family behind the cookie, if it belongs to this user. */

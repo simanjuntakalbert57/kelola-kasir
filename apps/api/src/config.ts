@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createECDH, generateKeyPairSync } from 'node:crypto';
 import { z } from 'zod';
 
 const booleanFromEnv = z
@@ -36,15 +36,35 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default(''),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(5),
   RATE_LIMIT_PAIR_MAX: z.coerce.number().int().min(1).default(10),
-  /** S3-compatible object storage (Cloudflare R2) for presigned image uploads. All or nothing. */
+  /**
+   * S3-compatible object storage (R2 or B2) for presigned image uploads. The bucket stays private
+   * and images are served through `GET /v1/media/*` (ADR-0015). The four core variables plus
+   * `API_PUBLIC_BASE_URL` are all or nothing.
+   */
   STORAGE_ENDPOINT: z.url().optional(),
   STORAGE_BUCKET: z.string().min(1).optional(),
   STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   STORAGE_REGION: z.string().min(1).default('auto'),
-  /** Public base URL the uploaded objects are served from (R2 public bucket / custom domain). */
+  /** Public origin clients reach this API at (the Pages proxy, ADR-0014). Media URLs are `<it>/v1/media/<key>`. */
+  API_PUBLIC_BASE_URL: z.url().optional(),
+  /** Legacy: base URL of a public bucket. Optional; URLs under it are still accepted when saved (ADR-0015). */
   STORAGE_PUBLIC_BASE_URL: z.url().optional(),
+  /**
+   * Web Push (ADR-0017). The three VAPID variables are all or nothing; unset = notifications off.
+   * Keys are base64url (public 65 bytes, private 32 bytes). The private key is a secret.
+   */
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.url().optional(),
 });
+
+export interface WebPushConfig {
+  publicKey: string;
+  privateKey: string;
+  /** `https:` URL (or `mailto:`) identifying the sender in the VAPID JWT. */
+  subject: string;
+}
 
 export interface StorageConfig {
   endpoint: string;
@@ -52,7 +72,10 @@ export interface StorageConfig {
   accessKeyId: string;
   secretAccessKey: string;
   region: string;
-  publicBaseUrl: string;
+  /** Origin of the API as seen by clients; stable media URLs are `${apiPublicBaseUrl}/v1/media/<key>`. */
+  apiPublicBaseUrl: string;
+  /** Legacy public bucket URL; only used to keep previously saved image URLs valid. */
+  publicBaseUrl?: string;
 }
 
 export interface Config {
@@ -71,7 +94,7 @@ export interface Config {
   dbPoolMax: number;
   sentry: { dsn: string; environment: string } | null;
   corsOrigins: string[];
-  rateLimit: { loginMax: number; pairMax: number };
+  rateLimit: { loginMax: number; pairMax: number; importMax?: number };
   /** `null` when object storage is not configured: `POST /uploads` then answers 503. */
   storage: StorageConfig | null;
   ownerAccessTtlSec: number;
@@ -82,8 +105,42 @@ export interface Config {
   ownerLockoutSec: number;
   pinLockoutMax: number;
   pinLockoutSec: number;
+  /** `null` when VAPID keys are not configured: push endpoints answer 503 and nothing is sent. */
+  webPush: WebPushConfig | null;
   /** A pending QRIS payment expires (transaction `cancelled`) after this many seconds. */
   qrisExpirySec: number;
+}
+
+/** Checks VAPID key formats and that the public key belongs to the private key. Never echoes key values. */
+function parseWebPush(e: z.output<typeof envSchema>): WebPushConfig | null {
+  const { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: subject } = e;
+  if (!publicKey && !privateKey && !subject) return null;
+  if (!publicKey || !privateKey || !subject) {
+    throw new Error(
+      'Invalid environment: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must be set together',
+    );
+  }
+  const base64url = /^[A-Za-z0-9_-]+$/;
+  const pub = base64url.test(publicKey) ? Buffer.from(publicKey, 'base64url') : Buffer.alloc(0);
+  const priv = base64url.test(privateKey) ? Buffer.from(privateKey, 'base64url') : Buffer.alloc(0);
+  if (pub.length !== 65 || pub[0] !== 4) {
+    throw new Error(
+      'Invalid environment: VAPID_PUBLIC_KEY must be a base64url P-256 point (65 bytes)',
+    );
+  }
+  if (priv.length !== 32) {
+    throw new Error('Invalid environment: VAPID_PRIVATE_KEY must be base64url (32 bytes)');
+  }
+  const ecdh = createECDH('prime256v1');
+  try {
+    ecdh.setPrivateKey(priv);
+  } catch {
+    throw new Error('Invalid environment: VAPID_PRIVATE_KEY is not a valid P-256 key');
+  }
+  if (!ecdh.getPublicKey().equals(pub)) {
+    throw new Error('Invalid environment: VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY');
+  }
+  return { publicKey, privateKey, subject };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -122,7 +179,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     e.STORAGE_BUCKET,
     e.STORAGE_ACCESS_KEY_ID,
     e.STORAGE_SECRET_ACCESS_KEY,
-    e.STORAGE_PUBLIC_BASE_URL,
   ];
   let storage: StorageConfig | null = null;
   if (storageValues.some(Boolean)) {
@@ -130,11 +186,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       !e.STORAGE_ENDPOINT ||
       !e.STORAGE_BUCKET ||
       !e.STORAGE_ACCESS_KEY_ID ||
-      !e.STORAGE_SECRET_ACCESS_KEY ||
-      !e.STORAGE_PUBLIC_BASE_URL
+      !e.STORAGE_SECRET_ACCESS_KEY
     ) {
       throw new Error(
-        'Invalid environment: STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY and STORAGE_PUBLIC_BASE_URL must be set together',
+        'Invalid environment: STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY must be set together',
+      );
+    }
+    if (!e.API_PUBLIC_BASE_URL) {
+      throw new Error(
+        'Invalid environment: API_PUBLIC_BASE_URL is required when storage is configured',
       );
     }
     storage = {
@@ -143,7 +203,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       accessKeyId: e.STORAGE_ACCESS_KEY_ID,
       secretAccessKey: e.STORAGE_SECRET_ACCESS_KEY,
       region: e.STORAGE_REGION,
-      publicBaseUrl: e.STORAGE_PUBLIC_BASE_URL.replace(/\/+$/, ''),
+      apiPublicBaseUrl: e.API_PUBLIC_BASE_URL.replace(/\/+$/, ''),
+      ...(e.STORAGE_PUBLIC_BASE_URL
+        ? { publicBaseUrl: e.STORAGE_PUBLIC_BASE_URL.replace(/\/+$/, '') }
+        : {}),
     };
   }
 
@@ -165,8 +228,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOrigins: e.CORS_ORIGINS.split(',')
       .map((o) => o.trim())
       .filter(Boolean),
-    rateLimit: { loginMax: e.RATE_LIMIT_LOGIN_MAX, pairMax: e.RATE_LIMIT_PAIR_MAX },
+    rateLimit: {
+      loginMax: e.RATE_LIMIT_LOGIN_MAX,
+      pairMax: e.RATE_LIMIT_PAIR_MAX,
+      importMax: 20,
+    },
     storage,
+    webPush: parseWebPush(e),
     ownerAccessTtlSec: 15 * 60,
     employeeAccessTtlSec: 12 * 60 * 60,
     refreshTtlSec: 30 * 24 * 60 * 60,

@@ -12,9 +12,15 @@ import { useAuth } from './auth/AuthProvider';
 import { Skeleton } from './components/ui';
 import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
+import { DeletedTransactionsPage } from './pages/DeletedTransactionsPage';
 import { DevicesPage } from './pages/DevicesPage';
+import { ExpenseCategoriesPage } from './pages/ExpenseCategoriesPage';
+import { ExpenseReportPage } from './pages/ExpenseReportPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { EmployeesPage } from './pages/EmployeesPage';
 import { LoginPage } from './pages/LoginPage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { ProductImportPage } from './pages/ProductImportPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ShiftsPage } from './pages/ShiftsPage';
@@ -106,12 +112,18 @@ const routeTree = root.addChildren([
   app.addChildren([
     page('/', DashboardPage),
     transactions,
+    page('/transaksi/dihapus', DeletedTransactionsPage),
+    page('/pengeluaran', ExpensesPage),
+    page('/pengeluaran/rekap', ExpenseReportPage),
+    page('/pengeluaran/kategori', ExpenseCategoriesPage),
     page('/produk', ProductsPage),
+    page('/produk/impor', ProductImportPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),
     page('/shift', ShiftsPage),
     page('/void', VoidPage),
     page('/pengaturan', SettingsPage),
+    page('/pengaturan/notifikasi', NotificationsPage),
     page('/lainnya', MorePage),
   ]),
 ]);

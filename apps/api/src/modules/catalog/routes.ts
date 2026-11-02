@@ -43,7 +43,7 @@ export function encodeSyncCursor(seq: number): string {
 
 export function catalogRoutes(ctx: AppContext, guards: Guards) {
   const { db, config } = ctx;
-  const imageUrl = imageUrlSchema(config.storage?.publicBaseUrl);
+  const imageUrl = imageUrlSchema(config.storage);
   const productBody = z.object({
     category_id: uuid,
     name: z.string().trim().min(1).max(60),

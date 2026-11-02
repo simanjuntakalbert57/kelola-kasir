@@ -59,7 +59,7 @@ test('daftar void menampilkan semua 51+ permintaan menunggu (bukan hanya 50 pert
   );
   expect(api.data.data.length).toBeGreaterThanOrEqual(51);
   await openAsOwner(page, '/void');
-  const approve = page.getByRole('button', { name: /^Setujui void/ });
+  const approve = page.getByRole('button', { name: /^Setujui batal/ });
   await expect(approve).toHaveCount(50); // halaman pertama
   await page.getByRole('button', { name: 'Muat lebih banyak' }).click();
   await expect(approve).toHaveCount(api.data.data.length);

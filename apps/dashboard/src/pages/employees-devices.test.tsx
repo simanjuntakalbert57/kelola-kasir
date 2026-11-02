@@ -67,6 +67,9 @@ describe('Pegawai', () => {
     });
     renderApp('/pegawai');
     await userEvent.click(await screen.findByRole('button', { name: 'Nonaktifkan Sari' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/tidak bisa masuk ke aplikasi kasir lagi/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ya, nonaktifkan' }));
     await vi.waitFor(() =>
       expect(calls.find((c) => c.key === 'PATCH /employees/e1')?.body).toEqual({
         is_active: false,
@@ -115,7 +118,7 @@ describe('Perangkat', () => {
     renderApp('/perangkat');
     await userEvent.click(await screen.findByRole('button', { name: 'Cabut Tablet Depan' }));
     const dialog = await screen.findByRole('dialog');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Cabut perangkat' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ya, cabut' }));
     await vi.waitFor(() =>
       expect(calls.some((c) => c.key === 'POST /devices/d1/revoke')).toBe(true),
     );

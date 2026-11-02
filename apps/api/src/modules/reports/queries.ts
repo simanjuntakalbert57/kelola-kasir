@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DbOrTx } from '../../db/client.js';
 import { employees, transactionItems, transactions } from '../../db/schema.js';
@@ -55,11 +55,15 @@ export function resolvePeriod(
 const inPeriod = (outletId: string, period: Pick<Period, 'from' | 'to'>) =>
   and(
     eq(transactions.outletId, outletId),
+    isNull(transactions.deletedAt),
     gte(transactions.clientCreatedAt, period.from),
     lt(transactions.clientCreatedAt, period.to),
   );
 
 const counted = inArray(transactions.status, [...COUNTED_STATUSES]);
+
+/** Transactions that are revenue (omzet), shared with the expense recap so both agree with the dashboard. */
+export const revenuePredicate = () => and(isNull(transactions.deletedAt), counted);
 
 export interface SummaryTotals {
   revenue: number;

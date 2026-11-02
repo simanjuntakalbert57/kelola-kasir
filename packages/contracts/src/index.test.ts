@@ -1,8 +1,17 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
+  EXPENSE_FUNDING_SOURCES,
+  EXPENSE_GROUP_LABELS,
+  EXPENSE_GROUPS,
+  OUTLET_SCOPES,
   PAYMENT_METHODS,
   SHIFT_STATUSES,
   TRANSACTION_STATUSES,
+  type Expense,
+  type ExpenseFundingSource,
+  type ExpenseGroup,
+  type OutletScope,
+  type OwnerSession,
   type PaymentMethod,
   type Product,
   type ResponseBody,
@@ -36,5 +45,19 @@ describe('contracts', () => {
 
   it('resolves response bodies by path and method', () => {
     expectTypeOf<ResponseBody<'/shifts/current', 'get'>>().toEqualTypeOf<Shift>();
+  });
+
+  it('expense enums and owner multi-outlet session match the spec (ADR-0020, ADR-0021)', () => {
+    expectTypeOf<(typeof EXPENSE_GROUPS)[number]>().toEqualTypeOf<ExpenseGroup>();
+    expectTypeOf<(typeof EXPENSE_FUNDING_SOURCES)[number]>().toEqualTypeOf<ExpenseFundingSource>();
+    expectTypeOf<(typeof OUTLET_SCOPES)[number]>().toEqualTypeOf<NonNullable<OutletScope>>();
+    expectTypeOf<Expense>().toHaveProperty('amount').toEqualTypeOf<number>();
+    expectTypeOf<OwnerSession>().toHaveProperty('active_outlet_id').toEqualTypeOf<string>();
+    expectTypeOf<OwnerSession['user']['outlets'][number]>()
+      .toHaveProperty('role')
+      .toEqualTypeOf<'owner' | 'manager'>();
+    expect(Object.keys(EXPENSE_GROUP_LABELS)).toEqual([...EXPENSE_GROUPS]);
+    expect(EXPENSE_FUNDING_SOURCES).toEqual(['drawer', 'owner']);
+    expect(OUTLET_SCOPES).toEqual(['current', 'all']);
   });
 });

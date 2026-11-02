@@ -7,3 +7,8 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Service worker (ADR-0017): the browser must re-check it on every navigation so updates are not stuck behind a cache.
+/sw.js
+  Cache-Control: no-cache
+  Content-Type: text/javascript; charset=utf-8

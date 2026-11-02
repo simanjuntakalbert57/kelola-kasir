@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditLogs } from '../src/db/schema.js';
@@ -231,6 +232,7 @@ describe('products', () => {
         accessKeyId: 'k',
         secretAccessKey: 's',
         region: 'auto',
+        apiPublicBaseUrl: 'https://api.example',
         publicBaseUrl: 'https://media.example',
       },
     });
@@ -241,12 +243,19 @@ describe('products', () => {
         await post(strict, '/v1/categories', bearer(owner.token), { name: 'C' }),
       );
       const body = { category_id: cat.id, name: 'P', price: 1000 };
-      const ok = await post(strict, '/v1/products', bearer(owner.token), {
-        ...body,
-        image_url: 'https://media.example/o/p/a.png',
-      });
-      expect(ok.statusCode).toBe(201);
-      for (const image_url of ['https://evil.example/a.png', 'javascript:alert(1)']) {
+      for (const image_url of [
+        `https://api.example/v1/media/${seeded.outletId}/product_image/${randomUUID()}.png`,
+        'https://media.example/o/p/a.png', // legacy public bucket URL stays valid
+      ]) {
+        const ok = await post(strict, '/v1/products', bearer(owner.token), { ...body, image_url });
+        expect(ok.statusCode).toBe(201);
+      }
+      for (const image_url of [
+        'https://evil.example/a.png',
+        'https://evil.example/v1/media/x.png',
+        'https://api.example.evil.example/v1/media/x.png',
+        'javascript:alert(1)',
+      ]) {
         const bad = await post(strict, '/v1/products', bearer(owner.token), { ...body, image_url });
         expect(bad.statusCode).toBe(400);
       }

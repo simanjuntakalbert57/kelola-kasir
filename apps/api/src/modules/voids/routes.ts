@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
@@ -109,7 +109,10 @@ export function voidRoutes(ctx: AppContext, guards: Guards) {
     app.get('/void-requests', { preHandler: guards.owner }, async (req) => {
       const principal = requireUser(req);
       const q = parse(listQuery, req.query);
-      const conditions: SQL[] = [eq(transactions.outletId, principal.outletId)];
+      const conditions: SQL[] = [
+        eq(transactions.outletId, principal.outletId),
+        isNull(transactions.deletedAt),
+      ];
       if (q.status) conditions.push(eq(voidRequests.status, q.status));
       if (q.cursor) {
         const c = decodeCursor(q.cursor);

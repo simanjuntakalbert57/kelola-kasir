@@ -20,6 +20,32 @@ let accessToken: string | null = null;
 let onUnauthorized: (() => void) | null = null;
 let refreshing: Promise<OwnerSession | null> | null = null;
 
+/** localStorage key of the branch the owner last worked in (ADR-0020 §1); sent on login and refresh. */
+export const OUTLET_STORAGE_KEY = 'kk_outlet_id';
+
+export function getStoredOutletId(): string | null {
+  try {
+    return localStorage.getItem(OUTLET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredOutletId(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(OUTLET_STORAGE_KEY, id);
+    else localStorage.removeItem(OUTLET_STORAGE_KEY);
+  } catch {
+    // Private mode: the server falls back to the primary branch.
+  }
+}
+
+/** `{ outlet_id }` body for login/refresh, or undefined when no branch was stored (the server picks the primary). */
+export function outletBody(): { outlet_id: string } | undefined {
+  const id = getStoredOutletId();
+  return id ? { outlet_id: id } : undefined;
+}
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
@@ -44,7 +70,9 @@ async function toError(res: Response): Promise<ApiError> {
 
 async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+  // FormData sets its own multipart boundary header.
+  if (init.body !== undefined && !(init.body instanceof FormData))
+    headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return fetch(`${BASE_URL}${path}`, { ...init, headers, credentials: 'include' });
 }
@@ -53,13 +81,19 @@ async function send(path: string, init: RequestInit, token: string | null): Prom
 export function refreshSession(): Promise<OwnerSession | null> {
   refreshing ??= (async () => {
     try {
-      const res = await send('/auth/refresh', { method: 'POST' }, null);
+      const body = outletBody();
+      const res = await send(
+        '/auth/refresh',
+        { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) },
+        null,
+      );
       if (!res.ok) {
         accessToken = null;
         return null;
       }
       const session = (await res.json()) as OwnerSession;
       accessToken = session.access_token;
+      setStoredOutletId(session.active_outlet_id);
       return session;
     } catch {
       accessToken = null;

@@ -19,7 +19,7 @@ export function ReceiptPreview({ name, address, phone, header, footer }: Receipt
   return (
     <figure
       aria-label="Pratinjau struk"
-      className="mx-auto w-[17rem] rounded-[8px] bg-white p-4 font-mono text-[12px] leading-snug text-black shadow-card"
+      className="mx-auto w-[17rem] rounded-[8px] bg-[#ffffff] p-4 font-mono text-[12px] leading-snug text-[#000000] shadow-card"
     >
       <div className="text-center">
         <p className="text-[14px] font-bold">{name || 'Nama toko'}</p>

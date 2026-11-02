@@ -5,9 +5,17 @@ import { outletSettings, outlets } from '../../db/schema.js';
 export type OutletRow = typeof outlets.$inferSelect;
 export type SettingsRow = typeof outletSettings.$inferSelect;
 
-export function toSettings(outlet: OutletRow, row: SettingsRow) {
+/** `includeOperationsStart`: owner and manager tokens only; devices and `/sync/pull` never get it (DEAR-136). */
+export function toSettings(
+  outlet: OutletRow,
+  row: SettingsRow,
+  options: { includeOperationsStart?: boolean } = {},
+) {
   return {
     outlet: { id: outlet.id, code: outlet.code, name: outlet.name, timezone: outlet.timezone },
+    ...(options.includeOperationsStart
+      ? { operations_started_on: outlet.operationsStartedOn }
+      : {}),
     display_name: row.displayName,
     address: row.address,
     phone: row.phone,

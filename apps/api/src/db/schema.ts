@@ -3,6 +3,8 @@ import {
   bigint,
   boolean,
   check,
+  date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -39,6 +41,19 @@ export const outlets = pgTable('outlets', {
   timezone: text('timezone').notNull().default('Asia/Jakarta'),
   /** Counter behind device codes (K01, K02, ...). */
   deviceSeq: integer('device_seq').notNull().default(0),
+  /**
+   * Codes this outlet had before a rename (ADR-0020). Transaction numbers that start with one of them stay valid, so
+   * devices paired before the rename keep syncing.
+   */
+  previousCodes: text('previous_codes')
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  /**
+   * First business day the branch really operates (DEAR-140, ADR-0021 §3). The expense recap and its export count
+   * revenue and expenses from this date by default; `NULL` = no limit. Transaction history still shows everything.
+   */
+  operationsStartedOn: date('operations_started_on', { mode: 'string' }),
   createdAt: createdAt(),
 });
 
@@ -334,6 +349,10 @@ export const transactions = pgTable(
     serverReceivedAt: ts('server_received_at').notNull().defaultNow(),
     paidAt: ts('paid_at'),
     voidedAt: ts('voided_at'),
+    /** Soft delete by the owner (ADR-0019). Set together, cleared together on restore. */
+    deletedAt: ts('deleted_at'),
+    deletedBy: uuid('deleted_by').references(() => users.id),
+    deleteReason: text('delete_reason'),
   },
   (t) => [
     uniqueIndex('transactions_outlet_number_unique').on(t.outletId, t.number),
@@ -341,6 +360,15 @@ export const transactions = pgTable(
     index('transactions_shift_idx').on(t.shiftId),
     index('transactions_outlet_status_idx').on(t.outletId, t.status),
     index('transactions_outlet_employee_idx').on(t.outletId, t.employeeId, t.clientCreatedAt),
+    index('transactions_outlet_deleted_idx').on(t.outletId, t.deletedAt),
+    check(
+      'transactions_deleted_fields_check',
+      sql`(${t.deletedAt} IS NULL AND ${t.deletedBy} IS NULL AND ${t.deleteReason} IS NULL) OR (${t.deletedAt} IS NOT NULL AND ${t.deletedBy} IS NOT NULL AND ${t.deleteReason} IS NOT NULL)`,
+    ),
+    check(
+      'transactions_deleted_status_check',
+      sql`${t.deletedAt} IS NULL OR ${t.status} NOT IN ('pending', 'void_requested')`,
+    ),
     check(
       'transactions_status_check',
       sql`${t.status} IN ('pending', 'paid', 'void_requested', 'voided', 'cancelled')`,
@@ -448,6 +476,162 @@ export const voidRequests = pgTable(
   ],
 );
 
+/**
+ * History of owner deletes and restores of a transaction (ADR-0019). Append-only (enforced by
+ * trigger); one row per action, so delete → restore → delete again stays traceable.
+ */
+export const transactionDeletions = pgTable(
+  'transaction_deletions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    transactionId: uuid('transaction_id')
+      .notNull()
+      .references(() => transactions.id),
+    action: text('action').notNull(),
+    reason: text('reason'),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('transaction_deletions_transaction_idx').on(t.transactionId, t.createdAt),
+    index('transaction_deletions_outlet_created_idx').on(t.outletId, t.createdAt.desc()),
+    check('transaction_deletions_action_check', sql`${t.action} IN ('delete', 'restore')`),
+    check(
+      'transaction_deletions_reason_check',
+      sql`${t.action} <> 'delete' OR ${t.reason} IS NOT NULL`,
+    ),
+  ],
+);
+
+/**
+ * Expense categories per outlet (ADR-0021). Seeded with defaults by `kk_seed_expense_categories`; archived instead of
+ * deleted once used. `updated_seq` is ready for the cashier app to pull categories in Fase 2.
+ */
+export const expenseCategories = pgTable(
+  'expense_categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    /** `hpp` (bahan jus), `operasional`, `tetap` or `lainnya`; the API field is `group`. */
+    categoryGroup: text('category_group').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    /** Null = active. Archived categories keep their expenses but cannot be picked for new ones. */
+    archivedAt: ts('archived_at'),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    updatedSeq: updatedSeq(),
+  },
+  (t) => [
+    // Target of the composite FK from `expenses`, so an expense can only use a category of its own outlet.
+    uniqueIndex('expense_categories_id_outlet_unique').on(t.id, t.outletId),
+    uniqueIndex('expense_categories_outlet_name_unique')
+      .on(t.outletId, sql`lower(${t.name})`)
+      .where(sql`${t.archivedAt} IS NULL`),
+    index('expense_categories_outlet_seq_idx').on(t.outletId, t.updatedSeq),
+    check(
+      'expense_categories_group_check',
+      sql`${t.categoryGroup} IN ('hpp', 'operasional', 'tetap', 'lainnya')`,
+    ),
+    check('expense_categories_name_check', sql`char_length(${t.name}) BETWEEN 1 AND 40`),
+  ],
+);
+
+/**
+ * Outlet expenses (ADR-0021). Soft delete like transactions (ADR-0019): `deleted_*` set together, history in
+ * `expense_history`, physical delete forbidden by trigger. `source = 'cash_movement'` is reserved for Fase 2.
+ */
+export const expenses = pgTable(
+  'expenses',
+  {
+    /** UUIDv7, generated by the client when it sends one (idempotent create), else by the API. */
+    id: uuid('id').primaryKey(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    categoryId: uuid('category_id').notNull(),
+    /** Business date (outlet timezone) the money was spent; reports group by this, not by `created_at`. */
+    spentOn: date('spent_on', { mode: 'string' }).notNull(),
+    description: text('description').notNull(),
+    amount: money('amount').notNull(),
+    /** `drawer` = kas laci cabang, `owner` = uang owner (transfer/pribadi). */
+    fundingSource: text('funding_source').notNull(),
+    /** Object key in the private media bucket (`<outlet_id>/expense_receipt/<uuid>.<ext>`), ADR-0015. */
+    receiptImageKey: text('receipt_image_key'),
+    source: text('source').notNull().default('dashboard'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    deletedAt: ts('deleted_at'),
+    deletedBy: uuid('deleted_by').references(() => users.id),
+    deleteReason: text('delete_reason'),
+  },
+  (t) => [
+    foreignKey({
+      name: 'expenses_category_outlet_fk',
+      columns: [t.categoryId, t.outletId],
+      foreignColumns: [expenseCategories.id, expenseCategories.outletId],
+    }),
+    index('expenses_outlet_spent_idx')
+      .on(t.outletId, t.spentOn.desc())
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('expenses_outlet_deleted_idx').on(t.outletId, t.deletedAt),
+    index('expenses_category_idx').on(t.categoryId),
+    check('expenses_amount_check', sql`${t.amount} > 0 AND ${t.amount} <= 1000000000`),
+    check('expenses_funding_source_check', sql`${t.fundingSource} IN ('drawer', 'owner')`),
+    check('expenses_source_check', sql`${t.source} IN ('dashboard', 'cash_movement')`),
+    check('expenses_description_check', sql`char_length(${t.description}) BETWEEN 1 AND 200`),
+    check(
+      'expenses_deleted_fields_check',
+      sql`(${t.deletedAt} IS NULL AND ${t.deletedBy} IS NULL AND ${t.deleteReason} IS NULL) OR (${t.deletedAt} IS NOT NULL AND ${t.deletedBy} IS NOT NULL AND ${t.deleteReason} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/** Create/update/delete/restore history of an expense (ADR-0021). Append-only (enforced by trigger). */
+export const expenseHistory = pgTable(
+  'expense_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    expenseId: uuid('expense_id')
+      .notNull()
+      .references(() => expenses.id),
+    action: text('action').notNull(),
+    /** `update` only: `{ field: { from, to } }` of the API fields that changed. */
+    changes: jsonb('changes'),
+    /** Required for `delete`; optional note for `restore`. */
+    reason: text('reason'),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('expense_history_expense_idx').on(t.expenseId, t.createdAt),
+    index('expense_history_outlet_created_idx').on(t.outletId, t.createdAt.desc()),
+    check(
+      'expense_history_action_check',
+      sql`${t.action} IN ('create', 'update', 'delete', 'restore')`,
+    ),
+    check('expense_history_reason_check', sql`${t.action} <> 'delete' OR ${t.reason} IS NOT NULL`),
+  ],
+);
+
 /** Append-only (enforced by trigger). */
 export const auditLogs = pgTable(
   'audit_logs',
@@ -488,4 +672,102 @@ export const idempotencyKeys = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.scopeId, t.key] })],
+);
+
+/** One row per browser an owner enabled Web Push on (ADR-0017). `endpoint` and keys are never logged or returned. */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    label: text('label').notNull(),
+    userAgent: text('user_agent'),
+    lastDeliveredAt: ts('last_delivered_at'),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    /** Null = active. */
+    revokedAt: ts('revoked_at'),
+    revokedReason: text('revoked_reason'),
+  },
+  (t) => [
+    uniqueIndex('push_subscriptions_endpoint_active_unique')
+      .on(t.endpoint)
+      .where(sql`${t.revokedAt} IS NULL`),
+    index('push_subscriptions_owner_active_idx')
+      .on(t.outletId, t.userId)
+      .where(sql`${t.revokedAt} IS NULL`),
+    check(
+      'push_subscriptions_revoked_reason_check',
+      sql`${t.revokedReason} IS NULL OR ${t.revokedReason} IN ('user', 'gone', 'replaced', 'limit')`,
+    ),
+  ],
+);
+
+/** Notification types per owner account per outlet, shared by all that owner's browsers. No row = defaults (all on). */
+export const notificationPrefs = pgTable(
+  'notification_prefs',
+  {
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    prefs: jsonb('prefs')
+      .notNull()
+      .default(sql`'{"transaction": true, "void": true}'::jsonb`),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.outletId, t.userId] })],
+);
+
+/** Outbox + idempotency record of Web Push messages: unique per (event, entity, subscription). */
+export const notificationLog = pgTable(
+  'notification_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    subscriptionId: uuid('subscription_id')
+      .notNull()
+      .references(() => pushSubscriptions.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    payload: jsonb('payload').notNull(),
+    ttlSeconds: integer('ttl_seconds').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    sentAt: ts('sent_at'),
+  },
+  (t) => [
+    uniqueIndex('notification_log_event_entity_subscription_unique').on(
+      t.event,
+      t.entityId,
+      t.subscriptionId,
+    ),
+    index('notification_log_pending_idx')
+      .on(t.nextAttemptAt)
+      .where(sql`${t.status} = 'pending'`),
+    check(
+      'notification_log_event_check',
+      sql`${t.event} IN ('transaction.paid', 'transaction.batch', 'void.requested', 'void.approved', 'subscription.test')`,
+    ),
+    check(
+      'notification_log_status_check',
+      sql`${t.status} IN ('pending', 'sent', 'failed', 'expired')`,
+    ),
+  ],
 );

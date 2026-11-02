@@ -6,9 +6,9 @@ export const STATUS_LABEL: Record<
 > = {
   pending: { tone: 'warn', label: 'Menunggu bayar' },
   paid: { tone: 'ok', label: 'Lunas' },
-  void_requested: { tone: 'warn', label: 'Menunggu void' },
+  void_requested: { tone: 'warn', label: 'Nunggu persetujuan batal' },
   voided: { tone: 'off', label: 'Dibatalkan' },
   cancelled: { tone: 'off', label: 'Batal' },
 };
 
-export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', qris: 'QRIS' };
+export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Tunai', qris: 'QRIS' };

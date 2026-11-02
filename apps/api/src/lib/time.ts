@@ -14,3 +14,20 @@ export function endOfBusinessDay(date: string): Date {
 export const iso = (d: Date): string => d.toISOString();
 export const isoOrNull = (d: Date | null | undefined): string | null =>
   d ? d.toISOString() : null;
+
+/** Business date `yyyy-mm-dd` of an instant in an IANA time zone. */
+export function dateInZone(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+}
+
+/** `yyyy-mm-dd` shifted by whole days (calendar arithmetic, no time zone involved). */
+export function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}

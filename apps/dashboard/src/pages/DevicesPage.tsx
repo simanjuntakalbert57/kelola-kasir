@@ -4,14 +4,18 @@ import type { Device, ResponseBody } from '@kelola-kasir/contracts';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+import { Smartphone } from 'lucide-react';
 import {
   Alert,
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   Dialog,
   EmptyState,
+  ErrorState,
   Field,
+  NoticeCard,
   PageHeader,
   Skeleton,
 } from '../components/ui';
@@ -26,8 +30,8 @@ const schema = z.object({
 type Created = ResponseBody<'/devices', 'post', 201>;
 
 const STATUS = {
-  pending_pairing: { tone: 'warn', label: 'Menunggu pairing' },
-  active: { tone: 'ok', label: 'Aktif' },
+  pending_pairing: { tone: 'info', label: 'Menunggu pairing' },
+  active: { tone: 'ok', label: 'Terhubung' },
   revoked: { tone: 'off', label: 'Dicabut' },
 } as const;
 
@@ -44,10 +48,10 @@ function CreateDeviceDialog({ onClose }: { onClose: () => void }) {
       {created ? (
         <div>
           <p className="text-sm text-muted">
-            Masukkan kode ini di aplikasi kasir, layar Pasangkan perangkat, untuk “
-            {created.device.name}”. Ini bukan PIN pegawai.
+            Masukkan kode ini di aplikasi kasir untuk “{created.device.name}”. Berlaku sekali pakai.
+            Ini bukan PIN pegawai.
           </p>
-          <p className="my-3 rounded-[16px] bg-bg py-4 text-center font-mono text-3xl font-extrabold tracking-[0.3em] select-all">
+          <p className="my-3 rounded-2xl bg-bg py-4 text-center font-mono text-[34px] font-black tracking-[0.2em] select-all">
             {created.pairing_code}
           </p>
           <p className="text-[13px] text-muted">
@@ -99,18 +103,16 @@ function RevokeDialog({ device, onClose }: { device: Device; onClose: () => void
     },
   });
   return (
-    <Dialog title={`Cabut ${device.name}?`} onClose={onClose}>
-      {revoke.error ? <Alert>{errorMessage(revoke.error)}</Alert> : null}
-      <p className="text-sm text-muted">
-        Semua sesi pegawai di perangkat ini langsung berakhir dan perangkat tidak bisa dipakai lagi.
-      </p>
-      <div className="mt-4 flex gap-2">
-        <Button variant="danger" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
-          Cabut perangkat
-        </Button>
-        <Button onClick={onClose}>Batal</Button>
-      </div>
-    </Dialog>
+    <ConfirmDialog
+      title={`Cabut ${device.name}?`}
+      confirmLabel="Ya, cabut"
+      pending={revoke.isPending}
+      error={revoke.error ? errorMessage(revoke.error) : undefined}
+      onConfirm={() => revoke.mutate()}
+      onClose={onClose}
+    >
+      Perangkat ini langsung tidak bisa dipakai kasir. Semua sesi pegawai di perangkat ini berakhir.
+    </ConfirmDialog>
   );
 }
 
@@ -126,25 +128,29 @@ export function DevicesPage() {
     <>
       <PageHeader
         title="Perangkat"
+        subtitle="Tablet/HP yang boleh dipakai sebagai kasir"
         action={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            ＋ Tambah perangkat
-          </Button>
+          data && data.data.length > 0 ? (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              ＋ Tambah perangkat
+            </Button>
+          ) : undefined
         }
       />
       {isPending ? <Skeleton /> : null}
       {error ? (
-        <Alert>
-          Gagal memuat perangkat.{' '}
-          <button type="button" className="underline" onClick={() => void refetch()}>
-            Coba lagi
-          </button>
-        </Alert>
+        <ErrorState
+          title="Waduh, daftar perangkatnya belum kebuka. Coba lagi ya"
+          onRetry={() => void refetch()}
+        />
       ) : null}
       {data && data.data.length === 0 ? (
         <Card>
           <EmptyState icon="📱" title="Belum ada perangkat">
-            <p>Buat kode pairing untuk menyambungkan HP kasir.</p>
+            <p>Tambah satu supaya kasir bisa tersambung.</p>
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              Tambah perangkat
+            </Button>
           </EmptyState>
         </Card>
       ) : null}
@@ -155,18 +161,26 @@ export function DevicesPage() {
             return (
               <li
                 key={d.id}
-                className="flex flex-wrap items-center gap-3 rounded-[16px] bg-surface p-3 shadow-card"
+                className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface p-3 shadow-card"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-bold">
-                    {d.name} <span className="font-normal text-muted">· {d.code}</span>
+                <span
+                  aria-hidden="true"
+                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-tint text-tint-ink"
+                >
+                  <Smartphone size={22} />
+                </span>
+                <div className="min-w-40 flex-1">
+                  <p className="truncate font-extrabold">
+                    {d.name} <span className="font-semibold text-muted">· {d.code}</span>
                   </p>
-                  <Badge tone={s.tone}>{s.label}</Badge>
-                  <p className="mt-1 text-[13px] text-muted">
-                    Terakhir aktif: {formatDateTime(d.last_seen_at)}
+                  <p className="text-[13px] text-muted">
+                    {d.status === 'pending_pairing'
+                      ? 'Kode pairing belum dipakai'
+                      : `Terakhir aktif ${formatDateTime(d.last_seen_at)}`}
                     {d.app_version ? ` · v${d.app_version}` : ''}
                   </p>
                 </div>
+                <Badge tone={s.tone}>{s.label}</Badge>
                 {d.status !== 'revoked' ? (
                   <Button
                     small
@@ -181,6 +195,11 @@ export function DevicesPage() {
             );
           })}
         </ul>
+      ) : null}
+      {data && data.data.length > 0 ? (
+        <div className="mt-4">
+          <NoticeCard>Ketuk Cabut kalau perangkat hilang atau tidak dipakai lagi.</NoticeCard>
+        </div>
       ) : null}
       {creating ? <CreateDeviceDialog onClose={() => setCreating(false)} /> : null}
       {revoking ? <RevokeDialog device={revoking} onClose={() => setRevoking(null)} /> : null}
