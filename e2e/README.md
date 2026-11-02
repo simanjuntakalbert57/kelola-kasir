@@ -31,3 +31,7 @@ diperbaiki, sebagai pengingat menghapus baris itu.
 
 Seed (hari ini WIB): shift 1 Siti (ditutup, modal 100.000, selisih −5.000), shift 2 Budi (terbuka), 8 transaksi,
 2 permintaan void menunggu. Omzet 150.000 (paid + void_requested).
+
+`zz-multibranch.spec.ts` (DEAR-138, TC-MB-01..04): isolasi 2 cabang, rekap/laba cocok hitungan manual, akses manager/kasir,
+dan rename JUS4 → RGN4 dengan skrip `ops/vps/rename-outlet.sql` + `create-branch-outlet.sql` (data utuh, nomor lama tetap
+diterima). Memakai outlet sendiri JUS4 (`branch@e2e.test`, manager `mgr4@e2e.test`) yang dibuat `run.sh`.
