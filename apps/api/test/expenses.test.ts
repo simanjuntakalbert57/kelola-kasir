@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditLogs, expenseHistory } from '../src/db/schema.js';
 import { createShop, createTestEnv, get, json, patch, post, type TestEnv } from './helpers.js';
@@ -32,6 +32,11 @@ afterAll(async () => {
   await env.close();
 });
 
+interface ActorRef {
+  id: string;
+  name: string;
+  role: 'owner' | 'manager' | null;
+}
 interface Expense {
   id: string;
   outlet: { id: string };
@@ -39,7 +44,7 @@ interface Expense {
   amount: number;
   description: string;
   receipt_url: string | null;
-  deleted: { reason: string } | null;
+  deleted: { reason: string; deleted_by: ActorRef } | null;
   updated_by: { name: string };
 }
 interface Detail extends Expense {
@@ -47,6 +52,7 @@ interface Detail extends Expense {
     action: string;
     changes: Record<string, { from: unknown; to: unknown }> | null;
     reason: string | null;
+    actor: ActorRef;
   }[];
 }
 interface Listed {
@@ -322,13 +328,12 @@ describe('expenses CRUD', () => {
     );
   });
 
-  it('soft-deletes (owner only, idempotent) and restores with history', async () => {
+  it('soft-deletes (owner, idempotent) and restores with history', async () => {
     const f = await fixture();
     const created = await createExpense(f.ownerA.headers, expenseBody(f.cat));
     const manager = await createMember(env, f.a, 'manager');
     const url = `/v1/expenses/${created.id}`;
 
-    expect((await del(env, url, manager.headers, { reason: 'Salah catat' })).statusCode).toBe(403);
     expect((await del(env, url, f.ownerA.headers, { reason: 'x' })).statusCode).toBe(400);
     const deleted = await del(env, url, f.ownerA.headers, { reason: '  Salah catat  ' });
     expect(json<Expense>(deleted).deleted).toMatchObject({ reason: 'Salah catat' });
@@ -366,6 +371,47 @@ describe('expenses CRUD', () => {
       'expense.deleted',
       'expense.restored',
     ]);
+  });
+
+  it('lets a manager delete in their own outlet; the owner sees who and can restore (DEAR-143)', async () => {
+    const f = await fixture();
+    const created = await createExpense(f.ownerA.headers, expenseBody(f.cat));
+    const manager = await createMember(env, f.a, 'manager', 'Manager A');
+    const url = `/v1/expenses/${created.id}`;
+
+    expect((await del(env, url, manager.headers, { reason: 'abc' })).statusCode).toBe(400);
+    const deleted = await del(env, url, manager.headers, { reason: 'Nota dobel' });
+    expect(deleted.statusCode).toBe(200);
+    expect(json<Expense>(deleted).deleted).toMatchObject({
+      reason: 'Nota dobel',
+      deleted_by: { name: 'Manager A', role: 'manager' },
+    });
+    expect((await del(env, url, manager.headers, { reason: 'Hapus lagi' })).statusCode).toBe(200);
+
+    // Gone from the list and the recap; still owner-only to see or restore.
+    expect(json<Listed>(await get(env, '/v1/expenses', manager.headers)).summary.count).toBe(0);
+    expect(json<Listed>(await get(env, '/v1/expenses', f.ownerA.headers)).summary.count).toBe(0);
+    expect((await get(env, url, manager.headers)).statusCode).toBe(404);
+    expect((await get(env, '/v1/expenses?status=deleted', manager.headers)).statusCode).toBe(403);
+    expect((await post(env, `${url}/restore`, manager.headers, undefined)).statusCode).toBe(403);
+
+    const bin = json<Listed>(await get(env, '/v1/expenses?status=deleted', f.ownerA.headers));
+    expect(bin.data).toHaveLength(1);
+    expect(bin.data[0]?.deleted?.deleted_by).toMatchObject({ name: 'Manager A', role: 'manager' });
+    const detail = json<Detail>(await get(env, url, f.ownerA.headers));
+    expect(detail.history.map((h) => [h.action, h.actor.role, h.reason])).toEqual([
+      ['create', 'owner', null],
+      ['delete', 'manager', 'Nota dobel'],
+    ]);
+    const [audit] = await env.handle.db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, created.id), eq(auditLogs.action, 'expense.deleted')));
+    expect(audit?.actorId).toBe(json<Expense>(deleted).deleted?.deleted_by.id);
+    expect(audit?.meta).toMatchObject({ role: 'manager' });
+
+    expect((await post(env, `${url}/restore`, f.ownerA.headers, undefined)).statusCode).toBe(200);
+    expect(json<Listed>(await get(env, '/v1/expenses', manager.headers)).summary.count).toBe(1);
   });
 
   it('lists with filters, summary over all matches, and cursor paging', async () => {
@@ -519,7 +565,9 @@ describe('branch isolation', () => {
     const url = `/v1/expenses/${inB.id}`;
     expect((await get(env, url, mixed.headers)).statusCode).toBe(200); // a manager may read
     expect((await patch(env, url, mixed.headers, { amount: 10 })).statusCode).toBe(200);
-    expect((await del(env, url, mixed.headers, { reason: 'Coba hapus' })).statusCode).toBe(403);
+    expect((await post(env, `${url}/restore`, mixed.headers, undefined)).statusCode).toBe(403);
+    expect((await del(env, url, mixed.headers, { reason: 'Coba hapus' })).statusCode).toBe(200);
+    expect((await post(env, `${url}/restore`, mixed.headers, undefined)).statusCode).toBe(403);
     // After switching to B the token carries the manager role.
     const asManager = await switchTo(env, mixed.headers, f.b.outletId);
     expect(
@@ -545,5 +593,9 @@ describe('branch isolation', () => {
     }
     const res = await post(env, '/v1/expenses', shop.cashier.headers, expenseBody(newId()));
     expect(res.statusCode).toBe(403);
+    const delUrl = `/v1/expenses/${newId()}`;
+    expect(
+      (await del(env, delUrl, shop.cashier.headers, { reason: 'Coba hapus' })).statusCode,
+    ).toBe(403);
   });
 });

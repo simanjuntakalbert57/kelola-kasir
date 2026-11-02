@@ -31,6 +31,7 @@ import {
 import { download, qs } from '../lib/api';
 import { presetRange } from '../lib/dates';
 import {
+  actorLabel,
   expenseKey,
   formatDay,
   groupByDay,
@@ -287,7 +288,7 @@ export function ExpensesPage() {
                     </span>
                     {r.deleted ? (
                       <span className="block text-[13px] text-danger">
-                        Dihapus {r.deleted.deleted_by.name}: “{r.deleted.reason}”
+                        Dihapus {actorLabel(r.deleted.deleted_by)}: “{r.deleted.reason}”
                       </span>
                     ) : null}
                   </span>

@@ -10,6 +10,7 @@ import { ArchiveRestore, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../lib/api';
 import {
+  actorLabel,
   deleteReasonError,
   expenseErrorMessage,
   formatDate,
@@ -29,6 +30,7 @@ const ACTION_LABEL = {
 
 function DeleteDialog({ expense, onClose }: { expense: Expense; onClose: () => void }) {
   const qc = useQueryClient();
+  const { isOwner } = useExpenseScope();
   const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
   const invalid = deleteReasonError(reason);
@@ -48,7 +50,9 @@ function DeleteDialog({ expense, onClose }: { expense: Expense; onClose: () => v
       {del.error ? <Alert>{expenseErrorMessage(del.error)}</Alert> : null}
       <p className="mb-3 text-sm text-muted">
         {expense.category.name} {formatRupiah(expense.amount)} ({formatDate(expense.spent_on)}).
-        Data tetap ada di Riwayat Hapus dan bisa dipulihkan.
+        {isOwner
+          ? 'Data tetap ada di Riwayat Hapus dan bisa dipulihkan.'
+          : 'Owner tetap bisa melihat dan memulihkannya di Riwayat Hapus.'}
       </p>
       <TextareaField
         label="Alasan menghapus"
@@ -74,7 +78,7 @@ function DeleteDialog({ expense, onClose }: { expense: Expense; onClose: () => v
   );
 }
 
-/** Detail + history of one expense, with edit (owner/manager), delete and restore (owner). */
+/** Detail + history of one expense, with edit and delete (owner/manager) and restore (owner, DEAR-143). */
 export function ExpenseDetailDialog({
   id,
   onClose,
@@ -138,8 +142,8 @@ export function ExpenseDetailDialog({
           ) : null}
           {e.deleted ? (
             <p className="mb-3 text-sm text-danger">
-              Dihapus oleh {e.deleted.deleted_by.name} · {formatDateTime(e.deleted.deleted_at)}: “
-              {e.deleted.reason}”
+              Dihapus oleh {actorLabel(e.deleted.deleted_by)} ·{' '}
+              {formatDateTime(e.deleted.deleted_at)}: “{e.deleted.reason}”
             </p>
           ) : null}
           <section aria-label="Riwayat perubahan" className="mb-3">
@@ -147,7 +151,7 @@ export function ExpenseDetailDialog({
             <ol className="space-y-2 border-l-2 border-line pl-3 text-sm">
               {e.history.map((h) => (
                 <li key={h.id}>
-                  <b>{ACTION_LABEL[h.action]}</b> oleh {h.actor.name} ·{' '}
+                  <b>{ACTION_LABEL[h.action]}</b> oleh {actorLabel(h.actor)} ·{' '}
                   {formatDateTime(h.created_at)}
                   {h.reason ? <span className="block text-muted">“{h.reason}”</span> : null}
                 </li>
@@ -177,12 +181,10 @@ export function ExpenseDetailDialog({
                     <Pencil size={18} aria-hidden="true" />
                     Ubah
                   </Button>
-                  {isOwner ? (
-                    <Button variant="danger" onClick={() => setMode('delete')}>
-                      <Trash2 size={18} aria-hidden="true" />
-                      Hapus
-                    </Button>
-                  ) : null}
+                  <Button variant="danger" onClick={() => setMode('delete')}>
+                    <Trash2 size={18} aria-hidden="true" />
+                    Hapus
+                  </Button>
                 </>
               )}
               <Button onClick={onClose}>Tutup</Button>

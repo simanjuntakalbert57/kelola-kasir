@@ -121,33 +121,37 @@ test.describe.serial('DEAR-137 cabang + pengeluaran (owner)', () => {
   });
 });
 
-test.describe('DEAR-137 manager', () => {
-  // Own data (the primary branch JUS1, where manager@e2e.test works) so this test does not depend on TC-EXP-02..04.
+/** An expense in the primary branch JUS1 (where manager@e2e.test works), recorded by the owner through the API. */
+async function seedPrimaryExpense(description: string) {
+  const token = await ownerToken();
+  const { data } = await call<{ data: { id: string; name: string }[] }>(
+    'GET',
+    '/expense-categories',
+    { headers: bearer(token) },
+  );
+  const category = data.data[0];
+  if (!category) throw new Error('seed has no expense categories');
+  await call('POST', '/expenses', {
+    headers: bearer(token),
+    body: {
+      id: uuidv7(),
+      category_id: category.id,
+      spent_on: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+      description,
+      amount: 50_000,
+      funding_source: 'drawer',
+      receipt_url: null,
+    },
+  });
+}
+
+test.describe.serial('DEAR-137 manager', () => {
+  // Own data so these tests do not depend on TC-EXP-02..04.
   test.beforeAll(async () => {
-    if (!apiReady) return;
-    const token = await ownerToken();
-    const { data } = await call<{ data: { id: string; name: string }[] }>(
-      'GET',
-      '/expense-categories',
-      { headers: bearer(token) },
-    );
-    const category = data.data[0];
-    if (!category) throw new Error('seed has no expense categories');
-    await call('POST', '/expenses', {
-      headers: bearer(token),
-      body: {
-        id: uuidv7(),
-        category_id: category.id,
-        spent_on: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
-        description: 'Seed e2e manager',
-        amount: 50_000,
-        funding_source: 'drawer',
-        receipt_url: null,
-      },
-    });
+    if (apiReady) await seedPrimaryExpense('Seed e2e manager');
   });
 
-  test('TC-EXP-05 manager: cabang terkunci, tanpa Hapus dan Kelola kategori, tanggal mulai read-only', async ({
+  test('TC-EXP-05 manager: cabang terkunci, tanpa Kelola kategori, tanggal mulai read-only', async ({
     page,
   }) => {
     await openAsOwner(page, '/pengeluaran', MANAGER_EMAIL);
@@ -161,8 +165,35 @@ test.describe('DEAR-137 manager', () => {
       .first()
       .click();
     await expect(page.getByRole('button', { name: 'Ubah' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hapus' })).toHaveCount(0);
     await page.goto('/pengaturan');
     await expect(page.getByLabel('Tanggal mulai operasional')).toBeDisabled();
+  });
+
+  test('TC-EXP-06 manager menghapus; owner melihat penghapus di Riwayat Hapus dan memulihkan (DEAR-143) @mobile', async ({
+    page,
+  }) => {
+    const description = `Es batu dobel e2e ${Date.now()}`;
+    await seedPrimaryExpense(description);
+    await openAsOwner(page, '/pengeluaran', MANAGER_EMAIL);
+    await expect(page.getByLabel(/Riwayat Hapus/)).toHaveCount(0);
+    await page
+      .getByRole('button', { name: /^Detail / })
+      .filter({ hasText: description })
+      .click();
+    await page.getByRole('button', { name: 'Hapus' }).click();
+    const del = page.getByRole('dialog', { name: 'Hapus pengeluaran ini?' });
+    await del.getByLabel('Alasan menghapus').fill('Nota dobel e2e');
+    await del.getByRole('button', { name: 'Hapus' }).click();
+    await expect(page.getByText(description)).toHaveCount(0);
+
+    await page.context().clearCookies();
+    await openAsOwner(page, '/pengeluaran');
+    await page.getByLabel(/Riwayat Hapus/).check();
+    const row = page.getByRole('button', { name: /^Detail / }).filter({ hasText: description });
+    await expect(row.getByText(/Dihapus .* \(Manajer\): “Nota dobel e2e”/)).toBeVisible();
+    await row.click();
+    await page.getByRole('button', { name: 'Pulihkan' }).click();
+    await page.getByLabel(/Riwayat Hapus/).uncheck();
+    await expect(page.getByText(description)).toBeVisible();
   });
 });

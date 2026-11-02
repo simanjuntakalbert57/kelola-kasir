@@ -79,7 +79,7 @@ Invarian yang dijaga DB (trigger `0007`, sudah diuji di PostgreSQL 16):
 | `GET /expenses/export?format=csv\|xlsx` | owner, manager | Filter sama dengan daftar. Sheet kedua `Rekap` (xlsx). Diaudit sebagai `expenses.exported`. |
 | `GET /expenses/{id}` | owner, manager | `ExpenseDetail` + `history`. Pencarian lintas outlet member (ADR-0020 §2). Yang terhapus hanya untuk owner. |
 | `PATCH /expenses/{id}` | owner, manager | Koreksi. Terhapus → `409 EXPENSE_DELETED`. Kalau tidak ada perubahan → `200` tanpa riwayat. |
-| `DELETE /expenses/{id}` body `{reason}` | **owner** | Soft delete, idempoten. Alasan 5–200 karakter. |
+| `DELETE /expenses/{id}` body `{reason}` | owner, manager (DEAR-143) | Soft delete, idempoten. Alasan 5–200 karakter. Hanya di outlet tempat pemanggil menjadi member (lainnya `404`). |
 | `POST /expenses/{id}/restore` body `{note?}` | **owner** | Pulihkan |
 | `GET /reports/expenses?month_from&month_to&outlet_scope&include_pre_operations` | owner, manager | Rekap bulanan (§3) |
 | `GET/PATCH /settings` field `operations_started_on` | baca: owner, manager; ubah: **owner** | Tanggal mulai operasional cabang aktif (§3). Manager yang mengirim field ini → `403`, tidak ada yang tersimpan. |
@@ -120,7 +120,7 @@ Semua itu di luar PR ini. Yang disiapkan sekarang hanya `source`, `updated_seq`,
 ### 5. Dashboard (ringkas, untuk DEAR-137; desain dari DEAR-135)
 - Menu **Pengeluaran** (owner & manager) berisi tab Daftar, Rekap, dan Kategori (Kategori: owner saja). Pemilih cabang mengikuti ADR-0020 §5, dan "Semua cabang" tersedia di Daftar dan Rekap.
 - Form: tanggal (default hari ini), kategori (aktif, dikelompokkan), keterangan, jumlah (input Rupiah), sumber dana (radio), dan foto nota (opsional). Foto dikompres di browser ke ≤200 KB (`EXPENSE_LIMITS.receiptTargetBytes`, maks. sisi 1280 px, JPEG/WebP), lalu `POST /uploads` dan `PUT`.
-- Hapus (owner) memakai dialog alasan seperti Hapus transaksi. Riwayat Hapus pengeluaran = `GET /expenses?status=deleted`.
+- Hapus (owner & manager, DEAR-143) memakai dialog alasan seperti Hapus transaksi. Riwayat Hapus pengeluaran = `GET /expenses?status=deleted`.
 - Setelah tulis, invalidasi daftar, rekap, dan detail pengeluaran. Setelah ganti cabang, `queryClient.clear()` (ADR-0020).
 - Nota dibuka lewat `receipt_url` (redirect presigned, ADR-0015).
 
@@ -139,3 +139,11 @@ Semua itu di luar PR ini. Yang disiapkan sekarang hanya `source`, `updated_seq`,
 - (−) Endpoint by-id pengeluaran mencari lintas outlet member, berbeda dengan endpoint by-id lain (ADR-0020 §2). Aturan ini harus diuji eksplisit: manager outlet A → `404` untuk pengeluaran outlet B.
 - (−) Mengganti kelompok kategori mengubah rekap bulan-bulan sebelumnya. Ini disengaja dan terlihat di audit `expense_category.updated`.
 - Migrasi hanya menambah tabel, index, CHECK, trigger, fungsi seed, satu kolom ber-default (`previous_codes`), dan satu kolom nullable (`operations_started_on`). Aman pada data produksi tanpa downtime.
+
+## Revisi RBAC hapus (DEAR-143, 2026-11-02)
+Permintaan Albert (chat 2 Nov 2026): owner **dan manajer cabang** bisa menghapus pengeluaran. Ini mengganti aturan "hapus: owner saja" dari DEAR-133.
+- `DELETE /expenses/{id}`: owner atau manager di outlet milik pengeluaran itu (role dibaca per outlet, ADR-0020 §2). Manager outlet lain → `404`, pegawai/device → `403`. Alasan tetap wajib, tetap soft delete + `expense_history` (`delete`) + audit `expense.deleted` dengan aktor = manager dan `meta.role`.
+- **Pulihkan dan Riwayat Hapus (`status=deleted`, detail terhapus) tetap owner saja.** Jadi setiap hapus oleh manajer terlihat oleh owner dan bisa dibatalkan.
+- Supaya owner tahu siapa yang menghapus, `created_by`/`updated_by`/`deleted.deleted_by` dan `history[].actor` pengeluaran memakai `ExpenseActorRef` (`UserRef` + `role`: `owner`/`manager`/`null`). `role` = role user **saat ini** di outlet pengeluaran (bukan saat kejadian), `null` bila sudah bukan member. Role saat kejadian tetap tercatat di `audit_logs.meta.role` untuk hapus.
+- Idempoten untuk manager juga: hapus ulang pengeluaran yang sudah terhapus → `200` dengan data terhapus (aman untuk retry/klik ganda). Konsekuensinya, manager yang tahu id bisa membaca alasan hapus lewat retry itu. Ini diterima karena datanya dari outlet manager sendiri.
+- Tanpa migrasi skema. Kasir tetap tidak punya akses Pengeluaran di Fase 1.
