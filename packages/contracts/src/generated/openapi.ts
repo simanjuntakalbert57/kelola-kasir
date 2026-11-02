@@ -1088,8 +1088,10 @@ export interface paths {
          *     CRLF and formula-injection guard exactly like `GET /transactions/export`. Columns: `Tanggal, Cabang, Kelompok,
          *     Kategori, Keterangan, Jumlah, Sumber dana, Ada nota, Dicatat oleh, Dicatat pada (WIB)`. The `.xlsx` file has a
          *     second sheet `Rekap` with, per month of the period and per outlet: omzet, pengeluaran per kelompok, total
-         *     pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Audited as `expenses.exported`.
-         *     Owner or manager.
+         *     pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Both sheets apply the operations start
+         *     of each outlet like the report: expenses with `spent_on` before its `operations_started_on` are left out
+         *     unless `include_pre_operations=true` (`GET /expenses`, the list screen, never applies it). Audited as
+         *     `expenses.exported`. Owner or manager.
          */
         get: operations["exportExpenses"];
         put?: never;
@@ -1168,6 +1170,10 @@ export interface paths {
          *     - Expenses: not deleted, month of `spent_on`.
          *     - Revenue: exactly the rule of `GET /dashboard/summary` (status `paid` or `void_requested`, not deleted by the
          *       owner, month of `client_created_at` in the outlet time zone), so the recap and the dashboard agree.
+         *     - Operations start (DEAR-140): by default each outlet counts revenue and expenses only from its
+         *       `operations_started_on` (`null` = no limit). The month of that date is partial, earlier months are zero, and
+         *       `counted_from` on the outlet cell says so. `include_pre_operations=true` counts everything. Months fully
+         *       after the start date are identical to `GET /dashboard/summary`.
          *     - Every month and every outlet of the scope is present, with zeros when empty.
          *     - Cells that combine outlets (`months[].total`, `total.total`) merge categories with the same group and name
          *       (case-insensitive); their `category_id` is `null`.
@@ -1196,7 +1202,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update store settings (O-10) */
+        /**
+         * Update store settings (O-10)
+         * @description Owner or manager, except `operations_started_on` which needs the owner role (DEAR-140).
+         */
         patch: operations["updateSettings"];
         trace?: never;
     };
@@ -1424,6 +1433,17 @@ export interface components {
              * @enum {string}
              */
             role: "owner" | "manager";
+        } & components["schemas"]["OutletOperationsStart"];
+        OutletOperationsStart: {
+            /**
+             * Format: date
+             * @description First business day the branch really operates (DEAR-140, ADR-0021 §3). `GET /reports/expenses` and
+             *     `GET /expenses/export` count revenue and expenses from this date by default; earlier data (e.g. testing)
+             *     stays stored and visible in the transaction history. `null` = no limit. Set by the owner in
+             *     `PATCH /settings`.
+             * @example 2026-11-10
+             */
+            operations_started_on: string | null;
         };
         OwnerSession: {
             access_token: string;
@@ -2123,6 +2143,14 @@ export interface components {
         ExpenseReportOutletCell: {
             /** Format: uuid */
             outlet_id: string;
+            /**
+             * Format: date
+             * @description `null` = the whole month (or period) of this cell is counted. Otherwise the outlet's
+             *     `operations_started_on`, which falls after the first day of the cell: only data from that date is
+             *     counted (a cell that ends before it is all zeros, "belum beroperasi"). Always `null` with
+             *     `include_pre_operations=true`.
+             */
+            counted_from: string | null;
         } & components["schemas"]["ExpenseReportCell"];
         ExpenseReport: {
             /** @example 2026-11 */
@@ -2131,8 +2159,9 @@ export interface components {
             month_to: string;
             /** @enum {string} */
             outlet_scope: "current" | "all";
+            include_pre_operations: boolean;
             /** @description Outlets of the scope, ordered by code */
-            outlets: components["schemas"]["OutletRef"][];
+            outlets: (components["schemas"]["OutletRef"] & components["schemas"]["OutletOperationsStart"])[];
             /** @description One entry per month, oldest first */
             months: {
                 /** @example 2026-11 */
@@ -2163,6 +2192,11 @@ export interface components {
         };
         OutletSettings: {
             outlet: components["schemas"]["OutletRef"];
+            /**
+             * Format: date
+             * @description See `OutletOperationsStart`. Always present for owner and manager tokens (DEAR-136); omitted for devices (`GET /settings`, `/sync/pull`), the cashier app does not use it. Owner role sets it here (DEAR-140).
+             */
+            operations_started_on?: string | null;
             display_name: string;
             address?: string | null;
             phone?: string | null;
@@ -2206,6 +2240,13 @@ export interface components {
             quick_cash_amounts?: components["schemas"]["Rupiah"][];
             /** @description Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned. */
             owner_pin?: string;
+            /**
+             * Format: date
+             * @description Owner role only (a manager sending this field gets `403 FORBIDDEN`, nothing is saved). 2020-01-01 to today
+             *     + 366 days (outlet time zone); `null` removes the limit. Stored on `outlets`, audited inside
+             *     `settings.updated` with before/after. Changing it changes the recap of past months on purpose.
+             */
+            operations_started_on?: string | null;
         };
         /** @description Notification types the owner receives on every registered browser. Shift summaries and daily digests come later. */
         NotificationPrefs: {
@@ -2370,6 +2411,12 @@ export interface components {
          *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
          */
         OutletScope: "current" | "all";
+        /**
+         * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+         *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+         *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+         */
+        IncludePreOperations: boolean;
         /** @description First month, inclusive (`YYYY-MM`, outlet time zone). Default the current month. */
         MonthFrom: string;
         /** @description Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months. */
@@ -4445,6 +4492,12 @@ export interface operations {
                 category_id?: string;
                 group?: components["schemas"]["ExpenseGroup"];
                 funding_source?: components["schemas"]["ExpenseFundingSource"];
+                /**
+                 * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+                 *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+                 *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+                 */
+                include_pre_operations?: components["parameters"]["IncludePreOperations"];
             };
             header?: never;
             path?: never;
@@ -4611,6 +4664,12 @@ export interface operations {
                 month_from?: components["parameters"]["MonthFrom"];
                 /** @description Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months. */
                 month_to?: components["parameters"]["MonthTo"];
+                /**
+                 * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+                 *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+                 *     (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+                 */
+                include_pre_operations?: components["parameters"]["IncludePreOperations"];
             };
             header?: never;
             path?: never;
@@ -4675,6 +4734,7 @@ export interface operations {
                     "application/json": components["schemas"]["OutletSettings"];
                 };
             };
+            403: components["responses"]["Forbidden"];
             /** @description `PIN_NOT_UNIQUE` (owner PIN equals an employee PIN) */
             409: {
                 headers: {

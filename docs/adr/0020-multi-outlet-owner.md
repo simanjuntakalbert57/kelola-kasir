@@ -33,7 +33,7 @@ Investor ingin mencatat pengeluaran per cabang (Ragunan dan Palmerah, DEAR-133).
 - Data operasional (Transaksi, Produk, Pegawai, Perangkat, Shift, Void, Pengaturan, Ringkasan) **tidak** punya mode "Semua". Di halaman itu, pemilih cabang hanya menampilkan cabang konkret. Agregasi Ringkasan lintas cabang bisa ditambahkan nanti dengan pola `outlet_scope` yang sama tanpa ADR baru.
 
 ### 3. Rename outlet JUS1 tanpa memutus HP yang sudah ter-pairing
-- Kolom baru `outlets.previous_codes text[] NOT NULL DEFAULT '{}'` (migrasi `0006`).
+- Kolom baru `outlets.previous_codes text[] NOT NULL DEFAULT '{}'` (migrasi `0006`). Migrasi yang sama menambah `outlets.operations_started_on date NULL` (ADR-0021 §3).
 - Validasi prefix nomor transaksi (`transactions/service.ts`, berlaku untuk `POST /transactions` dan `/sync/push`) menerima `${code}-${device}-` **atau** `${previous_code}-${device}-` untuk kode mana pun di `previous_codes`.
 - Akibatnya:
   - Nomor lama `JUS1-…` tetap valid dan tidak diubah. Unique `(outlet_id, number)` tetap berlaku, dan nomor tidak bisa bentrok karena prefiks berbeda.
@@ -44,7 +44,9 @@ Investor ingin mencatat pengeluaran per cabang (Ragunan dan Palmerah, DEAR-133).
   - `ops/vps/rename-outlet.sql` (`-v old_code=JUS1 -v new_code=… -v new_name='…'`). Mengubah `code` dan `name`, lalu menambahkan kode lama ke `previous_codes`. `outlet_settings.display_name` (header struk) ikut berubah hanya kalau masih sama dengan nama lama.
   - `ops/vps/create-branch-outlet.sql` (`-v code=… -v name='…' -v owner_email=…`). Membuat outlet, `outlet_settings` default, membership `owner` untuk akun owner yang sudah ada, dan kategori pengeluaran default (`kk_seed_expense_categories`, ADR-0021).
   - **Urutan produksi** (Stage 3, perlu OK Albert): deploy API yang sudah mengenal `previous_codes` → jalankan rename → jalankan create-branch → owner mengisi produk, pegawai, dan pengaturan cabang baru di dashboard → pairing HP cabang baru. Rename **sebelum** deploy API baru akan membuat sync HP lama ditolak, jadi urutan ini wajib.
-  - Cabang mana yang menjadi JUS1 (Ragunan atau Palmerah) masih menunggu jawaban Albert (DEAR-133). Skrip menerima kode/nama sebagai parameter, jadi jawabannya tidak memblokir pengembangan.
+  - **Keputusan final (Albert, DEAR-140, 1 Nov 2026): JUS1 = Ragunan (`RGN`).** JUS1 di-rename menjadi Ragunan, dan **Palmerah (`PLM`)** dibuat sebagai outlet baru yang mulai kosong.
+  - **Tidak ada data yang dihapus** (DEAR-140). Migrasi ini hanya rename: produk, harga, pegawai, HP yang ter-pairing, shift, dan transaksi (termasuk transaksi uji coba) tetap utuh. `delete-outlet.sql` dan `reset-outlet-data.sql` **tidak** dipakai di alur ini. Angka uji coba dikeluarkan dari Rekap lewat `outlets.operations_started_on` (ADR-0021 §3), bukan dengan menghapus data.
+  - Kedua skrip menerima `-v operations_started_on=YYYY-MM-DD` opsional (tanggal mulai operasional cabang). Kalau belum diketahui, kosongkan saja; owner bisa mengisinya nanti di Pengaturan.
 - Kode outlet tetap 2–6 huruf/angka (sama dengan `create-owner`). Contoh di konsep: `RGN`, `PLM`.
 
 ### 4. Notifikasi Web Push untuk owner banyak cabang
@@ -109,7 +111,7 @@ Legenda: **Aktif** = otomatis mengikuti outlet aktif lewat token, tidak perlu pe
 
 ## Konsekuensi
 - (+) Perubahan backend kecil dan terlokalisasi (auth, prefiks nomor, notifier, uploads). Semua endpoint lain langsung multi-cabang. APK tidak berubah. Biaya Rp0.
-- (+) Data lama utuh. Rename hanya menyentuh satu baris `outlets` (+ `display_name`) dan tercatat di audit.
+- (+) Data lama utuh. Rename hanya menyentuh satu baris `outlets` (+ `display_name`, dan `operations_started_on` kalau diisi) dan tercatat di audit.
 - (−) Dashboard wajib disiplin mengganti token dan membersihkan cache saat ganti cabang. Access token lama tetap valid ≤15 menit untuk outlet lama. Itu bukan masalah keamanan karena user memang member, tetapi tab lain bisa masih menampilkan cabang lain sampai di-refresh.
 - (−) HP lama tetap memakai nomor `JUS1-…` sampai di-pairing ulang. Struk menampilkan nama baru (dari pengaturan) dengan nomor berprefiks lama di masa transisi.
 - Migrasi hanya menambah kolom dengan default. Aman tanpa downtime.

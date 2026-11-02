@@ -50,6 +50,7 @@ CREATE TABLE "expenses" (
 );
 --> statement-breakpoint
 ALTER TABLE "outlets" ADD COLUMN "previous_codes" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "outlets" ADD COLUMN "operations_started_on" date;--> statement-breakpoint
 ALTER TABLE "expense_categories" ADD CONSTRAINT "expense_categories_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "expense_history" ADD CONSTRAINT "expense_history_outlet_id_outlets_id_fk" FOREIGN KEY ("outlet_id") REFERENCES "public"."outlets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "expense_history" ADD CONSTRAINT "expense_history_expense_id_expenses_id_fk" FOREIGN KEY ("expense_id") REFERENCES "public"."expenses"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

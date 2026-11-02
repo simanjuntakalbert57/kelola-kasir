@@ -1680,8 +1680,10 @@ paths:
         CRLF and formula-injection guard exactly like `GET /transactions/export`. Columns: `Tanggal, Cabang, Kelompok,
         Kategori, Keterangan, Jumlah, Sumber dana, Ada nota, Dicatat oleh, Dicatat pada (WIB)`. The `.xlsx` file has a
         second sheet `Rekap` with, per month of the period and per outlet: omzet, pengeluaran per kelompok, total
-        pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Audited as `expenses.exported`.
-        Owner or manager.
+        pengeluaran and laba sederhana (same numbers as `GET /reports/expenses`). Both sheets apply the operations start
+        of each outlet like the report: expenses with `spent_on` before its `operations_started_on` are left out
+        unless `include_pre_operations=true` (`GET /expenses`, the list screen, never applies it). Audited as
+        `expenses.exported`. Owner or manager.
       operationId: exportExpenses
       security: [{ ownerAuth: [] }]
       parameters:
@@ -1692,6 +1694,7 @@ paths:
         - { name: category_id, in: query, schema: { type: string, format: uuid } }
         - { name: group, in: query, schema: { $ref: '#/components/schemas/ExpenseGroup' } }
         - { name: funding_source, in: query, schema: { $ref: '#/components/schemas/ExpenseFundingSource' } }
+        - $ref: '#/components/parameters/IncludePreOperations'
       responses:
         '200':
           description: File stream
@@ -1815,6 +1818,10 @@ paths:
         - Expenses: not deleted, month of `spent_on`.
         - Revenue: exactly the rule of `GET /dashboard/summary` (status `paid` or `void_requested`, not deleted by the
           owner, month of `client_created_at` in the outlet time zone), so the recap and the dashboard agree.
+        - Operations start (DEAR-140): by default each outlet counts revenue and expenses only from its
+          `operations_started_on` (`null` = no limit). The month of that date is partial, earlier months are zero, and
+          `counted_from` on the outlet cell says so. `include_pre_operations=true` counts everything. Months fully
+          after the start date are identical to `GET /dashboard/summary`.
         - Every month and every outlet of the scope is present, with zeros when empty.
         - Cells that combine outlets (`months[].total`, `total.total`) merge categories with the same group and name
           (case-insensitive); their `category_id` is `null`.
@@ -1825,6 +1832,7 @@ paths:
         - $ref: '#/components/parameters/OutletScope'
         - $ref: '#/components/parameters/MonthFrom'
         - $ref: '#/components/parameters/MonthTo'
+        - $ref: '#/components/parameters/IncludePreOperations'
       responses:
         '200':
           description: Report
@@ -1852,6 +1860,7 @@ paths:
     patch:
       tags: [settings]
       summary: Update store settings (O-10)
+      description: Owner or manager, except `operations_started_on` which needs the owner role (DEAR-140).
       operationId: updateSettings
       security: [{ ownerAuth: [] }]
       requestBody:
@@ -1872,6 +1881,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409':
           description: '`PIN_NOT_UNIQUE` (owner PIN equals an employee PIN)'
           content:
@@ -2196,6 +2206,14 @@ components:
         `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
         ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
       schema: { type: string, enum: [current, all], default: current }
+    IncludePreOperations:
+      name: include_pre_operations
+      in: query
+      description: |
+        `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
+        that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
+        (e.g. to look at the testing period); the numbers then equal `GET /dashboard/summary` again.
+      schema: { type: boolean, default: false }
     MonthFrom: { name: month_from, in: query, description: 'First month, inclusive (`YYYY-MM`, outlet time zone). Default the current month.', schema: { type: string, pattern: '^20[0-9]{2}-(0[1-9]|1[0-2])$' } }
     MonthTo: { name: month_to, in: query, description: 'Last month, inclusive (`YYYY-MM`). Default `month_from`. At most 12 months.', schema: { type: string, pattern: '^20[0-9]{2}-(0[1-9]|1[0-2])$' } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
@@ -2370,6 +2388,20 @@ components:
           required: [role]
           properties:
             role: { type: string, enum: [owner, manager], description: Role of the user in this outlet (ADR-0020) }
+        - $ref: '#/components/schemas/OutletOperationsStart'
+    OutletOperationsStart:
+      type: object
+      required: [operations_started_on]
+      properties:
+        operations_started_on:
+          type: [string, 'null']
+          format: date
+          description: |
+            First business day the branch really operates (DEAR-140, ADR-0021 §3). `GET /reports/expenses` and
+            `GET /expenses/export` count revenue and expenses from this date by default; earlier data (e.g. testing)
+            stays stored and visible in the transaction history. `null` = no limit. Set by the owner in
+            `PATCH /settings`.
+          examples: ['2026-11-10']
     OwnerSession:
       type: object
       required: [access_token, expires_in, active_outlet_id, user]
@@ -3034,18 +3066,33 @@ components:
     ExpenseReportOutletCell:
       allOf:
         - type: object
-          required: [outlet_id]
+          required: [outlet_id, counted_from]
           properties:
             outlet_id: { type: string, format: uuid }
+            counted_from:
+              type: [string, 'null']
+              format: date
+              description: |
+                `null` = the whole month (or period) of this cell is counted. Otherwise the outlet's
+                `operations_started_on`, which falls after the first day of the cell: only data from that date is
+                counted (a cell that ends before it is all zeros, "belum beroperasi"). Always `null` with
+                `include_pre_operations=true`.
         - $ref: '#/components/schemas/ExpenseReportCell'
     ExpenseReport:
       type: object
-      required: [month_from, month_to, outlet_scope, outlets, months, total]
+      required: [month_from, month_to, outlet_scope, include_pre_operations, outlets, months, total]
       properties:
         month_from: { type: string, examples: ['2026-11'] }
         month_to: { type: string, examples: ['2026-11'] }
         outlet_scope: { type: string, enum: [current, all] }
-        outlets: { type: array, description: 'Outlets of the scope, ordered by code', items: { $ref: '#/components/schemas/OutletRef' } }
+        include_pre_operations: { type: boolean }
+        outlets:
+          type: array
+          description: 'Outlets of the scope, ordered by code'
+          items:
+            allOf:
+              - $ref: '#/components/schemas/OutletRef'
+              - $ref: '#/components/schemas/OutletOperationsStart'
         months:
           type: array
           description: One entry per month, oldest first
@@ -3086,6 +3133,7 @@ components:
       required: [outlet, display_name, qris_mode]
       properties:
         outlet: { $ref: '#/components/schemas/OutletRef' }
+        operations_started_on: { type: [string, 'null'], format: date, description: 'See `OutletOperationsStart`. Always present for owner and manager tokens (DEAR-136); omitted for devices (`GET /settings`, `/sync/pull`), the cashier app does not use it. Owner role sets it here (DEAR-140).' }
         display_name: { type: string }
         address: { type: [string, 'null'] }
         phone: { type: [string, 'null'] }
@@ -3117,6 +3165,13 @@ components:
         offline_login_enabled: { type: boolean }
         quick_cash_amounts: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Rupiah' } }
         owner_pin: { type: string, pattern: '^[0-9]{6}$', description: 'Set/replace owner PIN for void approval on device. Must differ from every active employee PIN (`PIN_NOT_UNIQUE`). Never returned.' }
+        operations_started_on:
+          type: [string, 'null']
+          format: date
+          description: |
+            Owner role only (a manager sending this field gets `403 FORBIDDEN`, nothing is saved). 2020-01-01 to today
+            + 366 days (outlet time zone); `null` removes the limit. Stored on `outlets`, audited inside
+            `settings.updated` with before/after. Changing it changes the recap of past months on purpose.
 
     NotificationPrefs:
       type: object

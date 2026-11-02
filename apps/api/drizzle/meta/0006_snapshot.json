@@ -1890,6 +1890,12 @@
           "notNull": true,
           "default": "'{}'::text[]"
         },
+        "operations_started_on": {
+          "name": "operations_started_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",

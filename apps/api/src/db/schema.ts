@@ -49,6 +49,11 @@ export const outlets = pgTable('outlets', {
     .array()
     .notNull()
     .default(sql`'{}'::text[]`),
+  /**
+   * First business day the branch really operates (DEAR-140, ADR-0021 §3). The expense recap and its export count
+   * revenue and expenses from this date by default; `NULL` = no limit. Transaction history still shows everything.
+   */
+  operationsStartedOn: date('operations_started_on', { mode: 'string' }),
   createdAt: createdAt(),
 });
 

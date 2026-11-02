@@ -148,24 +148,41 @@ Untuk uji berikutnya di produksi: buat owner + outlet uji lewat `create-owner` (
 ## Multi-cabang: rename outlet & buat cabang baru (ADR-0020)
 
 Kedua skrip non-destruktif, berjalan dalam satu transaksi, dan menulis `audit_logs` (`outlet.renamed` / `outlet.created`). Kalau ada pengecekan yang gagal, tidak ada yang berubah.
+
+> **Keputusan Albert (DEAR-140): JUS1 = Ragunan (`RGN`), Palmerah (`PLM`) outlet baru, dan tidak ada data yang dihapus.** Migrasi JUS1 → Ragunan **hanya rename**. `delete-outlet.sql` dan `reset-outlet-data.sql` **tidak dipakai** di alur ini, juga tidak untuk "membersihkan" transaksi uji coba. Angka uji coba dikeluarkan dari Rekap dengan tanggal mulai operasional (`operations_started_on`, ADR-0021 §3).
 **Syarat:** API yang sudah mengenal `outlets.previous_codes` (DEAR-136, migrasi `0006`/`0007`) sudah ter-deploy. Rename sebelum itu akan membuat sync HP lama ditolak. Jalankan hanya setelah Albert OK di issue.
 
 1. `./backup-now.sh` (catat nama objek).
-2. Rename outlet yang ada (contoh `JUS1` → `RGN`). Nomor lama `JUS1-…` tetap valid, dan HP yang sudah ter-pairing tetap jalan:
+2. **Cek QA sebelum:** catat jumlah data JUS1. Simpan output-nya:
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -c "
+     SELECT o.code,
+       (SELECT count(*) FROM products p WHERE p.outlet_id = o.id) AS produk,
+       (SELECT md5(coalesce(string_agg(p.id || ':' || p.price, ',' ORDER BY p.id), '')) FROM products p WHERE p.outlet_id = o.id) AS harga_md5,
+       (SELECT count(*) FROM transactions t WHERE t.outlet_id = o.id) AS transaksi,
+       (SELECT coalesce(sum(t.total), 0) FROM transactions t WHERE t.outlet_id = o.id) AS total_transaksi,
+       (SELECT count(*) FROM employees e WHERE e.outlet_id = o.id) AS pegawai,
+       (SELECT count(*) FROM devices d WHERE d.outlet_id = o.id AND d.revoked_at IS NULL) AS perangkat
+     FROM outlets o WHERE o.code IN ('JUS1', 'RGN');"
+   ```
+3. Rename `JUS1` → `RGN` (hanya rename). Nomor lama `JUS1-…` tetap valid, dan HP yang sudah ter-pairing tetap jalan. Isi `operations_started_on` kalau tanggal mulai dipakai karyawan sudah diketahui; kalau belum, hilangkan baris itu dan owner mengisinya nanti di Pengaturan:
    ```sh
    ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
-     -v old_code=JUS1 -v new_code=RGN -v new_name='Jus Albert Ragunan' < rename-outlet.sql
+     -v old_code=JUS1 -v new_code=RGN -v new_name='Jus Albert Ragunan' \
+     -v operations_started_on=<YYYY-MM-DD> < rename-outlet.sql
    ```
-3. Buat cabang kedua untuk akun owner yang sudah ada (pengaturan default, membership owner, kategori pengeluaran default):
+4. **Cek QA sesudah:** jalankan lagi query langkah 2. Semua angka (`produk`, `harga_md5`, `transaksi`, `total_transaksi`, `pegawai`, `perangkat`) wajib **sama persis** dengan sebelum, hanya `code` yang berubah dari `JUS1` ke `RGN`. Kalau ada yang beda, berhenti dan lapor di issue (restore dari backup langkah 1).
+5. Buat cabang Palmerah untuk akun owner yang sudah ada (pengaturan default, membership owner, kategori pengeluaran default). `operations_started_on` opsional, sama seperti langkah 3:
    ```sh
    ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir \
-     -v code=PLM -v name='Jus Albert Palmerah' -v owner_email=<email owner> < create-branch-outlet.sql
+     -v code=PLM -v name='Jus Albert Palmerah' -v owner_email=<email owner> \
+     -v operations_started_on=<YYYY-MM-DD> < create-branch-outlet.sql
    ```
-4. Owner login ulang di dashboard, memilih cabang baru, mengisi Pengaturan (header struk, QRIS), Produk, dan Pegawai, lalu melakukan pairing HP cabang baru (nomor `PLM-K01-…`).
-5. HP cabang lama: kalau ingin nomor memakai kode baru, pairing ulang setelah shift ditutup dan antrean sync kosong. Ini tidak wajib.
-6. Tempel bukti (output langkah 2–3) di issue.
+6. Owner login ulang di dashboard, memilih cabang baru, mengisi Pengaturan (header struk, QRIS), Produk, dan Pegawai, lalu melakukan pairing HP cabang baru (nomor `PLM-K01-…`).
+7. HP cabang lama: kalau ingin nomor memakai kode baru, pairing ulang setelah shift ditutup dan antrean sync kosong. Ini tidak wajib.
+8. Tempel bukti (output langkah 2–5, termasuk perbandingan sebelum/sesudah) di issue.
 
-`delete-outlet.sql` dan `reset-outlet-data.sql` sudah mengenal tabel pengeluaran. Reset outlet **mempertahankan** pengeluaran dan kategorinya. Hapus outlet ikut menghapusnya.
+`delete-outlet.sql` dan `reset-outlet-data.sql` sudah mengenal tabel pengeluaran (reset outlet **mempertahankan** pengeluaran dan kategorinya, hapus outlet ikut menghapusnya). Keduanya hanya untuk outlet uji, **bukan** untuk Ragunan/Palmerah.
 
 ## Perawatan server
 

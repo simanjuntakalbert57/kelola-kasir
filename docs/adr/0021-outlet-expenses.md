@@ -11,6 +11,8 @@ Owner ingin mencatat pengeluaran setiap cabang, seperti buah, es batu, sedotan, 
 - Koreksi dengan edit/hapus. Hapus memakai soft delete + riwayat (pola ADR-0019), dan semuanya dicatat di `audit_logs`.
 - Manager hanya melihat cabangnya. Kasir tidak bisa melihat pengeluaran maupun omzet.
 
+- **Tidak ada data yang dihapus** (Albert, DEAR-140). JUS1 menjadi Ragunan lewat rename. Transaksi uji coba tetap tersimpan, tetapi tidak boleh mengotori rekap cabang. Karena itu setiap cabang punya **tanggal mulai operasional** (§3).
+
 Multi-cabang (outlet aktif, `outlet_scope=all`) diatur di ADR-0020.
 
 ## Keputusan
@@ -54,6 +56,8 @@ Kategori default di-seed oleh fungsi `kk_seed_expense_categories(outlet_id)` (id
 
 Index: `(outlet_id, spent_on desc) WHERE deleted_at IS NULL` (daftar dan rekap), `(outlet_id, deleted_at)` (Riwayat Hapus), `(category_id)`.
 
+`outlets.operations_started_on` (`date NULL`, migrasi `0006`): hari bisnis pertama cabang benar-benar beroperasi (DEAR-140). `NULL` = tidak ada batas. Aturannya di §3.
+
 `expense_history` (append-only): `id`, `outlet_id`, `expense_id`, `action` (`create`|`update`|`delete`|`restore`), `changes jsonb` (khusus `update`: `{field: {from, to}}`), `reason` (wajib untuk `delete`), `actor_user_id`, `created_at`.
 
 Invarian yang dijaga DB (trigger `0007`, sudah diuji di PostgreSQL 16):
@@ -77,7 +81,8 @@ Invarian yang dijaga DB (trigger `0007`, sudah diuji di PostgreSQL 16):
 | `PATCH /expenses/{id}` | owner, manager | Koreksi. Terhapus → `409 EXPENSE_DELETED`. Kalau tidak ada perubahan → `200` tanpa riwayat. |
 | `DELETE /expenses/{id}` body `{reason}` | **owner** | Soft delete, idempoten. Alasan 5–200 karakter. |
 | `POST /expenses/{id}/restore` body `{note?}` | **owner** | Pulihkan |
-| `GET /reports/expenses?month_from&month_to&outlet_scope` | owner, manager | Rekap bulanan (§3) |
+| `GET /reports/expenses?month_from&month_to&outlet_scope&include_pre_operations` | owner, manager | Rekap bulanan (§3) |
+| `GET/PATCH /settings` field `operations_started_on` | baca: owner, manager; ubah: **owner** | Tanggal mulai operasional cabang aktif (§3). Manager yang mengirim field ini → `403`, tidak ada yang tersimpan. |
 | `POST /uploads` purpose `expense_receipt` | owner, manager | Maksimal 300 KiB, `outlet_id` opsional (ADR-0020) |
 
 - Pegawai/device → `403` di semua endpoint di atas. Guard memakai `guards.owner` (owner+manager), dan `ownerOnly` seperti `transactions/routes.ts` untuk yang khusus owner. Untuk endpoint by-id, role diambil dari membership di outlet milik baris itu.
@@ -91,10 +96,18 @@ Invarian yang dijaga DB (trigger `0007`, sudah diuji di PostgreSQL 16):
 - Periode `month_from`..`month_to` (`YYYY-MM`, maksimal 12 bulan, default bulan ini). Setiap bulan dan setiap outlet dalam scope selalu muncul, dengan angka 0 kalau kosong.
 - **Pengeluaran**: `expenses` yang `deleted_at IS NULL`, dikelompokkan berdasarkan bulan dari `spent_on`.
 - **Omzet**: **sama persis** dengan aturan `GET /dashboard/summary`, yaitu status `paid` atau `void_requested`, `deleted_at IS NULL` (ADR-0019), dan bulan dari `client_created_at` di zona outlet. Issue menulis "transaksi paid". `void_requested` ikut dihitung supaya angka Rekap dan Ringkasan tidak pernah berbeda untuk periode yang sama. Transaksi `void_requested` masih uang yang diterima sampai void disetujui. Implementasi wajib memakai helper `inPeriod`/predikat yang sama dengan `loadSummary`, bukan menyalin SQL.
+- **Tanggal mulai operasional (DEAR-140).** Default-nya, per outlet, omzet **dan** pengeluaran hanya dihitung mulai `operations_started_on` (`client_created_at` / `spent_on` ≥ tanggal itu, zona outlet):
+  - Bulan yang memuat tanggal itu dihitung **parsial** (mulai tanggal itu sampai akhir bulan). Bulan sebelumnya bernilai 0. Sel outlet membawa `counted_from` (tanggal mulai kalau sel dihitung parsial atau seluruhnya sebelum mulai, `null` kalau dihitung penuh) supaya dashboard bisa menulis "dihitung mulai 10 Nov" atau "belum beroperasi".
+  - `NULL` = tidak ada batas. `include_pre_operations=true` mengabaikan tanggal ini (untuk melihat masa uji coba).
+  - Riwayat transaksi, Ringkasan (`/dashboard/summary`), laporan penjualan, ekspor transaksi, dan daftar pengeluaran (`GET /expenses`) **tidak** terpengaruh dan tetap menampilkan semua data. Konsekuensinya, untuk bulan mulai operasional, omzet Rekap bisa lebih kecil daripada Ringkasan untuk periode yang sama. Ini disengaja (owner menyetujui di review PR #91). Untuk bulan yang seluruhnya sesudah tanggal mulai, atau dengan `include_pre_operations=true`, angkanya tetap sama persis.
+  - Ekspor pengeluaran (`GET /expenses/export`) memakai aturan yang sama di kedua sheet, sehingga total sheet `Pengeluaran` sama dengan sheet `Rekap`.
+  - Hanya owner yang bisa mengubahnya, lewat `PATCH /settings` (halaman Pengaturan, cabang aktif) atau parameter skrip ops `rename-outlet.sql`/`create-branch-outlet.sql`. Rentang 2020-01-01 s.d. hari ini + 366 hari (boleh diisi sebelum go-live). Perubahan diaudit di `settings.updated` (before/after) dan sengaja mengubah rekap bulan-bulan sebelumnya.
+  - Pengeluaran dengan `spent_on` sebelum tanggal mulai tetap boleh dicatat (mis. belanja persiapan), tetapi tidak masuk Rekap default. Form menampilkan peringatan kecil.
+  - Implementasi: batas bawah per outlet ditambahkan sebagai predikat pada dua agregasi yang sama (`GREATEST(awal periode, operations_started_on)` per outlet), bukan query terpisah per outlet.
 - **Laba sederhana** = omzet − total pengeluaran (`SignedRupiah`, bisa negatif). Ini bukan laporan laba-rugi akuntansi: tidak ada penyusutan, stok, atau akrual. Dashboard menampilkan label "Laba sederhana" dengan keterangan itu.
 - Setiap sel (`ExpenseReportCell`) berisi `revenue`, `transaction_count`, `expense_total`, `expense_count`, `profit`, `by_group`, `by_funding_source`, dan `by_category[]`. Struktur respons: `months[] → per_outlet[] + total`, plus `total` untuk seluruh periode. Sel gabungan lintas outlet menyatukan kategori dengan kelompok + nama yang sama (case-insensitive), dengan `category_id = null`.
 - Query: satu agregasi `expenses GROUP BY outlet, bulan, kategori` dan satu agregasi `transactions GROUP BY outlet, bulan`, lalu digabung di JS. Keduanya memakai index `(outlet_id, spent_on)` dan `transactions_outlet_created_idx`. Tidak ada N+1 per outlet atau per bulan.
-- Ekspor Excel: sheet `Pengeluaran` (baris) + `Rekap` (angka yang sama dengan endpoint ini). Ekspor transaksi yang sudah ada tidak berubah. Menu Ekspor di dashboard mendapat pilihan baru "Pengeluaran".
+- Ekspor Excel: sheet `Pengeluaran` (baris) + `Rekap` (angka yang sama dengan endpoint ini, termasuk aturan tanggal mulai operasional). Ekspor transaksi yang sudah ada tidak berubah. Menu Ekspor di dashboard mendapat pilihan baru "Pengeluaran".
 
 ### 4. Kesiapan Fase 2 (kas keluar dari laci oleh kasir, DEAR-139)
 Fase 2 **menulis ke tabel `expenses` yang sama**, sehingga rekap, ekspor, dan daftar tidak perlu diubah:
@@ -121,7 +134,8 @@ Semua itu di luar PR ini. Yang disiapkan sekarang hanya `source`, `updated_seq`,
 
 ## Konsekuensi
 - (+) Satu sumber data pengeluaran untuk Fase 1 dan Fase 2. Invarian penting dijaga DB (kategori satu outlet, tidak bisa hapus fisik, beku saat terhapus, riwayat append-only). Biaya Rp0.
-- (+) Rekap dan Ringkasan memakai aturan omzet yang sama.
+- (+) Rekap dan Ringkasan memakai aturan omzet yang sama. Selisih hanya mungkin di bulan sebelum/saat tanggal mulai operasional, dan itu terlihat lewat `counted_from`.
+- (+) Data uji coba tidak perlu dihapus untuk mendapat rekap bersih (DEAR-140).
 - (−) Endpoint by-id pengeluaran mencari lintas outlet member, berbeda dengan endpoint by-id lain (ADR-0020 §2). Aturan ini harus diuji eksplisit: manager outlet A → `404` untuk pengeluaran outlet B.
 - (−) Mengganti kelompok kategori mengubah rekap bulan-bulan sebelumnya. Ini disengaja dan terlihat di audit `expense_category.updated`.
-- Migrasi hanya menambah tabel, index, CHECK, trigger, fungsi seed, dan satu kolom ber-default. Aman pada data produksi tanpa downtime.
+- Migrasi hanya menambah tabel, index, CHECK, trigger, fungsi seed, satu kolom ber-default (`previous_codes`), dan satu kolom nullable (`operations_started_on`). Aman pada data produksi tanpa downtime.
