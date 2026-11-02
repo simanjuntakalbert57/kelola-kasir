@@ -851,6 +851,47 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
 
   # ---------------------------------------------------------------- transactions
+  /transactions/summary:
+    get:
+      tags: [transactions]
+      summary: Sales totals for the cashier's Riwayat card (employee only)
+      description: |
+        Totals are computed on the server for the employee's own outlet (all cashiers and devices).
+        `scope=today` is the WIB business day; `scope=shift` is the outlet's open shift (all zeros
+        when none is open). Only `paid`, non-deleted transactions count. `void_requested` is reported
+        separately; approved voids, cancelled, pending and owner-deleted transactions are excluded.
+      operationId: getTransactionsSummary
+      security: [{ employeeAuth: [], deviceAuth: [] }]
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [shift, today], default: shift } }
+      responses:
+        '200':
+          description: Totals
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - scope
+                  - transaction_count
+                  - total_sales
+                  - total_cash_sales
+                  - total_qris_sales
+                  - cash_count
+                  - qris_count
+                  - pending_void_count
+                  - pending_void_amount
+                properties:
+                  scope: { type: string, enum: [shift, today] }
+                  transaction_count: { type: integer }
+                  total_sales: { type: integer, description: Rupiah }
+                  total_cash_sales: { type: integer }
+                  total_qris_sales: { type: integer }
+                  cash_count: { type: integer }
+                  qris_count: { type: integer }
+                  pending_void_count: { type: integer }
+                  pending_void_amount: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /transactions:
     get:
       tags: [transactions]

@@ -102,6 +102,49 @@ export function mergeRemote(
   return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Totals shown on the Riwayat card; same shape for the server answer and the on-device fallback. */
+export interface SalesSummary {
+  transactionCount: number;
+  totalSales: number;
+  cashSales: number;
+  cashCount: number;
+  qrisSales: number;
+  qrisCount: number;
+  pendingVoidCount: number;
+  pendingVoidAmount: number;
+}
+
+/** Totals from this device's rows (offline fallback): paid counts, a pending void is listed apart. */
+export function summarizeRows(rows: readonly HistoryRow[]): SalesSummary {
+  const out: SalesSummary = {
+    transactionCount: 0,
+    totalSales: 0,
+    cashSales: 0,
+    cashCount: 0,
+    qrisSales: 0,
+    qrisCount: 0,
+    pendingVoidCount: 0,
+    pendingVoidAmount: 0,
+  };
+  for (const r of rows) {
+    if (r.status === 'void_requested') {
+      out.pendingVoidCount += 1;
+      out.pendingVoidAmount += r.total;
+    } else if (r.status === 'paid') {
+      out.transactionCount += 1;
+      out.totalSales += r.total;
+      if (r.method === 'cash') {
+        out.cashSales += r.total;
+        out.cashCount += 1;
+      } else {
+        out.qrisSales += r.total;
+        out.qrisCount += 1;
+      }
+    }
+  }
+  return out;
+}
+
 export function filterByMethod(rows: readonly HistoryRow[], method: MethodFilter): HistoryRow[] {
   return method === 'all' ? [...rows] : rows.filter((r) => r.method === method);
 }
@@ -131,3 +174,24 @@ export const STATUS_LABEL: Record<string, string> = {
 
 /** Reprint is offered in every status but "Dibatalkan" (design K-10). */
 export const canReprint = (status: string): boolean => status !== 'cancelled';
+
+/** Maps `GET /transactions/summary` to the card's shape. */
+export const fromServerSummary = (s: {
+  transaction_count: number;
+  total_sales: number;
+  total_cash_sales: number;
+  cash_count: number;
+  total_qris_sales: number;
+  qris_count: number;
+  pending_void_count: number;
+  pending_void_amount: number;
+}): SalesSummary => ({
+  transactionCount: s.transaction_count,
+  totalSales: s.total_sales,
+  cashSales: s.total_cash_sales,
+  cashCount: s.cash_count,
+  qrisSales: s.total_qris_sales,
+  qrisCount: s.qris_count,
+  pendingVoidCount: s.pending_void_count,
+  pendingVoidAmount: s.pending_void_amount,
+});

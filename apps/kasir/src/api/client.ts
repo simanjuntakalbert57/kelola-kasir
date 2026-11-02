@@ -175,6 +175,12 @@ export function createApiClient(options: ApiClientOptions) {
         employee: true,
         query: { scope, limit: String(limit) },
       }),
+    getTransactionsSummary: (scope: 'shift' | 'today') =>
+      json<ResponseBody<'/transactions/summary', 'get'>>('GET', '/transactions/summary', {
+        device: true,
+        employee: true,
+        query: { scope },
+      }),
     getReceipt: (transactionId: string) =>
       json<ResponseBody<'/transactions/{transaction_id}/receipt', 'get'>>(
         'GET',

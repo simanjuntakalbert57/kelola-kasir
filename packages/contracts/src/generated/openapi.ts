@@ -532,6 +532,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/transactions/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales totals for the cashier's Riwayat card (employee only)
+         * @description Totals are computed on the server for the employee's own outlet (all cashiers and devices).
+         *     `scope=today` is the WIB business day; `scope=shift` is the outlet's open shift (all zeros
+         *     when none is open). Only `paid`, non-deleted transactions count. `void_requested` is reported
+         *     separately; approved voids, cancelled, pending and owner-deleted transactions are excluded.
+         */
+        get: operations["getTransactionsSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/transactions": {
         parameters: {
             query?: never;
@@ -3497,6 +3520,41 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getTransactionsSummary: {
+        parameters: {
+            query?: {
+                scope?: "shift" | "today";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Totals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        scope: "shift" | "today";
+                        transaction_count: number;
+                        /** @description Rupiah */
+                        total_sales: number;
+                        total_cash_sales: number;
+                        total_qris_sales: number;
+                        cash_count: number;
+                        qris_count: number;
+                        pending_void_count: number;
+                        pending_void_amount: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listTransactions: {

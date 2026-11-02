@@ -21,6 +21,7 @@ import {
   listLocalHistory,
   mergeRemote,
   storeRemoteStatuses,
+  summarizeRows,
 } from './history';
 import { requestVoid, VoidError } from './void';
 
@@ -109,6 +110,39 @@ describe('history (M-12)', () => {
       now,
     });
     expect(rows.map((r) => r.total)).toEqual([20000]);
+  });
+
+  it('summarizes paid sales on the device; pending voids apart, voided and cancelled left out', () => {
+    const row = (total: number, method: 'cash' | 'qris', status: string) => ({
+      id: `${total}${status}`,
+      number: 'N',
+      createdAt: '2026-10-26T07:00:00Z',
+      method,
+      status,
+      total,
+      itemCount: 1,
+      employeeName: 'Sari',
+      sync: 'synced' as const,
+      local: true,
+    });
+    expect(
+      summarizeRows([
+        row(10000, 'cash', 'paid'),
+        row(25000, 'qris', 'paid'),
+        row(7000, 'cash', 'void_requested'),
+        row(99000, 'cash', 'voided'),
+        row(99000, 'qris', 'cancelled'),
+      ]),
+    ).toEqual({
+      transactionCount: 2,
+      totalSales: 35000,
+      cashSales: 10000,
+      cashCount: 1,
+      qrisSales: 25000,
+      qrisCount: 1,
+      pendingVoidCount: 1,
+      pendingVoidAmount: 7000,
+    });
   });
 
   it('merges other devices and server status changes, but not over unsynced rows', async () => {
