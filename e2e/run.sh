@@ -23,6 +23,9 @@ for project in ${E2E_PROJECTS:-chromium firefox webkit mobile-chrome}; do
     OWNER_EMAIL="${pair#*:}" OWNER_PASSWORD="$E2E_OWNER_PASSWORD" OUTLET_CODE="${pair%%:*}" OUTLET_NAME="Toko ${pair%%:*}" \
       pnpm --filter @kelola-kasir/api owner:create >/dev/null
   done
+  # Second branch for owner@e2e.test (ADR-0020): specs/zz-expenses.spec.ts switches between RGN-like JUS1 and PLM.
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -q -v code=PLM -v name='Toko PLM' -v owner_email=owner@e2e.test \
+    < ../ops/vps/create-branch-outlet.sql >/dev/null
   # No API/UI creates a manager (docs/tdd.md RBAC): promote the extra JUS1 member directly.
   promoted="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA -c "update outlet_members set role='manager' where user_id=(select id from users where email='manager@e2e.test') returning user_id")"
   if [ -z "$promoted" ]; then echo "ERROR: manager@e2e.test was not promoted (no outlet_members row updated)" >&2; exit 1; fi

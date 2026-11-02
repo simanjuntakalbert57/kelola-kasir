@@ -1,4 +1,4 @@
-import { Link, Outlet } from '@tanstack/react-router';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { VoidRequest } from '@kelola-kasir/contracts';
 import {
@@ -6,6 +6,7 @@ import {
   CircleX,
   CupSoda,
   Ellipsis,
+  HandCoins,
   House,
   LogOut,
   Receipt,
@@ -15,8 +16,11 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { api, qs } from '../lib/api';
+import { BranchPicker, branchTone } from '../components/BranchPicker';
+import { Skeleton, Toast } from '../components/ui';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { PushBridge } from '../components/PushBridge';
 
@@ -28,16 +32,24 @@ export const NAV: readonly {
 }[] = [
   { to: '/', label: 'Ringkasan', short: 'Ringkasan', icon: House },
   { to: '/transaksi', label: 'Transaksi', short: 'Transaksi', icon: Receipt },
-  { to: '/produk', label: 'Produk & Kategori', short: 'Produk', icon: CupSoda },
+  { to: '/pengeluaran', label: 'Pengeluaran', short: 'Pengeluaran', icon: HandCoins },
+  { to: '/produk', label: 'Produk & Kategori', short: null, icon: CupSoda },
   { to: '/pegawai', label: 'Pegawai', short: null, icon: Users },
   { to: '/perangkat', label: 'Perangkat', short: null, icon: Smartphone },
-  { to: '/shift', label: 'Shift & Kas', short: 'Shift', icon: Wallet },
+  { to: '/shift', label: 'Shift & Kas', short: null, icon: Wallet },
   { to: '/void', label: 'Persetujuan batal', short: null, icon: CircleX },
   { to: '/pengaturan', label: 'Pengaturan', short: null, icon: Store },
   { to: '/pengaturan/notifikasi', label: 'Notifikasi', short: null, icon: Bell },
 ];
 
 const tabs = NAV.filter((n) => n.short !== null);
+
+/** Settings are owner-only (a manager has no Pengaturan menu, DEAR-135). */
+const OWNER_ONLY = new Set(['/pengaturan', '/pengaturan/notifikasi']);
+
+/** "Semua cabang" only works on the expense pages (ADR-0020 §2). */
+export const isExpensePath = (pathname: string) =>
+  pathname === '/pengeluaran' || pathname.startsWith('/pengeluaran/');
 
 /** Number of void requests waiting for the owner; shared with the Void page via the query cache. */
 export function usePendingVoidCount(): number {
@@ -73,9 +85,33 @@ const tabLink =
 const tabActive = 'bg-tint text-tint-ink';
 
 export function AppShell() {
-  const { user, logout } = useAuth();
-  const outlet = user?.outlets[0];
+  const { user, logout, activeOutlet: outlet, role, viewAll, setViewAll, switching } = useAuth();
   const pending = usePendingVoidCount();
+  const { pathname } = useLocation();
+  const [toast, setToast] = useState<string | null>(null);
+  const nav = NAV.filter((n) => role !== 'manager' || !OWNER_ONLY.has(n.to));
+  const tabItems = tabs.filter((n) => nav.includes(n));
+  const allowAll = isExpensePath(pathname);
+
+  // Leaving the expense pages drops "Semua cabang": the other pages are per branch.
+  const leftAll = viewAll && !allowAll;
+  const [wasLeft, setWasLeft] = useState(false);
+  if (leftAll !== wasLeft) {
+    setWasLeft(leftAll);
+    if (leftAll) {
+      setToast(
+        `Kembali ke ${outlet?.name ?? 'cabang terakhir'}. Semua cabang hanya ada di Pengeluaran dan Rekap.`,
+      );
+    }
+  }
+  useEffect(() => {
+    if (leftAll) setViewAll(false);
+  }, [leftAll, setViewAll]);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <PushBridge />
@@ -95,7 +131,7 @@ export function AppShell() {
           </div>
         </div>
         <nav aria-label="Menu utama" className="flex flex-col gap-1">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <Link
               key={n.to}
               to={n.to}
@@ -132,17 +168,23 @@ export function AppShell() {
       </aside>
 
       <main className="mx-auto w-full max-w-[1264px] min-w-0 flex-1 p-4 pb-28 md:px-8 md:py-6 md:pb-6">
-        <div className="-mb-1 flex justify-end">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <BranchPicker allowAll={allowAll} />
           <ThemeToggle />
         </div>
-        <Outlet />
+        <div
+          aria-hidden="true"
+          className={`mb-4 h-[5px] rounded-full ${viewAll ? 'border-t-[5px] border-dashed border-line-strong' : branchTone(outlet?.code)}`}
+        />
+        {switching ? <Skeleton rows={5} /> : <Outlet />}
+        {toast ? <Toast>{toast}</Toast> : null}
       </main>
 
       <nav
         aria-label="Menu utama"
         className="fixed inset-x-0 bottom-0 z-10 flex gap-1 border-t border-line bg-surface px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-up md:hidden"
       >
-        {tabs.map((n) => (
+        {tabItems.map((n) => (
           <Link
             key={n.to}
             to={n.to}

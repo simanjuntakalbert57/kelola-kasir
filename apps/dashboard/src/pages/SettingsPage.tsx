@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   CheckboxField,
+  ConfirmDialog,
   ErrorState,
   Field,
   NoticeCard,
@@ -20,6 +21,8 @@ import {
   TextareaField,
 } from '../components/ui';
 import { ThemeCard } from '../components/ThemeToggle';
+import { useAuth } from '../auth/AuthProvider';
+import { formatDate } from '../lib/expenses';
 import { ApiError, api, patch, post } from '../lib/api';
 import { useUnsavedWarning } from '../lib/useUnsavedWarning';
 
@@ -40,6 +43,7 @@ const schema = z
     qris_static_image_url: z.string().nullable(),
     qris_static_payload: z.string(),
     qris_embed_amount: z.boolean(),
+    operations_started_on: z.string(),
   })
   .superRefine((v, ctx) => {
     // The API rejects every QRIS sale (503) when the shop has no QRIS code, so an image alone is not enough.
@@ -63,6 +67,7 @@ const toForm = (s: OutletSettings): Form => ({
   qris_static_image_url: s.qris_static_image_url ?? null,
   qris_static_payload: s.qris_static_payload ?? '',
   qris_embed_amount: s.qris_embed_amount ?? false,
+  operations_started_on: s.operations_started_on ?? '',
 });
 
 function toBase64(file: File): Promise<string> {
@@ -93,6 +98,10 @@ const blankToNull = (v: string) => (v.trim() === '' ? null : v.trim());
 
 function SettingsForm({ settings }: { settings: OutletSettings }) {
   const qc = useQueryClient();
+  const { role, activeOutlet } = useAuth();
+  // Only the owner may change the start date; a manager that sends it gets 403 and nothing is saved (ADR-0021 §3).
+  const isOwner = role === 'owner';
+  const [confirmDate, setConfirmDate] = useState<Form | null>(null);
   const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: toForm(settings) });
   const save = useMutation({
     mutationFn: (v: Form) =>
@@ -106,6 +115,7 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
         qris_static_image_url: v.qris_static_image_url,
         qris_static_payload: blankToNull(v.qris_static_payload),
         qris_embed_amount: v.qris_embed_amount,
+        ...(isOwner ? { operations_started_on: v.operations_started_on || null } : {}),
       }),
     onSuccess: async (updated) => {
       qc.setQueryData(KEY, updated);
@@ -208,7 +218,13 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
     <form
       onSubmit={(e) => {
         setInvalidLabels([]);
-        void form.handleSubmit((v) => save.mutateAsync(v).catch(() => undefined), onInvalid)(e);
+        void form.handleSubmit((v) => {
+          if (isOwner && v.operations_started_on !== (settings.operations_started_on ?? '')) {
+            setConfirmDate(v);
+            return undefined;
+          }
+          return save.mutateAsync(v).catch(() => undefined);
+        }, onInvalid)(e);
       }}
       noValidate
       className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
@@ -247,6 +263,21 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
                 notice={logoNotice}
               />
             )}
+          />
+        </Card>
+        <Card>
+          <h2 className="mb-3 text-lg">Cabang</h2>
+          <Field
+            label="Tanggal mulai operasional"
+            type="date"
+            disabled={!isOwner}
+            hint={
+              isOwner
+                ? 'Rekap omzet, pengeluaran, dan laba dihitung mulai tanggal ini. Transaksi sebelumnya tetap ada di Riwayat transaksi. Boleh dikosongkan.'
+                : 'Hanya pemilik yang bisa mengubahnya. Rekap omzet, pengeluaran, dan laba dihitung mulai tanggal ini.'
+            }
+            error={errors.operations_started_on?.message}
+            {...form.register('operations_started_on')}
           />
         </Card>
         <Card>
@@ -329,6 +360,28 @@ function SettingsForm({ settings }: { settings: OutletSettings }) {
           </div>
         </div>
       </div>
+      {confirmDate ? (
+        <ConfirmDialog
+          title="Ubah tanggal mulai?"
+          confirmLabel="Ubah tanggal"
+          tone="primary"
+          pending={save.isPending}
+          onConfirm={() => {
+            const v = confirmDate;
+            void save
+              .mutateAsync(v)
+              .catch(() => undefined)
+              .finally(() => setConfirmDate(null));
+          }}
+          onClose={() => setConfirmDate(null)}
+        >
+          Ubah tanggal mulai {activeOutlet?.name ?? 'cabang'} ke{' '}
+          {confirmDate.operations_started_on
+            ? formatDate(confirmDate.operations_started_on)
+            : 'kosong (tanpa batas)'}
+          ? Angka Rekap akan dihitung ulang. Data lama tidak dihapus.
+        </ConfirmDialog>
+      ) : null}
       <aside aria-label="Pratinjau struk" className="lg:sticky lg:top-4 lg:self-start">
         <h2 className="mb-2 text-lg">Pratinjau struk</h2>
         <ReceiptPreview
