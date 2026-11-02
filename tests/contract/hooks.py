@@ -62,6 +62,29 @@ def _fresh_category():
     return _post("/categories", _owner_headers(), {"name": f"Fuzz {uuid.uuid4().hex[:8]}"})["id"]
 
 
+def _fresh_expense_category():
+    return _post(
+        "/expense-categories",
+        _owner_headers(),
+        {"group": "lainnya", "name": f"Fuzz {uuid.uuid4().hex[:8]}"},
+    )["id"]
+
+
+def _fresh_expense():
+    """An expense that delete/restore may consume; the seeded category is never touched by the fuzzed PATCH."""
+    return _post(
+        "/expenses",
+        _owner_headers(),
+        {
+            "category_id": SESSION["expense_category_id"],
+            "spent_on": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "description": "Fuzz expense",
+            "amount": 1000,
+            "funding_source": "owner",
+        },
+    )["id"]
+
+
 def _fresh_product():
     return _post(
         "/products",
@@ -124,6 +147,11 @@ _REAL_IDS = {
     ("updateCategory", "category_id"): lambda: SESSION["category_id"],
     ("deleteCategory", "category_id"): _fresh_category,
     ("getShiftSummary", "shift_id"): lambda: SESSION["shift_id"],
+    ("getExpense", "expense_id"): lambda: SESSION["expense_id"],
+    ("updateExpense", "expense_id"): lambda: SESSION["expense_id"],
+    ("deleteExpense", "expense_id"): _fresh_expense,
+    ("restoreExpense", "expense_id"): _fresh_expense,
+    ("updateExpenseCategory", "expense_category_id"): _fresh_expense_category,
 }
 
 

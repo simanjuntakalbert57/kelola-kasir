@@ -8,7 +8,7 @@ const CLIENT_CACHE_SEC = 5 * 60;
 
 /** Only keys this API itself issues (`<outletId>/<purpose>/<uuid>.<ext>`); nothing else in the bucket is reachable. */
 export const MEDIA_KEY =
-  /^[0-9a-f-]{36}\/(product_image|logo|qris_image)\/[0-9a-f-]{36}\.(jpg|png|webp)$/;
+  /^[0-9a-f-]{36}\/(product_image|logo|qris_image|expense_receipt)\/[0-9a-f-]{36}\.(jpg|png|webp)$/;
 
 /**
  * Stable image URLs for a private bucket (ADR-0015). No auth: `<img>` cannot send a bearer token, and

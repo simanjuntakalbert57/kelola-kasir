@@ -3,6 +3,7 @@ import webpush from 'web-push';
 import { writeFileSync } from 'node:fs';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
+import { sql } from 'drizzle-orm';
 import { createDb } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { outletSettings, outlets } from '../db/schema.js';
@@ -178,6 +179,27 @@ async function main(): Promise<void> {
           : { id: randomUUID(), method },
     };
   };
+  // Default expense categories and one expense, so the expense operations reach their logic (ADR-0021).
+  await handle.db.execute(sql`select kk_seed_expense_categories(${outlet.id}::uuid)`);
+  const expenseCategories = await app.inject({
+    method: 'GET',
+    url: '/v1/expense-categories',
+    headers: ownerAuth,
+  });
+  const expenseCategory = expenseCategories.json<{ data: { id: string }[] }>().data[0];
+  if (!expenseCategory) throw new Error('expense category seed failed');
+  const expense = await call(
+    'POST',
+    '/v1/expenses',
+    {
+      category_id: expenseCategory.id,
+      spent_on: new Date().toISOString().slice(0, 10),
+      description: 'Mangga 10 kg',
+      amount: 150000,
+      funding_source: 'owner',
+    },
+    ownerAuth,
+  );
   const cashSale = await call('POST', '/v1/transactions', sale('cash', 1), employeeAuth);
   const qrisSale = await call('POST', '/v1/transactions', sale('qris', 2), employeeAuth);
 
@@ -190,6 +212,8 @@ async function main(): Promise<void> {
       shift_id: shift['id'],
       category_id: category['id'],
       product_id: product['id'],
+      expense_category_id: expenseCategory.id,
+      expense_id: expense['id'],
       sale_product_id: saleProduct['id'],
       sale_product_name: saleProduct['name'],
       transaction_id: cashSale['id'],

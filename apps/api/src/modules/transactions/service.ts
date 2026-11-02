@@ -140,7 +140,11 @@ export async function createTransaction(
     const id = await db.transaction(async (tx) => {
       const { outlet, settings } = await loadSettings(tx, actor.outletId);
       const prefix = `${outlet.code}-${actor.device.code}-`;
-      if (!input.number.startsWith(prefix)) {
+      // After an outlet rename, paired phones keep numbering with the old code (ADR-0020 §3).
+      const accepted = [outlet.code, ...outlet.previousCodes].some((code) =>
+        input.number.startsWith(`${code}-${actor.device.code}-`),
+      );
+      if (!accepted) {
         throw errors.validation([
           { path: 'number', message: `Number must start with ${prefix} (outlet and device code)` },
         ]);
