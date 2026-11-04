@@ -1036,6 +1036,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reports/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales per product for the Ringkasan card "Penjualan per Produk" (ADR-0022)
+         * @description Every product of the scope with its cups, Rupiah and share of the period. Counting rule of
+         *     `GET /dashboard/summary`: transactions `paid` or `void_requested`, not deleted, `client_created_at` in the WIB
+         *     period. `items_sold` = sum of item quantities (cups), `revenue` = sum of `line_total` (transaction-level
+         *     discount/tax is not allocated to items). `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
+         *     product of the scope and period **before** `q` is applied. Active, non-deleted catalog products without sales
+         *     are included with zeros; deleted or inactive products appear only when they sold in the period.
+         *     With `outlet_scope=current` there is one row per product of the active outlet. With `all` rows are merged across
+         *     outlets by normalized product name (ADR-0022 §3); `product_id` is then a representative product (the active
+         *     outlet's when it has one). Items whose product no longer exists are grouped by their name snapshot with
+         *     `product_id: null`. No pagination. Owner or manager; `outlet_scope=all` is owner only (`403`).
+         */
+        get: operations["getProductSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/products/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the per-product sales list as Excel or CSV (ADR-0022)
+         * @description Every row of `GET /reports/products` for the same `outlet_scope`, period, `sort` and `order` (no `q`: the file
+         *     always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Total (Rp),
+         *     % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`), followed by a total row. Amounts whole
+         *     Rupiah, `% omzet` one decimal. CSV UTF-8 with BOM, CRLF and formula-injection guard exactly like
+         *     `GET /transactions/export`. File name `penjualan-produk_<date_from>_<date_to>.<format>`. Audited as
+         *     `reports.products_exported`. Owner or manager; `outlet_scope=all` is owner only (`403`).
+         */
+        get: operations["exportProductSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/products/{product_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales detail of one product (side panel / bottom sheet) (ADR-0022)
+         * @description Same counting rule, scope and period as `GET /reports/products`. With `outlet_scope=current` the product must
+         *     belong to the active outlet, else `404`. With `all` it must belong to an outlet where the caller is owner (else
+         *     `404`) and the numbers merge every product of the scope with the same normalized name. A product without sales
+         *     returns zeros. `rank` is the position in the default order of `GET /reports/products` (cups desc, then Rupiah
+         *     desc, then name) among `product_count` rows. `by_payment_method` always has `cash` then `qris`.
+         *     `by_outlet` is filled only with `outlet_scope=all` (ordered by outlet code, every outlet of the scope), else
+         *     `[]`. `by_employee` is ordered by cups desc and includes only cashiers with sales. Owner or manager;
+         *     `outlet_scope=all` is owner only (`403`).
+         */
+        get: operations["getProductSalesDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/products/{product_id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cups and Rupiah of one product per WIB hour or day (ADR-0022)
+         * @description Like `GET /dashboard/sales-series` (one bucket per WIB hour or day, empty buckets with zeros, oldest first,
+         *     hourly at most 31 days else `400`), for the product and scope of `GET /reports/products/{product_id}` (same
+         *     `404` rules). Owner or manager; `outlet_scope=all` is owner only (`403`).
+         */
+        get: operations["getProductSalesSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/expense-categories": {
         parameters: {
             query?: never;
@@ -2226,6 +2329,90 @@ export interface components {
                 total: components["schemas"]["ExpenseReportCell"];
             };
         };
+        /** @description Change vs the previous period of the same length in percent, one decimal; `null` when that period had none. */
+        ChangePct: number | null;
+        ProductSalesRow: {
+            /** @description Stable row id: product id (`current`) or `name:<normalized name>` (`all`, or a product that no longer exists). */
+            key: string;
+            /**
+             * Format: uuid
+             * @description Product to open in the detail (`/?produk=<id>`); `null` when no catalog row exists.
+             */
+            product_id: string | null;
+            product_name: string;
+            category_name: string | null;
+            /** @description Cups (sum of item quantities) */
+            items_sold: number;
+            revenue: components["schemas"]["Rupiah"];
+            /** @description Share of `totals.revenue`, one decimal */
+            share_pct: number;
+            transaction_count: number;
+            /** @description `false` = "Belum terjual" */
+            has_sales: boolean;
+        };
+        ProductSalesReport: {
+            /** @enum {string} */
+            outlet_scope: "current" | "all";
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            /** @description Every product of the scope and period, before `q`. */
+            totals: {
+                items_sold: number;
+                revenue: components["schemas"]["Rupiah"];
+                product_count: number;
+            };
+            data: components["schemas"]["ProductSalesRow"][];
+        };
+        ProductSalesDetail: {
+            /** Format: uuid */
+            product_id: string;
+            product_name: string;
+            category_name: string | null;
+            catalog_price: components["schemas"]["Rupiah"];
+            /** @enum {string} */
+            outlet_scope: "current" | "all";
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            items_sold: number;
+            revenue: components["schemas"]["Rupiah"];
+            /** @description `floor(revenue / items_sold)`, 0 without sales */
+            average_price: components["schemas"]["Rupiah"];
+            share_pct: number;
+            transaction_count: number;
+            rank: number;
+            product_count: number;
+            compare_previous_period: {
+                items_sold_change_pct: components["schemas"]["ChangePct"];
+                revenue_change_pct: components["schemas"]["ChangePct"];
+            };
+            by_payment_method: {
+                /** @enum {string} */
+                method: "cash" | "qris";
+                items_sold: number;
+                revenue: components["schemas"]["Rupiah"];
+                /** @description Share of this product's `revenue` */
+                share_pct: number;
+            }[];
+            by_outlet: {
+                /** Format: uuid */
+                outlet_id: string;
+                outlet_name: string;
+                items_sold: number;
+                revenue: components["schemas"]["Rupiah"];
+            }[];
+            by_employee: {
+                /** Format: uuid */
+                employee_id: string;
+                employee_name: string;
+                outlet_name: string;
+                items_sold: number;
+                revenue: components["schemas"]["Rupiah"];
+            }[];
+        };
         DashboardSummary: {
             revenue: components["schemas"]["Rupiah"];
             transaction_count: number;
@@ -2481,6 +2668,12 @@ export interface components {
          *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
          */
         OutletScope: "current" | "all";
+        /** @description Case-insensitive substring of the product name (1-100 characters). Does not change `share_pct` or `totals`. */
+        ProductSalesQuery: string;
+        /** @description `share_pct` orders like `revenue`. Ties: cups desc, Rupiah desc, then name asc. */
+        ProductSalesSort: "items_sold" | "revenue" | "share_pct" | "name";
+        /** @description Default `desc`, except `asc` for `sort=name`. */
+        ProductSalesOrder: "asc" | "desc";
         /**
          * @description `false` (default) = per outlet, count revenue and expenses only from its `operations_started_on` (the month of
          *     that date is counted partially, earlier months are zero). `true` = ignore the date and count the whole period
@@ -4394,6 +4587,164 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getProductSalesReport: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                /** @description Case-insensitive substring of the product name (1-100 characters). Does not change `share_pct` or `totals`. */
+                q?: components["parameters"]["ProductSalesQuery"];
+                /** @description `share_pct` orders like `revenue`. Ties: cups desc, Rupiah desc, then name asc. */
+                sort?: components["parameters"]["ProductSalesSort"];
+                /** @description Default `desc`, except `asc` for `sort=name`. */
+                order?: components["parameters"]["ProductSalesOrder"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Product rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    exportProductSalesReport: {
+        parameters: {
+            query: {
+                format: "csv" | "xlsx";
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                /** @description `share_pct` orders like `revenue`. Ties: cups desc, Rupiah desc, then name asc. */
+                sort?: components["parameters"]["ProductSalesSort"];
+                /** @description Default `desc`, except `asc` for `sort=name`. */
+                order?: components["parameters"]["ProductSalesOrder"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getProductSalesDetail: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Product detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSalesDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getProductSalesSeries: {
+        parameters: {
+            query: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+                granularity: "hour" | "day";
+            };
+            header?: never;
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: date-time */
+                            bucket_start: string;
+                            items_sold: number;
+                            revenue: components["schemas"]["Rupiah"];
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listExpenseCategories: {

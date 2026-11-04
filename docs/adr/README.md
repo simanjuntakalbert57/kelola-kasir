@@ -25,3 +25,4 @@ Format: Konteks → Keputusan → Alternatif → Konsekuensi. Status: `Proposed`
 | [0019](0019-owner-transaction-soft-delete.md) | Owner hapus transaksi: soft delete (`deleted_*`) + tabel riwayat `transaction_deletions` + pulihkan; query wajib `deleted_at IS NULL` | Accepted |
 | [0020](0020-multi-outlet-owner.md) | Multi-cabang: token owner terikat 1 outlet aktif + `POST /auth/switch-outlet`; `outlet_scope=all` untuk laporan; rename outlet dengan `previous_codes` | Accepted |
 | [0021](0021-outlet-expenses.md) | Pengeluaran per cabang: `expense_categories` + `expenses` (soft delete + `expense_history`), rekap bulanan & laba sederhana, siap Fase 2 kas laci | Accepted |
+| [0022](0022-product-sales-report.md) | Laporan penjualan per produk: `/reports/products*` dengan `outlet_scope`, produk digabung per nama saat "Semua cabang", angka = Ringkasan (`paid` + `void_requested`) | Accepted |

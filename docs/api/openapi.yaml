@@ -1580,6 +1580,139 @@ paths:
                         revenue: { $ref: '#/components/schemas/Rupiah' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /reports/products:
+    get:
+      tags: [reports]
+      summary: Sales per product for the Ringkasan card "Penjualan per Produk" (ADR-0022)
+      description: |
+        Every product of the scope with its cups, Rupiah and share of the period. Counting rule of
+        `GET /dashboard/summary`: transactions `paid` or `void_requested`, not deleted, `client_created_at` in the WIB
+        period. `items_sold` = sum of item quantities (cups), `revenue` = sum of `line_total` (transaction-level
+        discount/tax is not allocated to items). `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
+        product of the scope and period **before** `q` is applied. Active, non-deleted catalog products without sales
+        are included with zeros; deleted or inactive products appear only when they sold in the period.
+        With `outlet_scope=current` there is one row per product of the active outlet. With `all` rows are merged across
+        outlets by normalized product name (ADR-0022 §3); `product_id` is then a representative product (the active
+        outlet's when it has one). Items whose product no longer exists are grouped by their name snapshot with
+        `product_id: null`. No pagination. Owner or manager; `outlet_scope=all` is owner only (`403`).
+      operationId: getProductSalesReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - $ref: '#/components/parameters/ProductSalesQuery'
+        - $ref: '#/components/parameters/ProductSalesSort'
+        - $ref: '#/components/parameters/ProductSalesOrder'
+      responses:
+        '200':
+          description: Product rows
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductSalesReport' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/products/export:
+    get:
+      tags: [reports]
+      summary: Export the per-product sales list as Excel or CSV (ADR-0022)
+      description: |
+        Every row of `GET /reports/products` for the same `outlet_scope`, period, `sort` and `order` (no `q`: the file
+        always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Total (Rp),
+        % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`), followed by a total row. Amounts whole
+        Rupiah, `% omzet` one decimal. CSV UTF-8 with BOM, CRLF and formula-injection guard exactly like
+        `GET /transactions/export`. File name `penjualan-produk_<date_from>_<date_to>.<format>`. Audited as
+        `reports.products_exported`. Owner or manager; `outlet_scope=all` is owner only (`403`).
+      operationId: exportProductSalesReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [csv, xlsx] } }
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - $ref: '#/components/parameters/ProductSalesSort'
+        - $ref: '#/components/parameters/ProductSalesOrder'
+      responses:
+        '200':
+          description: File stream
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/products/{product_id}:
+    get:
+      tags: [reports]
+      summary: Sales detail of one product (side panel / bottom sheet) (ADR-0022)
+      description: |
+        Same counting rule, scope and period as `GET /reports/products`. With `outlet_scope=current` the product must
+        belong to the active outlet, else `404`. With `all` it must belong to an outlet where the caller is owner (else
+        `404`) and the numbers merge every product of the scope with the same normalized name. A product without sales
+        returns zeros. `rank` is the position in the default order of `GET /reports/products` (cups desc, then Rupiah
+        desc, then name) among `product_count` rows. `by_payment_method` always has `cash` then `qris`.
+        `by_outlet` is filled only with `outlet_scope=all` (ordered by outlet code, every outlet of the scope), else
+        `[]`. `by_employee` is ordered by cups desc and includes only cashiers with sales. Owner or manager;
+        `outlet_scope=all` is owner only (`403`).
+      operationId: getProductSalesDetail
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Product detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductSalesDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/products/{product_id}/series:
+    get:
+      tags: [reports]
+      summary: Cups and Rupiah of one product per WIB hour or day (ADR-0022)
+      description: |
+        Like `GET /dashboard/sales-series` (one bucket per WIB hour or day, empty buckets with zeros, oldest first,
+        hourly at most 31 days else `400`), for the product and scope of `GET /reports/products/{product_id}` (same
+        `404` rules). Owner or manager; `outlet_scope=all` is owner only (`403`).
+      operationId: getProductSalesSeries
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: granularity, in: query, required: true, schema: { type: string, enum: [hour, day] } }
+      responses:
+        '200':
+          description: Series
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [bucket_start, items_sold, revenue]
+                      properties:
+                        bucket_start: { type: string, format: date-time }
+                        items_sold: { type: integer, minimum: 0 }
+                        revenue: { $ref: '#/components/schemas/Rupiah' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------------------------------------------- expenses (ADR-0021)
   /expense-categories:
     get:
@@ -2274,6 +2407,9 @@ components:
         `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
         ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
       schema: { type: string, enum: [current, all], default: current }
+    ProductSalesQuery: { name: q, in: query, description: 'Case-insensitive substring of the product name (1-100 characters). Does not change `share_pct` or `totals`.', schema: { type: string, minLength: 1, maxLength: 100 } }
+    ProductSalesSort: { name: sort, in: query, description: '`share_pct` orders like `revenue`. Ties: cups desc, Rupiah desc, then name asc.', schema: { type: string, enum: [items_sold, revenue, share_pct, name], default: items_sold } }
+    ProductSalesOrder: { name: order, in: query, description: 'Default `desc`, except `asc` for `sort=name`.', schema: { type: string, enum: [asc, desc] } }
     IncludePreOperations:
       name: include_pre_operations
       in: query
@@ -3195,6 +3331,113 @@ components:
           properties:
             per_outlet: { type: array, items: { $ref: '#/components/schemas/ExpenseReportOutletCell' } }
             total: { $ref: '#/components/schemas/ExpenseReportCell' }
+    ChangePct:
+      type: [number, 'null']
+      description: Change vs the previous period of the same length in percent, one decimal; `null` when that period had none.
+    ProductSalesRow:
+      type: object
+      required: [key, product_id, product_name, category_name, items_sold, revenue, share_pct, transaction_count, has_sales]
+      properties:
+        key: { type: string, description: 'Stable row id: product id (`current`) or `name:<normalized name>` (`all`, or a product that no longer exists).' }
+        product_id: { type: [string, 'null'], format: uuid, description: 'Product to open in the detail (`/?produk=<id>`); `null` when no catalog row exists.' }
+        product_name: { type: string }
+        category_name: { type: [string, 'null'] }
+        items_sold: { type: integer, minimum: 0, description: Cups (sum of item quantities) }
+        revenue: { $ref: '#/components/schemas/Rupiah' }
+        share_pct: { type: number, minimum: 0, maximum: 100, description: 'Share of `totals.revenue`, one decimal' }
+        transaction_count: { type: integer, minimum: 0 }
+        has_sales: { type: boolean, description: '`false` = "Belum terjual"' }
+    ProductSalesReport:
+      type: object
+      required: [outlet_scope, date_from, date_to, totals, data]
+      properties:
+        outlet_scope: { type: string, enum: [current, all] }
+        date_from: { type: string, format: date }
+        date_to: { type: string, format: date }
+        totals:
+          type: object
+          description: Every product of the scope and period, before `q`.
+          required: [items_sold, revenue, product_count]
+          properties:
+            items_sold: { type: integer, minimum: 0 }
+            revenue: { $ref: '#/components/schemas/Rupiah' }
+            product_count: { type: integer, minimum: 0 }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ProductSalesRow' }
+    ProductSalesDetail:
+      type: object
+      required:
+        - product_id
+        - product_name
+        - category_name
+        - catalog_price
+        - outlet_scope
+        - date_from
+        - date_to
+        - items_sold
+        - revenue
+        - average_price
+        - share_pct
+        - transaction_count
+        - rank
+        - product_count
+        - compare_previous_period
+        - by_payment_method
+        - by_outlet
+        - by_employee
+      properties:
+        product_id: { type: string, format: uuid }
+        product_name: { type: string }
+        category_name: { type: [string, 'null'] }
+        catalog_price: { $ref: '#/components/schemas/Rupiah' }
+        outlet_scope: { type: string, enum: [current, all] }
+        date_from: { type: string, format: date }
+        date_to: { type: string, format: date }
+        items_sold: { type: integer, minimum: 0 }
+        revenue: { $ref: '#/components/schemas/Rupiah' }
+        average_price: { allOf: [{ $ref: '#/components/schemas/Rupiah' }], description: '`floor(revenue / items_sold)`, 0 without sales' }
+        share_pct: { type: number, minimum: 0, maximum: 100 }
+        transaction_count: { type: integer, minimum: 0 }
+        rank: { type: integer, minimum: 1 }
+        product_count: { type: integer, minimum: 1 }
+        compare_previous_period:
+          type: object
+          required: [items_sold_change_pct, revenue_change_pct]
+          properties:
+            items_sold_change_pct: { $ref: '#/components/schemas/ChangePct' }
+            revenue_change_pct: { $ref: '#/components/schemas/ChangePct' }
+        by_payment_method:
+          type: array
+          items:
+            type: object
+            required: [method, items_sold, revenue, share_pct]
+            properties:
+              method: { type: string, enum: [cash, qris] }
+              items_sold: { type: integer, minimum: 0 }
+              revenue: { $ref: '#/components/schemas/Rupiah' }
+              share_pct: { type: number, minimum: 0, maximum: 100, description: Share of this product's `revenue` }
+        by_outlet:
+          type: array
+          items:
+            type: object
+            required: [outlet_id, outlet_name, items_sold, revenue]
+            properties:
+              outlet_id: { type: string, format: uuid }
+              outlet_name: { type: string }
+              items_sold: { type: integer, minimum: 0 }
+              revenue: { $ref: '#/components/schemas/Rupiah' }
+        by_employee:
+          type: array
+          items:
+            type: object
+            required: [employee_id, employee_name, outlet_name, items_sold, revenue]
+            properties:
+              employee_id: { type: string, format: uuid }
+              employee_name: { type: string }
+              outlet_name: { type: string }
+              items_sold: { type: integer, minimum: 0 }
+              revenue: { $ref: '#/components/schemas/Rupiah' }
     DashboardSummary:
       type: object
       required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count, items_sold, outlet_scope, by_outlet]
