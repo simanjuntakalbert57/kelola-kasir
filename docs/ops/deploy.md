@@ -60,7 +60,14 @@ Kerjakan berurutan. Setelah selesai, laporkan di komentar DEAR-19 **tanpa** mene
 - [ ] Buat bucket `kelola-kasir-backup` (tanpa akses publik).
 - [ ] R2 → Manage API tokens: token **Object Read & Write** khusus `kelola-kasir-media` (untuk API), dan token kedua khusus `kelola-kasir-backup` (untuk backup). Catat Access Key ID, Secret Access Key, dan endpoint `https://<account-id>.r2.cloudflarestorage.com`.
 
-**2b. Alternatif Backblaze B2** (hanya bila R2 meminta kartu): buat dua bucket, **keduanya Private** (media dan backup), CORS media sama seperti di atas (cukup `PUT` dari origin dashboard; unduhan lewat redirect API tidak butuh CORS), dan satu Application Key per bucket. Endpoint `https://s3.<region>.backblazeb2.com`. Tidak ada URL publik bucket yang dipakai.
+**2b. Alternatif Backblaze B2** (hanya bila R2 meminta kartu): buat dua bucket, **keduanya Private** (media dan backup), CORS media cukup `PUT` dari origin dashboard (unduhan lewat redirect API tidak butuh CORS), dan satu Application Key per bucket. **Catatan B2:** pilihan CORS di web UI B2 hanya mengizinkan unduhan (GET/HEAD), sehingga upload dari dashboard ditolak di preflight. Pasang aturan CORS lewat B2 API dengan key sementara yang punya akses `writeBuckets` (lalu hapus key itu):
+  ```bash
+  read -rp "keyID: " B2_APPLICATION_KEY_ID; read -rsp "applicationKey: " B2_APPLICATION_KEY; echo
+  export B2_APPLICATION_KEY_ID B2_APPLICATION_KEY
+  curl -fsSL https://raw.githubusercontent.com/simanjuntakalbert57/kelola-kasir/main/ops/vps/b2-cors.py | python3 -   # hanya butuh python3 bawaan
+  unset B2_APPLICATION_KEY_ID B2_APPLICATION_KEY
+  ```
+  Cek: `curl -si -X OPTIONS https://s3.<region>.backblazeb2.com/kelola-kasir-media/x -H 'Origin: https://kelola-kasir.pages.dev' -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: content-type'` harus `200`. Endpoint `https://s3.<region>.backblazeb2.com`. Tidak ada URL publik bucket yang dipakai.
 
 ### 3. Secret dan kunci (dibuat di laptop Bapak)
 Simpan semua hasilnya di password manager.
