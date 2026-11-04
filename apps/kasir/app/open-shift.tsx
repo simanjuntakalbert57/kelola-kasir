@@ -8,7 +8,9 @@ import { canOpenShift, describeOpenShiftError } from '../src/shift/open';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
 import { IS_STAGING } from '../src/config';
 import { colors, radius, space } from '../src/theme';
-import { Banner, Button, Keypad, TopBar } from '../src/ui/components';
+import { Banner, Button, FitLayout, Keypad, ScreenContainer, TopBar } from '../src/ui/components';
+import { FONT_CAP } from '../src/ui/layout';
+import { useKeypadFit } from '../src/ui/useKeypadFit';
 
 export default function OpenShiftScreen() {
   const {
@@ -40,6 +42,12 @@ export default function OpenShiftScreen() {
     })();
   }, [checkShift, suggestedOpeningCash]);
 
+  const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
+    chromeEstimate: 100,
+    compactSaving: 0,
+    bodyReserve: 220,
+    compactBodyReserve: 150,
+  });
   const amount = digitsToRupiah(digits);
   const offline = session?.offline ?? false;
   const checking = !shiftChecked && !checkFailed && !offline;
@@ -65,52 +73,68 @@ export default function OpenShiftScreen() {
     }
   };
 
+  const footer = (
+    <View style={styles.footer} onLayout={onFooterLayout}>
+      <Keypad triple keyHeight={keyHeight} onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+      <Button
+        testID="open-shift-submit"
+        label={busy ? 'Membuka…' : checking ? 'Memeriksa shift…' : 'Buka shift & mulai jualan'}
+        variant="primary"
+        large
+        disabled={!canOpenShift({ offline, busy, shiftChecked, checkFailed })}
+        onPress={submit}
+        style={{ marginTop: space.s3 }}
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.root}>
-      <TopBar
-        title="Buka shift"
-        right={<Button label="Keluar" variant="ghost" onPress={logout} />}
-      />
-      {offline ? <Banner tone="warn">Offline — buka shift butuh internet</Banner> : null}
-      {checking ? <Banner tone="warn">Memeriksa shift…</Banner> : null}
-      {checkFailed ? <Banner tone="error">Gagal memeriksa shift. Coba lagi.</Banner> : null}
-      <View style={styles.body}>
-        <Text style={styles.hello}>
-          Halo, {session?.employeeName}! Hitung uang di laci lalu masukkan modal awal.
-        </Text>
-        <Text style={styles.label}>Modal kas awal</Text>
-        <View style={styles.amountBox} accessibilityLabel="Modal kas awal">
-          <Text testID="opening-cash" style={styles.amount}>
-            {formatRupiah(amount)}
-          </Text>
-        </View>
-        {suggested !== null ? (
-          <Text style={styles.hint}>
-            Shift terakhir ditutup {formatRupiah(suggested)} — sudah terisi otomatis.
-          </Text>
-        ) : (
-          <Text style={styles.hint}>Belum ada data shift sebelumnya di perangkat ini.</Text>
-        )}
-        {error ? <Text style={styles.err}>{error}</Text> : null}
-        <View style={{ flex: 1 }} />
-        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
-        <Button
-          testID="open-shift-submit"
-          label={busy ? 'Membuka…' : checking ? 'Memeriksa shift…' : 'Buka shift & mulai jualan'}
-          variant="primary"
-          large
-          disabled={!canOpenShift({ offline, busy, shiftChecked, checkFailed })}
-          onPress={submit}
-          style={{ marginTop: space.s3 }}
+      <ScreenContainer>
+        <TopBar
+          title="Buka shift"
+          right={<Button label="Keluar" variant="ghost" onPress={logout} />}
         />
-      </View>
+        {offline ? <Banner tone="warn">Offline — buka shift butuh internet</Banner> : null}
+        {checking ? <Banner tone="warn">Memeriksa shift…</Banner> : null}
+        {checkFailed ? <Banner tone="error">Gagal memeriksa shift. Coba lagi.</Banner> : null}
+        <FitLayout
+          scrollAll={scrollAll}
+          bodyStyle={styles.body}
+          footer={footer}
+          body={
+            <>
+              {compact ? null : (
+                <Text style={styles.hello}>
+                  Halo, {session?.employeeName}! Hitung uang di laci lalu masukkan modal awal.
+                </Text>
+              )}
+              <Text style={styles.label}>Modal kas awal</Text>
+              <View style={styles.amountBox} accessibilityLabel="Modal kas awal">
+                <Text testID="opening-cash" maxFontSizeMultiplier={FONT_CAP} style={styles.amount}>
+                  {formatRupiah(amount)}
+                </Text>
+              </View>
+              {compact ? null : suggested !== null ? (
+                <Text style={styles.hint}>
+                  Shift terakhir ditutup {formatRupiah(suggested)} — sudah terisi otomatis.
+                </Text>
+              ) : (
+                <Text style={styles.hint}>Belum ada data shift sebelumnya di perangkat ini.</Text>
+              )}
+              {error ? <Text style={styles.err}>{error}</Text> : null}
+            </>
+          }
+        />
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  body: { flex: 1, padding: space.s4 },
+  body: { padding: space.s4 },
+  footer: { padding: space.s4, paddingTop: space.s2, backgroundColor: colors.bg },
   hello: { color: colors.muted, lineHeight: 21 },
   label: {
     color: colors.ink,

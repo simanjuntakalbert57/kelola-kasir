@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { Tabs } from 'expo-router';
 import { Text, type ColorValue } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaFrame, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { badgeLabel, itemCount } from '../../src/sales/cart';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors } from '../../src/theme';
+import { MAX_CONTENT_WIDTH, tabBarContentHeight } from '../../src/ui/layout';
 
 const icon = (glyph: string) =>
   function TabIcon({ color }: { color: ColorValue }) {
@@ -14,6 +15,7 @@ const icon = (glyph: string) =>
 export default function TabsLayout() {
   const { cart } = useSales();
   const insets = useSafeAreaInsets();
+  const frame = useSafeAreaFrame();
   const count = itemCount(cart);
   const badge = badgeLabel(count);
   const keranjangOptions = useMemo(
@@ -37,15 +39,22 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.greenText,
         tabBarInactiveTintColor: colors.muted,
         tabBarHideOnKeyboard: true,
+        // Fixed-height bar: label text must not outgrow it at large system font sizes.
+        tabBarAllowFontScaling: false,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.line,
           // Keep the bar above the Android system navigation bar / iOS home indicator.
-          height: 64 + insets.bottom,
+          height: tabBarContentHeight(frame.height) + insets.bottom,
           paddingBottom: insets.bottom,
         },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
-        sceneStyle: { backgroundColor: colors.bg },
+        sceneStyle: {
+          backgroundColor: colors.bg,
+          width: '100%',
+          maxWidth: MAX_CONTENT_WIDTH,
+          alignSelf: 'center',
+        },
       }}
     >
       <Tabs.Screen name="jual" options={{ title: 'Jual', tabBarIcon: icon('🍹') }} />

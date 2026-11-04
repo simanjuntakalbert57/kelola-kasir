@@ -1,7 +1,15 @@
 import { formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
 import { useSession } from '../src/auth/SessionProvider';
@@ -17,7 +25,8 @@ import {
 } from '../src/sales/qris';
 import { useSales } from '../src/sales/SalesProvider';
 import { colors, space } from '../src/theme';
-import { Banner, Button, TopBar } from '../src/ui/components';
+import { Banner, Button, ScreenContainer, TopBar } from '../src/ui/components';
+import { FONT_CAP } from '../src/ui/layout';
 import { PrintToggle } from '../src/ui/PrintToggle';
 import { QrCode } from '../src/ui/QrCode';
 
@@ -106,60 +115,62 @@ export default function QrisScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <TopBar title="Bayar QRIS" />
-      {!online ? <Banner tone="warn">Koneksi terputus — konfirmasi butuh internet</Banner> : null}
-      <View style={styles.body}>
-        <Text testID="qris-total" style={styles.total}>
-          {formatRupiah(total)}
-        </Text>
-        {error && !session ? (
-          <Banner tone="error">{error}</Banner>
-        ) : !session ? (
-          <ActivityIndicator color={colors.greenText} style={{ margin: space.s6 }} />
-        ) : (
-          <>
-            <View style={styles.qr}>
-              <QrCode value={session.payment.qr_payload ?? session.payment.id} size={240} />
-            </View>
-            <Text
-              testID="qris-countdown"
-              style={[styles.countdown, expired && { color: colors.danger }]}
-            >
-              {expired ? 'Kedaluwarsa' : `Berlaku ${formatCountdown(left)}`}
-            </Text>
-            <Text style={styles.muted}>
-              Minta pembeli scan lalu bayar tepat {formatRupiah(total)}.
-            </Text>
-            {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-          </>
-        )}
-        <View style={{ flex: 1 }} />
-        <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
-        {session ? (
+      <ScreenContainer>
+        <TopBar title="Bayar QRIS" />
+        {!online ? <Banner tone="warn">Koneksi terputus — konfirmasi butuh internet</Banner> : null}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
+          <Text testID="qris-total" maxFontSizeMultiplier={FONT_CAP} style={styles.total}>
+            {formatRupiah(total)}
+          </Text>
+          {error && !session ? (
+            <Banner tone="error">{error}</Banner>
+          ) : !session ? (
+            <ActivityIndicator color={colors.greenText} style={{ margin: space.s6 }} />
+          ) : (
+            <>
+              <View style={styles.qr}>
+                <QrCode value={session.payment.qr_payload ?? session.payment.id} size={240} />
+              </View>
+              <Text
+                testID="qris-countdown"
+                style={[styles.countdown, expired && { color: colors.danger }]}
+              >
+                {expired ? 'Kedaluwarsa' : `Berlaku ${formatCountdown(left)}`}
+              </Text>
+              <Text style={styles.muted}>
+                Minta pembeli scan lalu bayar tepat {formatRupiah(total)}.
+              </Text>
+              {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
+            </>
+          )}
+          <View style={{ flex: 1 }} />
+          <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
+          {session ? (
+            <Button
+              testID="qris-confirm"
+              label={busy ? 'Memproses…' : 'Pembayaran sudah diterima'}
+              variant="primary"
+              large
+              disabled={busy || expired || !online}
+              onPress={() => void confirm()}
+            />
+          ) : null}
           <Button
-            testID="qris-confirm"
-            label={busy ? 'Memproses…' : 'Pembayaran sudah diterima'}
-            variant="primary"
-            large
-            disabled={busy || expired || !online}
-            onPress={() => void confirm()}
+            testID="qris-cancel"
+            label="Batal"
+            variant="outline"
+            disabled={busy}
+            onPress={() => void cancel()}
           />
-        ) : null}
-        <Button
-          testID="qris-cancel"
-          label="Batal"
-          variant="outline"
-          disabled={busy}
-          onPress={() => void cancel()}
-        />
-      </View>
+        </ScrollView>
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  body: { flex: 1, padding: space.s4, gap: space.s3, alignItems: 'stretch' },
+  body: { flexGrow: 1, padding: space.s4, gap: space.s3, alignItems: 'stretch' },
   total: {
     color: colors.orange,
     fontSize: 40,

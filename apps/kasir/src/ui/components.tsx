@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react';
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { colors, radius, space, touch } from '../theme';
-import { keyHeightFor } from './layout';
+import { FONT_CAP, MAX_CONTENT_WIDTH } from './layout';
 
 type ButtonVariant = 'primary' | 'accent' | 'outline' | 'ghost';
 
@@ -51,7 +51,12 @@ export function Button({
         style,
       ]}
     >
-      <Text style={[styles.btnText, { color: fg, fontSize: large ? 18 : 16 }]}>{label}</Text>
+      <Text
+        maxFontSizeMultiplier={FONT_CAP}
+        style={[styles.btnText, { color: fg, fontSize: large ? 18 : 16 }]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -100,28 +105,65 @@ export function Banner({
 export function TopBar({ title, right }: { title: ReactNode; right?: ReactNode }) {
   return (
     <View style={styles.bar}>
-      <Text style={styles.barTitle}>{title}</Text>
+      <Text maxFontSizeMultiplier={FONT_CAP} style={styles.barTitle}>
+        {title}
+      </Text>
       <View style={{ flex: 1 }} />
       {right}
     </View>
   );
 }
 
+/** Centres content at most 480 dp wide, so phones fill the screen and tablets do not stretch. */
+export function ScreenContainer({ children }: { children: ReactNode }) {
+  return <View style={styles.container}>{children}</View>;
+}
+
+/**
+ * Body + footer. Normally the footer is pinned under the scrolling body; when it does not fit
+ * (`scrollAll`) it moves into the scroll area so the keypad and action buttons stay reachable.
+ */
+export function FitLayout({
+  scrollAll,
+  body,
+  footer,
+  bodyStyle,
+}: {
+  scrollAll: boolean;
+  body: ReactNode;
+  footer: ReactNode;
+  bodyStyle?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <>
+      <ScrollView
+        style={styles.fitScroll}
+        contentContainerStyle={[styles.fitBody, bodyStyle]}
+        keyboardShouldPersistTaps="handled"
+      >
+        {body}
+        {scrollAll ? footer : null}
+      </ScrollView>
+      {scrollAll ? null : footer}
+    </>
+  );
+}
+
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 const KEYS_WITH_000 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', '⌫'] as const;
 
-/** Numeric keypad, 60px keys (48px on short screens). Blank key (login) or `000` (cash). */
+/** Numeric keypad; `keyHeight` (40–64) comes from `useKeypadFit`. Blank key (login) or `000` (cash). */
 export function Keypad({
   onKey,
   disabled,
   triple,
+  keyHeight = touch.key,
 }: {
   onKey: (key: string) => void;
   disabled?: boolean;
   triple?: boolean;
+  keyHeight?: number;
 }) {
-  const { height } = useWindowDimensions();
-  const keyHeight = keyHeightFor(height);
   const keys = triple ? KEYS_WITH_000 : KEYS;
   const rows = [keys.slice(0, 3), keys.slice(3, 6), keys.slice(6, 9), keys.slice(9, 12)];
   return (
@@ -145,7 +187,9 @@ export function Keypad({
                   { minHeight: keyHeight, opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
                 ]}
               >
-                <Text style={styles.keyText}>{k}</Text>
+                <Text maxFontSizeMultiplier={FONT_CAP} style={styles.keyText}>
+                  {k}
+                </Text>
               </Pressable>
             ),
           )}
@@ -166,6 +210,9 @@ export function PinDots({ length, filled }: { length: number; filled: number }) 
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1, width: '100%', maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center' },
+  fitScroll: { flex: 1 },
+  fitBody: { flexGrow: 1 },
   btn: {
     alignItems: 'center',
     justifyContent: 'center',
