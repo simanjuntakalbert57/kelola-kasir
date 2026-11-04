@@ -1460,10 +1460,14 @@ paths:
         Counts only `paid` and `void_requested` transactions created in the period (`client_created_at`, WIB business days,
         both dates inclusive, default today, at most 366 days). `voided_count` is the number of voided transactions in the
         period. `compare_previous_period` compares with the period of the same length right before it
-        (`revenue_change_pct` is `null` when that period had no revenue). Owner only.
+        (`revenue_change_pct` and `items_sold_change_pct` are `null` when that period had none).
+        `items_sold` is the sum of item quantities (cups) of the same transactions as `revenue`.
+        `outlet_scope=all` (owner only, else `403`) merges every outlet where the caller is owner into the top-level
+        fields and fills `by_outlet` (ordered by outlet code); with `current` (default) `by_outlet` is `[]`. Owner only.
       operationId: getDashboardSummary
       security: [{ ownerAuth: [] }]
       parameters:
+        - $ref: '#/components/parameters/OutletScope'
         - $ref: '#/components/parameters/DateFrom'
         - $ref: '#/components/parameters/DateTo'
       responses:
@@ -1473,6 +1477,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /dashboard/sales-series:
     get:
       tags: [dashboard]
@@ -1541,6 +1546,12 @@ paths:
     get:
       tags: [reports]
       summary: Sales report grouped by product, employee, payment method or day (O-09, Should)
+      description: |
+        Counts `paid` and `void_requested` transactions, like the dashboard. Fields per row: `quantity` is the number of
+        items (cups) sold (sum of `transaction_items.quantity`; for `group_by=payment_method` and `employee` it covers
+        the items of those transactions), `transaction_count` the number of transactions, and `revenue` the amount in
+        Rupiah. `group_by=product` gives cups per product; `group_by=payment_method` gives Rp and transaction count per
+        method (`cash`, `qris`).
       operationId: getSalesReport
       security: [{ ownerAuth: [] }]
       parameters:
@@ -1564,8 +1575,8 @@ paths:
                       properties:
                         key: { type: string }
                         label: { type: string }
-                        quantity: { type: integer }
-                        transaction_count: { type: integer }
+                        quantity: { type: integer, description: Number of items (cups) sold in the group }
+                        transaction_count: { type: integer, description: Number of transactions in the group }
                         revenue: { $ref: '#/components/schemas/Rupiah' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
@@ -3186,7 +3197,7 @@ components:
             total: { $ref: '#/components/schemas/ExpenseReportCell' }
     DashboardSummary:
       type: object
-      required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count]
+      required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count, items_sold, outlet_scope, by_outlet]
       properties:
         revenue: { $ref: '#/components/schemas/Rupiah' }
         transaction_count: { type: integer }
@@ -3197,10 +3208,29 @@ components:
         qris_count: { type: integer }
         voided_count: { type: integer }
         pending_void_count: { type: integer }
+        items_sold: { type: integer, description: 'Sum of `transaction_items.quantity` (cups) of `paid` and `void_requested` transactions in the period; same predicate as `revenue`.' }
         compare_previous_period:
           type: object
           properties:
             revenue_change_pct: { type: [number, 'null'] }
+            items_sold_change_pct: { type: [number, 'null'], description: 'Same formula as `revenue_change_pct`; `null` when the previous period sold nothing.' }
+        outlet_scope: { type: string, enum: [current, all] }
+        by_outlet:
+          type: array
+          description: Per outlet, ordered by outlet code. Only filled for `outlet_scope=all`, otherwise empty. Each outlet satisfies `cash_revenue + qris_revenue = revenue`.
+          items:
+            type: object
+            required: [outlet_id, outlet_name, revenue, cash_revenue, qris_revenue, cash_count, qris_count, transaction_count, items_sold]
+            properties:
+              outlet_id: { type: string, format: uuid }
+              outlet_name: { type: string }
+              revenue: { $ref: '#/components/schemas/Rupiah' }
+              cash_revenue: { $ref: '#/components/schemas/Rupiah' }
+              qris_revenue: { $ref: '#/components/schemas/Rupiah' }
+              cash_count: { type: integer }
+              qris_count: { type: integer }
+              transaction_count: { type: integer }
+              items_sold: { type: integer }
 
     OutletSettings:
       type: object

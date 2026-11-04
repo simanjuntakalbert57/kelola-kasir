@@ -215,6 +215,10 @@ export interface TxSeed {
   deviceId: string;
   employeeId: string;
   total: number;
+  /** Quantity of the single item line (default 1); `total` must be divisible by it. */
+  quantity?: number;
+  /** Mark the transaction as deleted by this user. */
+  deletedBy?: string;
   method?: 'cash' | 'qris';
   status?: 'pending' | 'paid' | 'void_requested' | 'voided' | 'cancelled';
   createdAt?: Date;
@@ -241,14 +245,17 @@ export async function seedTransaction(env: TestEnv, seed: TxSeed): Promise<strin
     subtotal: seed.total,
     total: seed.total,
     clientCreatedAt: createdAt,
+    ...(seed.deletedBy
+      ? { deletedAt: createdAt, deletedBy: seed.deletedBy, deleteReason: 'test' }
+      : {}),
     paidAt: status === 'pending' || status === 'cancelled' ? null : createdAt,
   });
   await env.handle.db.insert(transactionItems).values({
     id: uuidv7(),
     transactionId: id,
     productName: 'Jus Alpukat',
-    unitPrice: seed.total,
-    quantity: 1,
+    unitPrice: seed.total / (seed.quantity ?? 1),
+    quantity: seed.quantity ?? 1,
     lineTotal: seed.total,
   });
   await env.handle.db.insert(payments).values({
