@@ -19,7 +19,9 @@ test.describe('Dashboard (TC-DSH-01/02, O-02)', () => {
   test('TC-DSH-02 jumlah transaksi, rata-rata, split cash/QRIS konsisten', async ({ page }) => {
     await openAsOwner(page, '/');
     await expect(page.getByText('Pesanan', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('5 tunai · 2 QRIS')).toBeVisible();
+    // Tunai 123.000 (30+12+45+24+12) + QRIS 27.000 (15+12) = omzet 150.000; 82% + 18% = 100%.
+    await expect(page.getByText(/Tunai Rp\s?123\.000 \(82%\) · 5 trx/)).toBeVisible();
+    await expect(page.getByText(/QRIS Rp\s?27\.000 \(18%\) · 2 trx/)).toBeVisible();
     await expect(page.getByText(/^7$/).first()).toBeVisible();
     await expect(page.getByText(rp(21_428)).first()).toBeVisible();
   });

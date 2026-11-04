@@ -7,6 +7,7 @@ import { Banknote, QrCode } from 'lucide-react';
 import { DateRangePicker, initialRange } from '../components/DateRangePicker';
 import { Card, EmptyState, ErrorState, NoticeCard, PageHeader, Skeleton } from '../components/ui';
 import { useAuth } from '../auth/AuthProvider';
+import { useExpenseScope } from '../lib/expenses';
 import { api, qs } from '../lib/api';
 import { addDays, formatShortDate, formatTime } from '../lib/dates';
 import {
@@ -19,6 +20,7 @@ import {
 } from '../lib/insight';
 
 type Summary = components['schemas']['DashboardSummary'];
+type OutletBreakdown = Summary['by_outlet'][number];
 type Point = { bucket_start: string; revenue: number; transaction_count: number };
 type Top = { product_id?: string | null; product_name: string; quantity: number; revenue: number };
 
@@ -32,6 +34,7 @@ function Kpi({ label, value, note }: { label: string; value: string; note?: stri
   );
 }
 
+const cupFormat = new Intl.NumberFormat('id-ID');
 const pct = (part: number, total: number) => (total === 0 ? 0 : Math.round((part / total) * 100));
 
 function SalesChart({ data, granularity }: { data: Point[]; granularity: 'hour' | 'day' }) {
@@ -74,26 +77,88 @@ function PaymentSplit({ summary }: { summary: Summary }) {
   return (
     <Card className="min-w-0">
       <p className="text-sm font-bold text-muted">Cara bayar</p>
-      <p className="mt-1 flex flex-wrap gap-x-3 text-[17px] leading-7 font-extrabold tabular-nums">
+      <p className="mt-1 flex flex-col gap-x-3 text-[17px] leading-7 font-extrabold tabular-nums">
         <span className="inline-flex items-center gap-1">
-          <Banknote size={18} aria-hidden="true" /> Tunai {cash}%
+          <Banknote size={18} aria-hidden="true" className="shrink-0" /> Tunai{' '}
+          {formatRupiah(summary.cash_revenue)} ({cash}%) · {summary.cash_count} trx
         </span>
         <span className="inline-flex items-center gap-1 text-ok">
-          <QrCode size={18} aria-hidden="true" /> QRIS {qris}%
+          <QrCode size={18} aria-hidden="true" className="shrink-0" /> QRIS{' '}
+          {formatRupiah(summary.qris_revenue)} ({qris}
+          %) · {summary.qris_count} trx
         </span>
       </p>
       <div aria-hidden="true" className="mt-2 flex h-3 overflow-hidden rounded-full bg-cash">
         <div className="bg-cash" style={{ width: `${cash}%` }} />
         <div className="bg-ok" style={{ width: `${qris}%` }} />
       </div>
-      <p className="mt-1 text-[13px] font-bold text-muted">
-        {summary.cash_count} tunai · {summary.qris_count} QRIS
+    </Card>
+  );
+}
+
+function CupCard({ summary, vsWord }: { summary: Summary; vsWord: string }) {
+  const change = summary.compare_previous_period?.items_sold_change_pct;
+  return (
+    <Card className="min-w-0">
+      <p className="text-sm font-bold text-muted">Cup terjual</p>
+      <p className="mt-1 text-[26px] leading-8 font-extrabold tabular-nums">
+        {cupFormat.format(summary.items_sold ?? 0)} cup
       </p>
+      {typeof change === 'number' ? (
+        <p className="mt-1 text-[13px] font-bold text-muted">
+          {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))}% {vsWord}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+function BranchBreakdown({ rows }: { rows: OutletBreakdown[] }) {
+  return (
+    <Card className="mt-3 min-w-0">
+      <h2 className="mb-3 text-lg">Per cabang</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] text-left text-sm tabular-nums">
+          <thead className="text-muted">
+            <tr>
+              <th scope="col" className="py-1 pr-3 font-bold">
+                Cabang
+              </th>
+              <th scope="col" className="px-3 py-1 text-right font-bold">
+                Omzet
+              </th>
+              <th scope="col" className="px-3 py-1 text-right font-bold">
+                Tunai
+              </th>
+              <th scope="col" className="px-3 py-1 text-right font-bold">
+                QRIS
+              </th>
+              <th scope="col" className="py-1 pl-3 text-right font-bold">
+                Cup
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.outlet_id} className="border-t border-line">
+                <th scope="row" className="py-2 pr-3 font-extrabold">
+                  {r.outlet_name}
+                </th>
+                <td className="px-3 py-2 text-right">{formatRupiah(r.revenue)}</td>
+                <td className="px-3 py-2 text-right">{formatRupiah(r.cash_revenue)}</td>
+                <td className="px-3 py-2 text-right">{formatRupiah(r.qris_revenue)}</td>
+                <td className="py-2 pl-3 text-right">{cupFormat.format(r.items_sold)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }
 
 export function DashboardPage() {
+  const { scope, outletId, outletName } = useExpenseScope();
   const { user } = useAuth();
   const [state, setState] = useState(initialRange);
   const { from, to } = state.range;
@@ -102,8 +167,8 @@ export function DashboardPage() {
   const isToday = state.preset === 'today';
 
   const summary = useQuery({
-    queryKey: ['dashboard', 'summary', from, to],
-    queryFn: () => api<Summary>(`/dashboard/summary${qs(range)}`),
+    queryKey: ['dashboard', 'summary', outletId, scope, from, to],
+    queryFn: () => api<Summary>(`/dashboard/summary${qs({ ...range, outlet_scope: scope })}`),
   });
   const series = useQuery({
     queryKey: ['dashboard', 'series', from, to, granularity],
@@ -125,7 +190,7 @@ export function DashboardPage() {
   // only meaningful for "Hari ini".
   const week = useQuery({
     queryKey: ['dashboard', 'week', from],
-    enabled: isToday,
+    enabled: isToday && scope !== 'all',
     queryFn: () =>
       api<{ data: Point[] }>(
         `/dashboard/sales-series${qs({ date_from: addDays(from, -7), date_to: addDays(from, -1), granularity: 'hour' })}`,
@@ -138,7 +203,7 @@ export function DashboardPage() {
   const change = s?.compare_previous_period?.revenue_change_pct;
   const rangeWord = isToday ? 'hari ini' : state.preset === '7d' ? '7 hari ini' : 'periode ini';
   const mood =
-    isToday && s && week.data
+    isToday && scope !== 'all' && s && week.data
       ? busyness(s.revenue, revenueBeforeHour(week.data.data, addDays(from, -7), 7, WIB_HOUR()))
       : null;
   const peak = series.data?.data.reduce<Point | null>(
@@ -209,18 +274,25 @@ export function DashboardPage() {
                 {s.transaction_count} pesanan {rangeWord}.{mood ? ` ${BUSY_SENTENCE[mood]}` : ''}
               </p>
             </section>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <CupCard summary={s} vsWord={isToday ? 'dari kemarin' : 'dari periode lalu'} />
               <Kpi label="Pesanan" value={String(s.transaction_count)} />
               <Kpi label="Rata-rata per pesanan" value={formatRupiah(s.average_ticket)} />
               <PaymentSplit summary={s} />
             </div>
+            {scope === 'all' && s.by_outlet && s.by_outlet.length > 0 ? (
+              <BranchBreakdown rows={s.by_outlet} />
+            ) : null}
           </>
         )
       ) : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <h2 className="mb-3 text-lg">Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}</h2>
+          <h2 className="mb-3 text-lg">
+            Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}
+            {scope === 'all' ? ` · ${outletName}` : ''}
+          </h2>
           {series.isPending ? <Skeleton rows={2} /> : null}
           {series.error ? (
             <ErrorState
@@ -241,7 +313,10 @@ export function DashboardPage() {
           ) : null}
         </Card>
         <Card>
-          <h2 className="mb-3 text-lg">Terlaris {rangeWord}</h2>
+          <h2 className="mb-3 text-lg">
+            Terlaris {rangeWord}
+            {scope === 'all' ? ` · ${outletName}` : ''}
+          </h2>
           {top.isPending ? <Skeleton rows={3} /> : null}
           {top.error ? (
             <ErrorState
@@ -260,7 +335,7 @@ export function DashboardPage() {
                     {i + 1}. {p.product_name}
                   </span>
                   <span className="shrink-0 font-extrabold" title={formatRupiah(p.revenue)}>
-                    {p.quantity} gelas
+                    {p.quantity} cup
                   </span>
                 </li>
               ))}

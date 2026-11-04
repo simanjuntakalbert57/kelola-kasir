@@ -19,7 +19,8 @@ const summary = {
   qris_count: 34,
   voided_count: 1,
   pending_void_count: 1,
-  compare_previous_period: { revenue_change_pct: 12.4 },
+  items_sold: 312,
+  compare_previous_period: { revenue_change_pct: 12.4, items_sold_change_pct: -8.2 },
 };
 const tx = (over: Record<string, unknown> = {}) => ({
   id: 't1',
@@ -70,8 +71,8 @@ describe('Dashboard', () => {
     expect(screen.getByText('Pesanan', { exact: true })).toBeInTheDocument();
     expect(screen.queryByText(/gelas terjual/i)).not.toBeInTheDocument();
     expect(screen.getByText(/74 pesanan hari ini\./)).toBeInTheDocument();
-    expect(screen.getByText(/Tunai 62%/)).toBeInTheDocument();
-    expect(screen.getByText(/QRIS 38%/)).toBeInTheDocument();
+    expect(screen.getByText(/Tunai Rp\s?775\.000 \(62%\) · 40 trx/)).toBeInTheDocument();
+    expect(screen.getByText(/QRIS Rp\s?475\.000 \(38%\) · 34 trx/)).toBeInTheDocument();
     expect(screen.getByText(/▲ 12% dari kemarin/)).toBeInTheDocument();
     expect(await screen.findByText(/1\. Jus Alpukat/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Penjualan per jam, puncak 13/ })).toBeInTheDocument();

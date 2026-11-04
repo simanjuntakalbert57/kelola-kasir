@@ -37,7 +37,9 @@ export const session = {
 };
 
 /** Stubs `fetch`; `routes` maps "METHOD /path" to a handler result. Unmatched calls fail the test. */
-export function mockApi(routes: Record<string, (body: unknown) => Response | Promise<Response>>) {
+export function mockApi(
+  routes: Record<string, (body: unknown, key: string) => Response | Promise<Response>>,
+) {
   const calls: { key: string; body: unknown }[] = [];
   vi.stubGlobal(
     'fetch',
@@ -54,7 +56,7 @@ export function mockApi(routes: Record<string, (body: unknown) => Response | Pro
       calls.push({ key, body });
       const handler = routes[key] ?? routes[route];
       if (!handler) throw new Error(`Unmocked request: ${key}`);
-      return handler(body);
+      return handler(body, key);
     }),
   );
   return calls;
