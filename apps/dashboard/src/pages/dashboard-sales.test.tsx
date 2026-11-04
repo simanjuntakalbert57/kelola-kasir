@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { json, mockApi, renderApp, session } from '../test/helpers';
@@ -36,16 +36,39 @@ const base = {
   compare_previous_period: { revenue_change_pct: 5, items_sold_change_pct: 12.4 },
 };
 
-function setup(summary: (url: string) => unknown, sess: unknown = twoBranches) {
-  const urls: string[] = [];
-  const calls = mockApi({
+const byOutlet = [
+  {
+    outlet_id: RGN,
+    outlet_name: 'Ragunan',
+    revenue: 800000,
+    cash_revenue: 500000,
+    qris_revenue: 300000,
+    items_sold: 190,
+  },
+  {
+    outlet_id: PLM,
+    outlet_name: 'Palmerah',
+    revenue: 525000,
+    cash_revenue: 320000,
+    qris_revenue: 205000,
+    items_sold: 122,
+  },
+];
+
+/** One mock for every scenario: the summary answers according to the `outlet_scope` it is asked for. */
+function setup(summary: Record<string, unknown> = base, sess: unknown = twoBranches) {
+  return mockApi({
     'POST /auth/refresh': () => json(sess),
-    'GET /dashboard/summary': () => json(summary('')),
+    'GET /dashboard/summary': (_body, key) =>
+      json(
+        key.includes('outlet_scope=all')
+          ? { ...summary, outlet_scope: 'all', by_outlet: byOutlet }
+          : { ...summary, outlet_scope: 'current' },
+      ),
     'GET /dashboard/sales-series': () => json({ data: [] }),
     'GET /dashboard/top-products': () => json({ data: [] }),
     'GET /shifts': () => json({ data: [], next_cursor: null }),
   });
-  return { calls, urls };
 }
 
 beforeEach(() => localStorage.clear());
@@ -53,7 +76,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('Dashboard: cup terjual, Rp per metode, cabang', () => {
   it('shows the cup card with its comparison and Rp per payment method summing to revenue', async () => {
-    setup(() => base);
+    setup();
     renderApp('/');
     const card = (await screen.findByText('Cup terjual')).closest('div') as HTMLElement;
     expect(within(card).getByText('312 cup')).toBeInTheDocument();
@@ -64,87 +87,54 @@ describe('Dashboard: cup terjual, Rp per metode, cabang', () => {
   });
 
   it('formats thousands in id-ID', async () => {
-    setup(() => ({ ...base, items_sold: 1234 }));
+    setup({ ...base, items_sold: 1234 });
     renderApp('/');
     expect(await screen.findByText('1.234 cup')).toBeInTheDocument();
   });
 
-  it('sends outlet_scope=all and lists the per-branch breakdown for "Semua cabang"', async () => {
-    const { calls } = setup(() => ({
-      ...base,
-      outlet_scope: 'current',
-    }));
+  it('sends outlet_scope=all and lists the per-branch breakdown after choosing "Semua cabang"', async () => {
+    const calls = setup();
     renderApp('/');
     await screen.findByText('312 cup');
-    expect(
-      calls.some(
-        (c) => c.key.includes('/dashboard/summary') && c.key.includes('outlet_scope=current'),
-      ),
-    ).toBe(true);
+    expect(calls.some((c) => c.key.includes('outlet_scope=current'))).toBe(true);
     expect(screen.queryByText('Per cabang')).not.toBeInTheDocument();
 
-    mockApi({
-      'POST /auth/refresh': () => json(twoBranches),
-      'GET /dashboard/summary': () =>
-        json({
-          ...base,
-          outlet_scope: 'all',
-          by_outlet: [
-            {
-              outlet_id: RGN,
-              outlet_code: 'RGN',
-              outlet_name: 'Ragunan',
-              revenue: 800000,
-              cash_revenue: 500000,
-              qris_revenue: 300000,
-              items_sold: 190,
-            },
-            {
-              outlet_id: PLM,
-              outlet_code: 'PLM',
-              outlet_name: 'Palmerah',
-              revenue: 525000,
-              cash_revenue: 320000,
-              qris_revenue: 205000,
-              items_sold: 122,
-            },
-          ],
-        }),
-      'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
-      'GET /shifts': () => json({ data: [], next_cursor: null }),
-    });
     await userEvent.click(screen.getByRole('button', { name: /Ganti cabang/ }));
     await userEvent.click(screen.getByRole('option', { name: /Semua cabang/ }));
     const table = await screen.findByRole('table');
+    expect(
+      calls.some((c) => c.key.includes('/dashboard/summary') && c.key.includes('outlet_scope=all')),
+    ).toBe(true);
     expect(within(table).getByRole('row', { name: /Ragunan/ })).toHaveTextContent(/190/);
     expect(within(table).getByRole('row', { name: /Palmerah/ })).toHaveTextContent(/Rp\s?525\.000/);
-    expect(screen.getByText('Per cabang')).toBeInTheDocument();
   });
 
-  it('requests outlet_scope=all when "Semua cabang" is chosen', async () => {
-    const calls = mockApi({
-      'POST /auth/refresh': () => json(twoBranches),
-      'GET /dashboard/summary': () => json(base),
-      'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
-      'GET /shifts': () => json({ data: [], next_cursor: null }),
-    });
+  it('on "Semua cabang" drops the rame/sepi sentence and labels chart and Terlaris with the active branch', async () => {
+    const calls = setup();
     renderApp('/');
     await screen.findByText('312 cup');
+    const before = calls.length;
     await userEvent.click(screen.getByRole('button', { name: /Ganti cabang/ }));
     await userEvent.click(screen.getByRole('option', { name: /Semua cabang/ }));
-    await waitFor(() =>
-      expect(
-        calls.some(
-          (c) => c.key.includes('/dashboard/summary') && c.key.includes('outlet_scope=all'),
-        ),
-      ).toBe(true),
-    );
+    await screen.findByRole('table');
+    expect(
+      screen.getByRole('heading', { name: /Penjualan per jam · Ragunan/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /Terlaris hari ini · Ragunan/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/rame|sepi/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Jam \d+ paling rame/)).not.toBeInTheDocument();
+    // The 7-day history feeding rame/sepi spans several days; "today" series is a single day.
+    const multiDay = calls.slice(before).filter((c) => {
+      const q = new URLSearchParams(c.key.split('?')[1]);
+      return c.key.includes('/dashboard/sales-series') && q.get('date_from') !== q.get('date_to');
+    });
+    expect(multiDay).toHaveLength(0);
   });
 
   it('shows the empty state when revenue is 0', async () => {
-    setup(() => ({
+    setup({
       ...base,
       revenue: 0,
       transaction_count: 0,
@@ -153,7 +143,7 @@ describe('Dashboard: cup terjual, Rp per metode, cabang', () => {
       cash_count: 0,
       qris_count: 0,
       items_sold: 0,
-    }));
+    });
     renderApp('/');
     expect((await screen.findAllByText('Belum ada yang beli.')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Cup terjual')).not.toBeInTheDocument();

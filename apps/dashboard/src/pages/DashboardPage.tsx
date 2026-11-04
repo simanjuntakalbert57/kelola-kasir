@@ -21,7 +21,6 @@ import {
 
 type OutletBreakdown = {
   outlet_id: string;
-  outlet_code?: string;
   outlet_name: string;
   revenue: number;
   cash_revenue: number;
@@ -175,7 +174,7 @@ function BranchBreakdown({ rows }: { rows: OutletBreakdown[] }) {
 }
 
 export function DashboardPage() {
-  const { scope, outletId } = useExpenseScope();
+  const { scope, outletId, outletName } = useExpenseScope();
   const { user } = useAuth();
   const [state, setState] = useState(initialRange);
   const { from, to } = state.range;
@@ -207,7 +206,7 @@ export function DashboardPage() {
   // only meaningful for "Hari ini".
   const week = useQuery({
     queryKey: ['dashboard', 'week', from],
-    enabled: isToday,
+    enabled: isToday && scope !== 'all',
     queryFn: () =>
       api<{ data: Point[] }>(
         `/dashboard/sales-series${qs({ date_from: addDays(from, -7), date_to: addDays(from, -1), granularity: 'hour' })}`,
@@ -220,7 +219,7 @@ export function DashboardPage() {
   const change = s?.compare_previous_period?.revenue_change_pct;
   const rangeWord = isToday ? 'hari ini' : state.preset === '7d' ? '7 hari ini' : 'periode ini';
   const mood =
-    isToday && s && week.data
+    isToday && scope !== 'all' && s && week.data
       ? busyness(s.revenue, revenueBeforeHour(week.data.data, addDays(from, -7), 7, WIB_HOUR()))
       : null;
   const peak = series.data?.data.reduce<Point | null>(
@@ -306,7 +305,10 @@ export function DashboardPage() {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <h2 className="mb-3 text-lg">Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}</h2>
+          <h2 className="mb-3 text-lg">
+            Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}
+            {scope === 'all' ? ` · ${outletName}` : ''}
+          </h2>
           {series.isPending ? <Skeleton rows={2} /> : null}
           {series.error ? (
             <ErrorState
@@ -327,7 +329,10 @@ export function DashboardPage() {
           ) : null}
         </Card>
         <Card>
-          <h2 className="mb-3 text-lg">Terlaris {rangeWord}</h2>
+          <h2 className="mb-3 text-lg">
+            Terlaris {rangeWord}
+            {scope === 'all' ? ` · ${outletName}` : ''}
+          </h2>
           {top.isPending ? <Skeleton rows={3} /> : null}
           {top.error ? (
             <ErrorState
