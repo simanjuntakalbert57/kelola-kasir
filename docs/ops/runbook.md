@@ -202,7 +202,26 @@ read -rs -p 'Password manager uji (min 12 karakter): ' QA_MANAGER_PASSWORD; echo
 unset QA_MANAGER_PASSWORD
 ```
 
-Variabel opsional: `QA_PRIMARY_OUTLET_CODE` (default `QAMED`), `QA_SECOND_OUTLET_CODE` (default `QAM2`). Password manager hanya dipakai bila akun belum ada; jangan ditulis di issue. Menghapus data uji: `delete-outlet.sql` untuk `QAM2` (outlet uji, bukan Ragunan/Palmerah). E2E (`e2e/specs/zz-multibranch.spec.ts`) menjalankan skrip yang sama pada DB sementara.
+Variabel opsional: `QA_PRIMARY_OUTLET_CODE` (default `QAMED`), `QA_SECOND_OUTLET_CODE` (default `QAM2`). Password manager hanya dipakai bila akun belum ada; jangan ditulis di issue. Skrip **menolak** (dan tidak mengubah apa pun) bila `QA_MANAGER_EMAIL` sudah terdaftar sebagai akun yang bukan manager uji milik seed ini (nama berakhiran `(uji)` dan hanya anggota `QAM2`), jadi email orang sungguhan tidak pernah ikut berubah. Pembuatan manager dan cabang tercatat di `audit_logs`. PIN pegawai uji tetap `135790`; bila bentrok dengan PIN pegawai aktif di `QAMED` atau perangkat `U01` sudah ada, skrip gagal dan semua perubahan di-rollback (laporkan, jangan diakali dengan edit manual). E2E (`e2e/specs/zz-multibranch.spec.ts`) menjalankan skrip yang sama pada DB sementara, termasuk jalur penolakan.
+
+### Membersihkan data uji
+
+1. **Cabang `QAM2`** (jalankan dry run dengan `COMMIT;` diganti `ROLLBACK;` di salinan skrip lebih dulu). `email` = akun **manager uji** (dihapus bersama outlet). **Jangan pernah mengisi email owner QA**, karena `delete-outlet.sql` menghapus akun yang diberikan:
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v code=QAM2 -v email='<email manager uji>' < delete-outlet.sql
+   ```
+2. **Baris uji di `QAMED`** tidak ikut terhapus oleh langkah 1. Pegawai, perangkat, kategori, dan produk dinonaktifkan (tidak dihapus, karena transaksi merujuknya):
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v ON_ERROR_STOP=1 <<'SQL'
+   BEGIN;
+   UPDATE employees SET is_active = false WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name = 'Kasir Uji (uji)';
+   UPDATE devices SET revoked_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND code = 'U01' AND name = 'HP Uji (uji)' AND revoked_at IS NULL;
+   UPDATE products SET deleted_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name IN ('Jus Alpukat (uji)', 'Jus Jeruk (uji)') AND deleted_at IS NULL;
+   UPDATE categories SET deleted_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name = 'Uji (uji)' AND deleted_at IS NULL;
+   COMMIT;
+   SQL
+   ```
+   Transaksi dan shift uji (`customer_label = 'Data uji QA (uji)'`, nomor `QAMED-U01-...`) bersifat append-only dan tidak dihapus satu per satu. Biarkan saja (berlabel jelas), atau, bila owner QA setuju seluruh data penjualan `QAMED` dihapus, pakai `reset-outlet-data.sql` (lihat "Hapus data uji per outlet").
 
 ## Perawatan server
 

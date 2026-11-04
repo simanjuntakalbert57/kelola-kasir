@@ -534,6 +534,20 @@ test.describe.serial('DEAR-160 Beranda "Semua cabang" dari seed QA', () => {
     expect(sum.transaction_count).toBe(6);
   });
 
+  test('menolak email manager yang sudah terdaftar sebagai akun asli (tidak mengubah apa pun)', async () => {
+    // owner@e2e.test is a real-looking existing account with memberships elsewhere: must never become a manager of QAM2
+    expect(() =>
+      run('seed:qa-multibranch', {
+        QA_OWNER_EMAIL: OWNER,
+        QA_MANAGER_EMAIL: 'owner@e2e.test',
+        QA_MANAGER_PASSWORD: PASS,
+      }),
+    ).toThrow(/not a QA test manager/);
+    const o = await login('owner@e2e.test');
+    expect(o.user.outlets.map((x) => x.code)).not.toContain('QAM2');
+    // the seeded test manager is still accepted on a re-run (covered by the idempotent seed above)
+  });
+
   test('Semua cabang: tabel Per cabang sesuai seed, tanpa kalimat rame/sepi, judul berlabel cabang', async ({
     page,
   }) => {

@@ -112,19 +112,32 @@ async function main(): Promise<void> {
         const secondId = second.id;
 
         // Manager of the second branch only.
-        const [existingManager] = await rows<{ id: string }>(
-          sql`SELECT id FROM users WHERE email = ${managerEmail}`,
-        );
+        // An existing account is accepted only when it is our own test manager from an earlier run (name ends with
+        // "(uji)", member of nothing but this branch). Anything else could be a real user: refuse, change nothing.
+        const [existingManager] = await rows<{ id: string; name: string; foreign: number }>(sql`
+          SELECT u.id, u.name,
+                 (SELECT count(*)::int FROM outlet_members m WHERE m.user_id = u.id AND m.outlet_id <> ${secondId}) AS foreign
+            FROM users u WHERE u.email = ${managerEmail}`);
         let managerId = existingManager?.id;
-        if (!managerId) {
+        if (existingManager) {
+          if (!existingManager.name.endsWith('(uji)') || existingManager.foreign > 0) {
+            throw new Error(
+              `${managerEmail} is an existing account that is not a QA test manager of ${secondCode}; refusing`,
+            );
+          }
+        } else {
           const password = required('QA_MANAGER_PASSWORD');
           if (password.length < 12)
             throw new Error('QA_MANAGER_PASSWORD must be at least 12 characters');
           const hash = await hashSecret(password);
-          [{ id: managerId }] = (await rows<{ id: string }>(sql`
-          INSERT INTO users (email, password_hash, name) VALUES (${managerEmail}, ${hash}, 'Manager Uji QA (uji)') RETURNING id`)) as [
-            { id: string },
-          ];
+          const [created] = await rows<{ id: string }>(sql`
+            INSERT INTO users (email, password_hash, name) VALUES (${managerEmail}, ${hash}, 'Manager Uji QA (uji)') RETURNING id`);
+          if (!created) throw new Error('failed to create manager');
+          managerId = created.id;
+          await tx.execute(sql`
+            INSERT INTO audit_logs (outlet_id, actor_type, action, entity_type, entity_id, after, meta)
+            VALUES (${secondId}, 'system', 'user.created', 'user', ${managerId},
+                    ${JSON.stringify({ email: managerEmail, role: 'manager' })}::jsonb, '{"script":"seed-qa-multibranch"}'::jsonb)`);
         }
         await tx.execute(sql`
         INSERT INTO outlet_members (outlet_id, user_id, role) VALUES (${secondId}, ${managerId}, 'manager')
