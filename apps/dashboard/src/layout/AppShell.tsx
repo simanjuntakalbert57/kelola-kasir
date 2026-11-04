@@ -47,9 +47,9 @@ const tabs = NAV.filter((n) => n.short !== null);
 /** Settings are owner-only (a manager has no Pengaturan menu, DEAR-135). */
 const OWNER_ONLY = new Set(['/pengaturan', '/pengaturan/notifikasi']);
 
-/** "Semua cabang" only works on the expense pages (ADR-0020 §2). */
-export const isExpensePath = (pathname: string) =>
-  pathname === '/pengeluaran' || pathname.startsWith('/pengeluaran/');
+/** "Semua cabang" only works on the expense pages and the dashboard (ADR-0020 §2, DEAR-153). */
+export const isAllScopePath = (pathname: string) =>
+  pathname === '/' || pathname === '/pengeluaran' || pathname.startsWith('/pengeluaran/');
 
 /** Number of void requests waiting for the owner; shared with the Void page via the query cache. */
 export function usePendingVoidCount(): number {
@@ -91,7 +91,7 @@ export function AppShell() {
   const [toast, setToast] = useState<string | null>(null);
   const nav = NAV.filter((n) => role !== 'manager' || !OWNER_ONLY.has(n.to));
   const tabItems = tabs.filter((n) => nav.includes(n));
-  const allowAll = isExpensePath(pathname);
+  const allowAll = isAllScopePath(pathname);
 
   // Leaving the expense pages drops "Semua cabang": the other pages are per branch.
   const leftAll = viewAll && !allowAll;
@@ -100,7 +100,7 @@ export function AppShell() {
     setWasLeft(leftAll);
     if (leftAll) {
       setToast(
-        `Kembali ke ${outlet?.name ?? 'cabang terakhir'}. Semua cabang hanya ada di Pengeluaran dan Rekap.`,
+        `Kembali ke ${outlet?.name ?? 'cabang terakhir'}. Semua cabang hanya ada di Dashboard, Pengeluaran dan Rekap.`,
       );
     }
   }
