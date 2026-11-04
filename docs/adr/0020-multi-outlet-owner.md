@@ -78,7 +78,8 @@ Legenda: **Aktif** = otomatis mengikuti outlet aktif lewat token, tidak perlu pe
 | `GET /transactions`, export, deleted, detail, delete/restore, receipt | Aktif | By-id tetap dibatasi outlet aktif. |
 | `POST /transactions`, `/sync/push` (`modules/transactions/service.ts:142`) | **Ubah** | Terima prefiks `previous_codes` (§3). |
 | `/void-requests`, approve/reject | Aktif | Approve-with-PIN di HP memakai outlet perangkat dan tetap jalan untuk owner yang member di kedua outlet. |
-| `/dashboard/summary`, `/sales-series`, `/top-products`, `/reports/sales` | Aktif | Belum ada "Semua" (§2). |
+| `/dashboard/sales-series`, `/top-products`, `/reports/sales` | Aktif | Belum ada "Semua" (§2). |
+| `/dashboard/summary` (DEAR-155), `/reports/products*` (ADR-0022) | Aktif + **Scope** | |
 | `GET/PATCH /settings`, QRIS decode | Aktif | Pengaturan struk/QRIS per cabang. |
 | `POST /uploads` | **Ubah** | Purpose `expense_receipt` + `outlet_id` opsional (ADR-0021). |
 | `/notifications/*`, `modules/notifications/notifier.ts` | **Ubah** | §4. |
