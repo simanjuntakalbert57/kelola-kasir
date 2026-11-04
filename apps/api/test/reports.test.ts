@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { transactions } from '../src/db/schema.js';
+import { addMembership, createMember, loginAs, userId } from './branch-helpers.js';
 import {
   bearer,
   createShop,
@@ -34,7 +35,23 @@ interface Summary {
   qris_count: number;
   voided_count: number;
   pending_void_count: number;
-  compare_previous_period: { revenue_change_pct: number | null };
+  items_sold: number;
+  outlet_scope: 'current' | 'all';
+  by_outlet: {
+    outlet_id: string;
+    outlet_name: string;
+    revenue: number;
+    cash_revenue: number;
+    qris_revenue: number;
+    cash_count: number;
+    qris_count: number;
+    transaction_count: number;
+    items_sold: number;
+  }[];
+  compare_previous_period: {
+    revenue_change_pct: number | null;
+    items_sold_change_pct: number | null;
+  };
 }
 
 /** WIB (UTC+7) wall-clock time on 2026-03-10 as an instant. */
@@ -167,6 +184,110 @@ describe('GET /dashboard/summary', () => {
     }
     expect((await get(env, '/v1/dashboard/summary', shop.cashier.headers)).statusCode).toBe(403);
     expect((await get(env, '/v1/dashboard/summary', {})).statusCode).toBe(401);
+  });
+});
+
+const seedSale = (
+  shop: Shop,
+  total: number,
+  quantity: number,
+  at: Date,
+  o: Partial<Parameters<typeof seedTransaction>[1]> = {},
+) =>
+  seedTransaction(env, {
+    shiftId: shop.shiftId,
+    outletId: shop.seeded.outletId,
+    deviceId: shop.cashier.deviceId,
+    employeeId: shop.cashier.employeeId,
+    total,
+    quantity,
+    createdAt: at,
+    ...o,
+  });
+
+describe('GET /dashboard/summary items_sold and outlet_scope', () => {
+  const day = '/v1/dashboard/summary?date_from=2026-03-10&date_to=2026-03-10';
+
+  async function seedItems(shop: Shop) {
+    await seedSale(shop, 30_000, 2, wib('2026-03-10', '10:00'));
+    await seedSale(shop, 45_000, 3, wib('2026-03-10', '11:00'), { method: 'qris' });
+    await seedSale(shop, 10_000, 5, wib('2026-03-10', '12:00'), { status: 'void_requested' });
+    await seedSale(shop, 20_000, 4, wib('2026-03-10', '13:00'), { status: 'voided' });
+    await seedSale(shop, 20_000, 4, wib('2026-03-10', '14:00'), {
+      deletedBy: await userId(env, shop.seeded.ownerEmail),
+    });
+    await seedSale(shop, 20_000, 4, wib('2026-03-10', '15:00'), { status: 'pending' });
+    // Previous day: 4 cups.
+    await seedSale(shop, 20_000, 4, wib('2026-03-09', '10:00'));
+  }
+
+  it('sums quantities of paid and void_requested, ignoring voided and deleted', async () => {
+    const shop = await createShop(env);
+    await seedItems(shop);
+    const body = json<Summary>(await get(env, day, owner(shop)));
+    expect(body).toMatchObject({
+      items_sold: 10,
+      outlet_scope: 'current',
+      by_outlet: [],
+      revenue: 85_000,
+      compare_previous_period: { items_sold_change_pct: 150, revenue_change_pct: 325 },
+    });
+    expect(body.cash_revenue + body.qris_revenue).toBe(body.revenue);
+  });
+
+  it('reports null items change when the previous period sold nothing', async () => {
+    const shop = await createShop(env);
+    await seedSale(shop, 30_000, 2, wib('2026-03-10', '10:00'));
+    const body = json<Summary>(await get(env, day, owner(shop)));
+    expect(body.compare_previous_period.items_sold_change_pct).toBeNull();
+  });
+
+  it('keeps current scoped to the active outlet and all equal to the per-outlet sum', async () => {
+    const a = await createShop(env);
+    const b = await createShop(env);
+    await seedItems(a);
+    await seedSale(b, 60_000, 6, wib('2026-03-10', '09:00'), { method: 'qris' });
+    await addMembership(env, a.seeded.ownerEmail, b.seeded.outletId, 'owner');
+    const { headers } = await loginAs(env, a.seeded.ownerEmail, a.seeded.outletId);
+
+    const current = json<Summary>(await get(env, day, headers));
+    expect(current).toMatchObject({ items_sold: 10, revenue: 85_000, by_outlet: [] });
+
+    const res = await get(env, `${day}&outlet_scope=all`, headers);
+    expect(res.statusCode, res.body).toBe(200);
+    const all = json<Summary>(res);
+    expect(all.outlet_scope).toBe('all');
+    expect(all.items_sold).toBe(16);
+    expect(all.revenue).toBe(145_000);
+    expect(all.by_outlet).toHaveLength(2);
+    const byId = new Map(all.by_outlet.map((o) => [o.outlet_id, o]));
+    expect(byId.get(a.seeded.outletId)).toMatchObject({
+      items_sold: 10,
+      revenue: 85_000,
+      cash_revenue: 40_000,
+      qris_revenue: 45_000,
+      transaction_count: 3,
+    });
+    expect(byId.get(b.seeded.outletId)).toMatchObject({
+      items_sold: 6,
+      revenue: 60_000,
+      cash_revenue: 0,
+      qris_revenue: 60_000,
+      qris_count: 1,
+    });
+    for (const o of all.by_outlet) expect(o.cash_revenue + o.qris_revenue).toBe(o.revenue);
+    expect(all.by_outlet.reduce((n, o) => n + o.items_sold, 0)).toBe(all.items_sold);
+    expect(all.by_outlet.reduce((n, o) => n + o.revenue, 0)).toBe(all.revenue);
+    expect(all.cash_revenue + all.qris_revenue).toBe(all.revenue);
+  });
+
+  it('forbids outlet_scope=all for a manager', async () => {
+    const shop = await createShop(env);
+    const manager = await createMember(env, shop.seeded, 'manager');
+    const res = await get(env, `${day}&outlet_scope=all`, manager.headers);
+    expect(res.statusCode).toBe(403);
+    const ok = await get(env, day, manager.headers);
+    expect(ok.statusCode).toBe(200);
   });
 });
 

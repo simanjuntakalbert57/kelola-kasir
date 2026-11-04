@@ -956,7 +956,10 @@ export interface paths {
          * @description Counts only `paid` and `void_requested` transactions created in the period (`client_created_at`, WIB business days,
          *     both dates inclusive, default today, at most 366 days). `voided_count` is the number of voided transactions in the
          *     period. `compare_previous_period` compares with the period of the same length right before it
-         *     (`revenue_change_pct` is `null` when that period had no revenue). Owner only.
+         *     (`revenue_change_pct` and `items_sold_change_pct` are `null` when that period had none).
+         *     `items_sold` is the sum of item quantities (cups) of the same transactions as `revenue`.
+         *     `outlet_scope=all` (owner only, else `403`) merges every outlet where the caller is owner into the top-level
+         *     fields and fills `by_outlet` (ordered by outlet code); with `current` (default) `by_outlet` is `[]`. Owner only.
          */
         get: operations["getDashboardSummary"];
         put?: never;
@@ -1016,7 +1019,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sales report grouped by product, employee, payment method or day (O-09, Should) */
+        /**
+         * Sales report grouped by product, employee, payment method or day (O-09, Should)
+         * @description Counts `paid` and `void_requested` transactions, like the dashboard. Fields per row: `quantity` is the number of
+         *     items (cups) sold (sum of `transaction_items.quantity`; for `group_by=payment_method` and `employee` it covers
+         *     the items of those transactions), `transaction_count` the number of transactions, and `revenue` the amount in
+         *     Rupiah. `group_by=product` gives cups per product; `group_by=payment_method` gives Rp and transaction count per
+         *     method (`cash`, `qris`).
+         */
         get: operations["getSalesReport"];
         put?: never;
         post?: never;
@@ -2227,9 +2237,28 @@ export interface components {
             qris_count: number;
             voided_count: number;
             pending_void_count?: number;
+            /** @description Sum of `transaction_items.quantity` (cups) of `paid` and `void_requested` transactions in the period; same predicate as `revenue`. */
+            items_sold: number;
             compare_previous_period?: {
                 revenue_change_pct?: number | null;
+                /** @description Same formula as `revenue_change_pct`; `null` when the previous period sold nothing. */
+                items_sold_change_pct?: number | null;
             };
+            /** @enum {string} */
+            outlet_scope: "current" | "all";
+            /** @description Per outlet, ordered by outlet code. Only filled for `outlet_scope=all`, otherwise empty. Each outlet satisfies `cash_revenue + qris_revenue = revenue`. */
+            by_outlet: {
+                /** Format: uuid */
+                outlet_id: string;
+                outlet_name: string;
+                revenue: components["schemas"]["Rupiah"];
+                cash_revenue: components["schemas"]["Rupiah"];
+                qris_revenue: components["schemas"]["Rupiah"];
+                cash_count: number;
+                qris_count: number;
+                transaction_count: number;
+                items_sold: number;
+            }[];
         };
         OutletSettings: {
             outlet: components["schemas"]["OutletRef"];
@@ -4232,6 +4261,11 @@ export interface operations {
     getDashboardSummary: {
         parameters: {
             query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
                 /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
                 date_from?: components["parameters"]["DateFrom"];
                 /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
@@ -4253,6 +4287,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getSalesSeries: {
@@ -4349,7 +4384,9 @@ export interface operations {
                         data: {
                             key: string;
                             label: string;
+                            /** @description Number of items (cups) sold in the group */
                             quantity: number;
+                            /** @description Number of transactions in the group */
                             transaction_count: number;
                             revenue: components["schemas"]["Rupiah"];
                         }[];

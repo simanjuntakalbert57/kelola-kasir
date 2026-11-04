@@ -52,13 +52,16 @@ export function resolvePeriod(
   return { from, to, dateFrom, dateTo, days };
 }
 
-const inPeriod = (outletId: string, period: Pick<Period, 'from' | 'to'>) =>
+const inPeriodOf = (outletIds: string[], period: Pick<Period, 'from' | 'to'>) =>
   and(
-    eq(transactions.outletId, outletId),
+    inArray(transactions.outletId, outletIds),
     isNull(transactions.deletedAt),
     gte(transactions.clientCreatedAt, period.from),
     lt(transactions.clientCreatedAt, period.to),
   );
+
+const inPeriod = (outletId: string, period: Pick<Period, 'from' | 'to'>) =>
+  inPeriodOf([outletId], period);
 
 const counted = inArray(transactions.status, [...COUNTED_STATUSES]);
 
@@ -74,40 +77,61 @@ export interface SummaryTotals {
   qrisCount: number;
   voidedCount: number;
   pendingVoidCount: number;
+  /** Sum of `transaction_items.quantity` of the counted transactions (same predicate as `revenue`). */
+  itemsSold: number;
 }
 
-export async function loadSummary(
-  db: DbOrTx,
-  outletId: string,
-  period: Pick<Period, 'from' | 'to'>,
-): Promise<SummaryTotals> {
-  const rows = await db
-    .select({
-      status: transactions.status,
-      method: transactions.paymentMethod,
-      n: sql<number>`count(*)::int`,
-      amount: sql<string>`coalesce(sum(${transactions.total}), 0)::text`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        inPeriod(outletId, period),
-        inArray(transactions.status, ['paid', 'void_requested', 'voided']),
-      ),
-    )
-    .groupBy(transactions.status, transactions.paymentMethod);
+const emptyTotals = (): SummaryTotals => ({
+  revenue: 0,
+  transactionCount: 0,
+  cashRevenue: 0,
+  qrisRevenue: 0,
+  cashCount: 0,
+  qrisCount: 0,
+  voidedCount: 0,
+  pendingVoidCount: 0,
+  itemsSold: 0,
+});
 
-  const t: SummaryTotals = {
-    revenue: 0,
-    transactionCount: 0,
-    cashRevenue: 0,
-    qrisRevenue: 0,
-    cashCount: 0,
-    qrisCount: 0,
-    voidedCount: 0,
-    pendingVoidCount: 0,
-  };
+/** Totals per outlet (every given outlet is present), using two aggregate queries regardless of the outlet count. */
+export async function loadSummaryByOutlet(
+  db: DbOrTx,
+  outletIds: string[],
+  period: Pick<Period, 'from' | 'to'>,
+): Promise<Map<string, SummaryTotals>> {
+  const result = new Map(outletIds.map((id) => [id, emptyTotals()]));
+  if (outletIds.length === 0) return result;
+  const [rows, itemRows] = await Promise.all([
+    db
+      .select({
+        outletId: transactions.outletId,
+        status: transactions.status,
+        method: transactions.paymentMethod,
+        n: sql<number>`count(*)::int`,
+        amount: sql<string>`coalesce(sum(${transactions.total}), 0)::text`,
+      })
+      .from(transactions)
+      .where(
+        and(
+          inPeriodOf(outletIds, period),
+          inArray(transactions.status, ['paid', 'void_requested', 'voided']),
+        ),
+      )
+      .groupBy(transactions.outletId, transactions.status, transactions.paymentMethod),
+    db
+      .select({
+        outletId: transactions.outletId,
+        qty: sql<string>`coalesce(sum(${transactionItems.quantity}), 0)::text`,
+      })
+      .from(transactionItems)
+      .innerJoin(transactions, eq(transactions.id, transactionItems.transactionId))
+      .where(and(inPeriodOf(outletIds, period), counted))
+      .groupBy(transactions.outletId),
+  ]);
+
   for (const r of rows) {
+    const t = result.get(r.outletId);
+    if (!t) continue;
     if (r.status === 'voided') {
       t.voidedCount += r.n;
       continue;
@@ -124,7 +148,36 @@ export async function loadSummary(
     }
     if (r.status === 'void_requested') t.pendingVoidCount += r.n;
   }
+  for (const r of itemRows) {
+    const t = result.get(r.outletId);
+    if (t) t.itemsSold = Number(r.qty);
+  }
+  return result;
+}
+
+/** Sum of several outlets' totals (the "Semua cabang" view). */
+export function mergeTotals(all: Iterable<SummaryTotals>): SummaryTotals {
+  const t = emptyTotals();
+  for (const x of all) {
+    t.revenue += x.revenue;
+    t.transactionCount += x.transactionCount;
+    t.cashRevenue += x.cashRevenue;
+    t.qrisRevenue += x.qrisRevenue;
+    t.cashCount += x.cashCount;
+    t.qrisCount += x.qrisCount;
+    t.voidedCount += x.voidedCount;
+    t.pendingVoidCount += x.pendingVoidCount;
+    t.itemsSold += x.itemsSold;
+  }
   return t;
+}
+
+export async function loadSummary(
+  db: DbOrTx,
+  outletId: string,
+  period: Pick<Period, 'from' | 'to'>,
+): Promise<SummaryTotals> {
+  return (await loadSummaryByOutlet(db, [outletId], period)).get(outletId) ?? emptyTotals();
 }
 
 // Raw literals (not bind parameters): Postgres must see identical SELECT and GROUP BY expressions.
