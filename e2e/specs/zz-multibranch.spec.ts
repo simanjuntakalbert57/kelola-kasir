@@ -574,13 +574,11 @@ test.describe.serial('DEAR-160 Beranda "Semua cabang" dari seed QA', () => {
     await expect(qam2).toContainText(/51\.000\D*6$/);
 
     await expect(page.getByText(/Hari ini (rame|lagi sepi|normal)/)).toHaveCount(0);
-    // chart and Terlaris keep following the active branch (the one chosen before "Semua cabang"): QAMED
+    // chart keeps following the active branch (the one chosen before "Semua cabang"): QAMED
     await expect(
       page.getByRole('heading', { name: /^Penjualan per jam · Toko QAMED$/ }),
     ).toBeVisible();
-    await expect(
-      page.getByRole('heading', { name: /^Terlaris hari ini · Toko QAMED$/ }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Penjualan per Produk' })).toBeVisible();
   });
 
   test('manager satu cabang: tidak ada pilihan Semua cabang', async ({ page }) => {

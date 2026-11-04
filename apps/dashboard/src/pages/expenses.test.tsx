@@ -72,6 +72,14 @@ function setup(sess: unknown, extra: Parameters<typeof mockApi>[0] = {}) {
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
+const emptyProductReport = {
+  outlet_scope: 'current',
+  date_from: '2026-10-26',
+  date_to: '2026-10-26',
+  totals: { items_sold: 0, revenue: 0, product_count: 0 },
+  data: [],
+};
+
 describe('branch picker', () => {
   it('sends the stored outlet_id when refreshing the session', async () => {
     localStorage.setItem('kk_outlet_id', PLM);
@@ -117,7 +125,7 @@ describe('branch picker', () => {
     setup(twoBranches, {
       'GET /dashboard/summary': () => json({}),
       'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /reports/products': () => json(emptyProductReport),
     });
     renderApp('/transaksi');
     await userEvent.click(await screen.findByRole('button', { name: /Ganti cabang/ }));

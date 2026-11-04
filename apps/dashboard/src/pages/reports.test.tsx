@@ -44,6 +44,15 @@ const voidReq = {
   requested_at: '2026-10-26T07:07:00Z',
 };
 
+const PRODUCT_ID = '44444444-4444-4444-8444-444444444444';
+const emptyProductReport = {
+  outlet_scope: 'current',
+  date_from: '2026-10-26',
+  date_to: '2026-10-26',
+  totals: { items_sold: 0, revenue: 0, product_count: 0 },
+  data: [],
+};
+
 describe('Dashboard', () => {
   it('shows greeting, hero revenue, top products and the shift info / pending cancel cards', async () => {
     mockApi({
@@ -56,9 +65,23 @@ describe('Dashboard', () => {
             { bucket_start: '2026-10-26T06:00:00Z', revenue: 300000, transaction_count: 12 },
           ],
         }),
-      'GET /dashboard/top-products': () =>
+      'GET /reports/products': () =>
         json({
-          data: [{ product_id: 'p1', product_name: 'Jus Alpukat', quantity: 21, revenue: 420000 }],
+          ...emptyProductReport,
+          totals: { items_sold: 21, revenue: 420000, product_count: 1 },
+          data: [
+            {
+              key: 'p1',
+              product_id: PRODUCT_ID,
+              product_name: 'Jus Alpukat',
+              category_name: 'Jus',
+              items_sold: 21,
+              revenue: 420000,
+              share_pct: 100,
+              transaction_count: 10,
+              has_sales: true,
+            },
+          ],
         }),
       'GET /shifts': () =>
         json({ data: [{ id: 's1', opened_by: employee, status: 'open' }], next_cursor: null }),
@@ -74,7 +97,7 @@ describe('Dashboard', () => {
     expect(screen.getByText(/Tunai Rp\s?775\.000 \(62%\) · 40 trx/)).toBeInTheDocument();
     expect(screen.getByText(/QRIS Rp\s?475\.000 \(38%\) · 34 trx/)).toBeInTheDocument();
     expect(screen.getByText(/▲ 12% dari kemarin/)).toBeInTheDocument();
-    expect(await screen.findByText(/1\. Jus Alpukat/)).toBeInTheDocument();
+    expect(await screen.findByText('Jus Alpukat')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Penjualan per jam, puncak 13/ })).toBeInTheDocument();
     expect(await screen.findByText(/Sari lagi jaga kasir/)).toBeInTheDocument();
     expect(screen.getByText('1 permintaan batal nunggu Bapak')).toBeInTheDocument();
@@ -86,7 +109,7 @@ describe('Dashboard', () => {
       'POST /auth/refresh': () => json(session),
       'GET /dashboard/summary': () => json(summary),
       'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /reports/products': () => json(emptyProductReport),
       'GET /shifts': () => json({ data: [], next_cursor: null }),
     });
     const base = globalThis.fetch as unknown as (
@@ -116,7 +139,7 @@ describe('Dashboard', () => {
       'POST /auth/refresh': () => json(session),
       'GET /dashboard/summary': () => json(summary),
       'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /reports/products': () => json(emptyProductReport),
       'GET /shifts': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/');
@@ -134,7 +157,7 @@ describe('Dashboard', () => {
       'GET /dashboard/summary': () =>
         fail ? problem(500, 'INTERNAL') : json({ ...summary, transaction_count: 0, revenue: 0 }),
       'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /reports/products': () => json(emptyProductReport),
       'GET /shifts': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/');
@@ -149,7 +172,7 @@ describe('Dashboard', () => {
       'POST /auth/refresh': () => json(session),
       'GET /dashboard/summary': () => json(summary),
       'GET /dashboard/sales-series': () => json({ data: [] }),
-      'GET /dashboard/top-products': () => json({ data: [] }),
+      'GET /reports/products': () => json(emptyProductReport),
       'GET /shifts': () => json({ data: [], next_cursor: null }),
     });
     renderApp('/');

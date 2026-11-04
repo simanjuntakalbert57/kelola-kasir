@@ -1,11 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
 import type { components } from '@kelola-kasir/contracts';
 import { formatRupiah } from '@kelola-kasir/money';
-import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useCallback, useRef, useState } from 'react';
 import { Banknote, QrCode } from 'lucide-react';
 import { DateRangePicker, initialRange } from '../components/DateRangePicker';
-import { Card, EmptyState, ErrorState, NoticeCard, PageHeader, Skeleton } from '../components/ui';
+import { ProductDetailPanel, ProductSalesCard } from '../components/ProductSales';
+import {
+  Card,
+  EmptyState,
+  ErrorState,
+  NoticeCard,
+  PageHeader,
+  Skeleton,
+  Toast,
+} from '../components/ui';
 import { useAuth } from '../auth/AuthProvider';
 import { useExpenseScope } from '../lib/expenses';
 import { api, qs } from '../lib/api';
@@ -22,7 +31,6 @@ import {
 type Summary = components['schemas']['DashboardSummary'];
 type OutletBreakdown = Summary['by_outlet'][number];
 type Point = { bucket_start: string; revenue: number; transaction_count: number };
-type Top = { product_id?: string | null; product_name: string; quantity: number; revenue: number };
 
 function Kpi({ label, value, note }: { label: string; value: string; note?: string | undefined }) {
   return (
@@ -165,6 +173,23 @@ export function DashboardPage() {
   const range = { date_from: from, date_to: to };
   const granularity = from === to ? 'hour' : 'day';
   const isToday = state.preset === 'today';
+  const navigate = useNavigate();
+  const { produk } = useSearch({ strict: false }) as { produk?: string };
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [openName, setOpenName] = useState<string | undefined>();
+  const showToast = useCallback((m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+  const closeDetail = useCallback(() => {
+    void navigate({ to: '/', search: {}, replace: true });
+    triggerRef.current?.focus();
+  }, [navigate]);
+  const detailNotFound = useCallback(() => {
+    showToast('Produk tidak ditemukan');
+    void navigate({ to: '/', search: {}, replace: true });
+  }, [navigate, showToast]);
 
   const summary = useQuery({
     queryKey: ['dashboard', 'summary', outletId, scope, from, to],
@@ -174,10 +199,6 @@ export function DashboardPage() {
     queryKey: ['dashboard', 'series', from, to, granularity],
     queryFn: () =>
       api<{ data: Point[] }>(`/dashboard/sales-series${qs({ ...range, granularity })}`),
-  });
-  const top = useQuery({
-    queryKey: ['dashboard', 'top', from, to],
-    queryFn: () => api<{ data: Top[] }>(`/dashboard/top-products${qs({ ...range, limit: 5 })}`),
   });
   const openShifts = useQuery({
     queryKey: ['shifts', 'open'],
@@ -213,136 +234,136 @@ export function DashboardPage() {
   const title = greeting(user?.name, WIB_HOUR());
 
   return (
-    <>
-      <PageHeader title={`${title}${user?.name ? ' 👋' : ''}`} />
-      <div className="mb-4">
-        <DateRangePicker value={state} onChange={setState} />
-      </div>
+    <div className="flex items-start gap-4">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <PageHeader title={`${title}${user?.name ? ' 👋' : ''}`} />
+        <div className="mb-4">
+          <DateRangePicker value={state} onChange={setState} />
+        </div>
 
-      {pending > 0 ? (
-        <NoticeCard kind="action" title={`${pending} permintaan batal nunggu Bapak`}>
-          <Link to="/void" className="underline">
-            Tinjau
-          </Link>
-        </NoticeCard>
-      ) : null}
-      {open ? (
-        <NoticeCard>
-          <p>
-            {open.opened_by.name} lagi jaga kasir
-            {open.opened_at ? ` sejak ${formatTime(open.opened_at)}` : ''}. Semua lancar.{' '}
-            <Link to="/shift" className="underline">
-              Lihat shift
-            </Link>
-          </p>
-        </NoticeCard>
-      ) : null}
-
-      {summary.error ? (
-        <ErrorState
-          title="Waduh, ringkasannya belum kebuka."
-          onRetry={() => void summary.refetch()}
-        >
-          Cek sinyal, lalu coba lagi ya.
-        </ErrorState>
-      ) : null}
-      {summary.isPending ? <Skeleton rows={2} /> : null}
-      {s ? (
-        s.transaction_count === 0 ? (
-          <Card>
-            <EmptyState icon="🍹" title="Belum ada yang beli.">
-              <p>{isToday ? 'Santai dulu, Pak. ' : ''}Nanti langsung muncul di sini.</p>
-            </EmptyState>
-          </Card>
-        ) : (
-          <>
-            <section
-              aria-label="Omzet"
-              className="rounded-3xl bg-[image:var(--gradient-hero)] p-5 text-hero-ink shadow-card"
-            >
-              <p className="text-sm font-bold">Omzet {rangeWord}</p>
-              <p className="mt-1 text-5xl leading-[52px] font-extrabold tracking-tight tabular-nums">
-                {formatRupiah(s.revenue)}
-              </p>
-              {typeof change === 'number' ? (
-                <p className="mt-2 text-sm font-bold">
-                  {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))}%{' '}
-                  {isToday ? 'dari kemarin' : 'dari periode lalu'}
-                </p>
-              ) : null}
-              <p className="mt-3 text-[15px] font-semibold">
-                {s.transaction_count} pesanan {rangeWord}.{mood ? ` ${BUSY_SENTENCE[mood]}` : ''}
-              </p>
-            </section>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <CupCard summary={s} vsWord={isToday ? 'dari kemarin' : 'dari periode lalu'} />
-              <Kpi label="Pesanan" value={String(s.transaction_count)} />
-              <Kpi label="Rata-rata per pesanan" value={formatRupiah(s.average_ticket)} />
-              <PaymentSplit summary={s} />
-            </div>
-            {scope === 'all' && s.by_outlet && s.by_outlet.length > 0 ? (
-              <BranchBreakdown rows={s.by_outlet} />
-            ) : null}
-          </>
-        )
-      ) : null}
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <h2 className="mb-3 text-lg">
-            Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}
-            {scope === 'all' ? ` · ${outletName}` : ''}
-          </h2>
-          {series.isPending ? <Skeleton rows={2} /> : null}
-          {series.error ? (
-            <ErrorState
-              title="Waduh, grafiknya belum kebuka."
-              onRetry={() => void series.refetch()}
-            />
-          ) : null}
-          {series.data && series.data.data.length === 0 ? (
-            <EmptyState icon="🍹" title="Belum ada yang beli." />
-          ) : null}
-          {series.data && series.data.data.length > 0 ? (
-            <SalesChart data={series.data.data} granularity={granularity} />
-          ) : null}
-          {granularity === 'hour' && peak && peak.revenue > 0 ? (
-            <p className="mt-1 text-sm font-bold text-muted">
-              {peakHourSentence(Number(formatTime(peak.bucket_start).slice(0, 2)))}
+        {pending > 0 ? (
+          <div className="order-last md:order-first">
+            <NoticeCard kind="action" title={`${pending} permintaan batal nunggu Bapak`}>
+              <Link to="/void" className="underline">
+                Tinjau
+              </Link>
+            </NoticeCard>
+          </div>
+        ) : null}
+        {open ? (
+          <NoticeCard>
+            <p>
+              {open.opened_by.name} lagi jaga kasir
+              {open.opened_at ? ` sejak ${formatTime(open.opened_at)}` : ''}. Semua lancar.{' '}
+              <Link to="/shift" className="underline">
+                Lihat shift
+              </Link>
             </p>
-          ) : null}
-        </Card>
-        <Card>
-          <h2 className="mb-3 text-lg">
-            Terlaris {rangeWord}
-            {scope === 'all' ? ` · ${outletName}` : ''}
-          </h2>
-          {top.isPending ? <Skeleton rows={3} /> : null}
-          {top.error ? (
-            <ErrorState
-              title="Waduh, produk terlarisnya belum kebuka."
-              onRetry={() => void top.refetch()}
-            />
-          ) : null}
-          {top.data && top.data.data.length === 0 ? (
-            <p className="text-sm text-muted">Belum ada produk terjual.</p>
-          ) : null}
-          {top.data && top.data.data.length > 0 ? (
-            <ol className="space-y-2">
-              {top.data.data.map((p, i) => (
-                <li key={p.product_id ?? p.product_name} className="flex justify-between gap-3">
-                  <span className="min-w-0 truncate">
-                    {i + 1}. {p.product_name}
-                  </span>
-                  <span className="shrink-0 font-extrabold" title={formatRupiah(p.revenue)}>
-                    {p.quantity} cup
-                  </span>
-                </li>
-              ))}
-            </ol>
-          ) : null}
-        </Card>
+          </NoticeCard>
+        ) : null}
+
+        {summary.error ? (
+          <ErrorState
+            title="Waduh, ringkasannya belum kebuka."
+            onRetry={() => void summary.refetch()}
+          >
+            Cek sinyal, lalu coba lagi ya.
+          </ErrorState>
+        ) : null}
+        {summary.isPending ? <Skeleton rows={2} /> : null}
+        {s ? (
+          s.transaction_count === 0 ? (
+            <Card>
+              <EmptyState icon="🍹" title="Belum ada yang beli.">
+                <p>{isToday ? 'Santai dulu, Pak. ' : ''}Nanti langsung muncul di sini.</p>
+              </EmptyState>
+            </Card>
+          ) : (
+            <>
+              <section
+                aria-label="Omzet"
+                className="rounded-3xl bg-[image:var(--gradient-hero)] p-5 text-hero-ink shadow-card"
+              >
+                <p className="text-sm font-bold">Omzet {rangeWord}</p>
+                <p className="mt-1 text-5xl leading-[52px] font-extrabold tracking-tight tabular-nums">
+                  {formatRupiah(s.revenue)}
+                </p>
+                {typeof change === 'number' ? (
+                  <p className="mt-2 text-sm font-bold">
+                    {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))}%{' '}
+                    {isToday ? 'dari kemarin' : 'dari periode lalu'}
+                  </p>
+                ) : null}
+                <p className="mt-3 text-[15px] font-semibold">
+                  {s.transaction_count} pesanan {rangeWord}.{mood ? ` ${BUSY_SENTENCE[mood]}` : ''}
+                </p>
+              </section>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <CupCard summary={s} vsWord={isToday ? 'dari kemarin' : 'dari periode lalu'} />
+                <Kpi label="Pesanan" value={String(s.transaction_count)} />
+                <Kpi label="Rata-rata per pesanan" value={formatRupiah(s.average_ticket)} />
+                <PaymentSplit summary={s} />
+              </div>
+            </>
+          )
+        ) : null}
+
+        <ProductSalesCard
+          period={range}
+          scope={scope}
+          selectedId={produk}
+          onOpen={(id, el) => {
+            triggerRef.current = el;
+            setOpenName(el.querySelector('span.font-extrabold')?.textContent ?? undefined);
+            void navigate({ to: '/', search: { produk: id } });
+          }}
+          onResetFilter={() => setState(initialRange())}
+          onToast={showToast}
+        />
+
+        <div className="mt-4">
+          <Card>
+            <h2 className="mb-3 text-lg">
+              Penjualan per {granularity === 'hour' ? 'jam' : 'hari'}
+              {scope === 'all' ? ` · ${outletName}` : ''}
+            </h2>
+            {series.isPending ? <Skeleton rows={2} /> : null}
+            {series.error ? (
+              <ErrorState
+                title="Waduh, grafiknya belum kebuka."
+                onRetry={() => void series.refetch()}
+              />
+            ) : null}
+            {series.data && series.data.data.length === 0 ? (
+              <EmptyState icon="🍹" title="Belum ada yang beli." />
+            ) : null}
+            {series.data && series.data.data.length > 0 ? (
+              <SalesChart data={series.data.data} granularity={granularity} />
+            ) : null}
+            {granularity === 'hour' && peak && peak.revenue > 0 ? (
+              <p className="mt-1 text-sm font-bold text-muted">
+                {peakHourSentence(Number(formatTime(peak.bucket_start).slice(0, 2)))}
+              </p>
+            ) : null}
+          </Card>
+        </div>
+        {scope === 'all' && s?.by_outlet && s.by_outlet.length > 0 ? (
+          <BranchBreakdown rows={s.by_outlet} />
+        ) : null}
       </div>
-    </>
+      {produk ? (
+        <ProductDetailPanel
+          key={produk}
+          productId={produk}
+          name={openName}
+          period={range}
+          scope={scope}
+          vsWord={isToday ? 'dari kemarin' : 'dari periode lalu'}
+          onClose={closeDetail}
+          onNotFound={detailNotFound}
+        />
+      ) : null}
+      {toast ? <Toast>{toast}</Toast> : null}
+    </div>
   );
 }
