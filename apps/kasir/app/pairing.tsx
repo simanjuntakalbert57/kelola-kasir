@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import type React from 'react';
+import { useRef, useState } from 'react';
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
 import { isValidPairingCode, normalizePairingCode, PAIRING_COPY } from '../src/auth/flows';
@@ -19,6 +20,7 @@ function messageFor(error: unknown): string {
 export default function PairingScreen() {
   const { pair } = useSession();
   const [code, setCode] = useState('');
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const normalized = normalizePairingCode(code);
@@ -39,46 +41,53 @@ export default function PairingScreen() {
   return (
     <SafeAreaView style={styles.root}>
       <ScreenContainer>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.body}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.emoji}>🍹</Text>
-          <Text style={styles.title}>{PAIRING_COPY.title}</Text>
-          <Text style={styles.notPin}>{PAIRING_COPY.notPin}</Text>
-          <Text style={styles.sub}>{PAIRING_COPY.subtitle}</Text>
-          <View style={styles.steps}>
-            {PAIRING_COPY.steps.map((step, i) => (
-              <Text key={step} style={styles.step}>
-                {i + 1}. {step}
-              </Text>
-            ))}
-          </View>
-          <TextInput
-            testID="pairing-code"
-            style={[styles.input, error ? styles.inputErr : null]}
-            value={code}
-            onChangeText={(t) => setCode(normalizePairingCode(t).slice(0, 8))}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={8}
-            placeholder="ABCD2345"
-            placeholderTextColor={colors.muted}
-            accessibilityLabel="Kode pairing"
-          />
-          {error ? <Text style={styles.errText}>{error}</Text> : null}
-          <Button
-            testID="pair-submit"
-            label={busy ? 'Memasangkan…' : 'Pasangkan'}
-            variant="primary"
-            large
-            disabled={!valid || busy}
-            onPress={submit}
-            style={{ marginTop: space.s4 }}
-          />
-          <Text style={styles.hint}>Kode berlaku 10 menit dan hanya bisa dipakai sekali.</Text>
-        </ScrollView>
+        {/* Edge-to-edge: the window does not resize for the IME, so lift the form above it. */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.emoji}>🍹</Text>
+            <Text style={styles.title}>{PAIRING_COPY.title}</Text>
+            <Text style={styles.notPin}>{PAIRING_COPY.notPin}</Text>
+            <Text style={styles.sub}>{PAIRING_COPY.subtitle}</Text>
+            <View style={styles.steps}>
+              {PAIRING_COPY.steps.map((step, i) => (
+                <Text key={step} style={styles.step}>
+                  {i + 1}. {step}
+                </Text>
+              ))}
+            </View>
+            <TextInput
+              testID="pairing-code"
+              style={[styles.input, error ? styles.inputErr : null]}
+              value={code}
+              onChangeText={(t) => setCode(normalizePairingCode(t).slice(0, 8))}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={8}
+              placeholder="ABCD2345"
+              placeholderTextColor={colors.muted}
+              accessibilityLabel="Kode pairing"
+              onFocus={() =>
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100)
+              }
+            />
+            {error ? <Text style={styles.errText}>{error}</Text> : null}
+            <Button
+              testID="pair-submit"
+              label={busy ? 'Memasangkan…' : 'Pasangkan'}
+              variant="primary"
+              large
+              disabled={!valid || busy}
+              onPress={submit}
+              style={{ marginTop: space.s4 }}
+            />
+            <Text style={styles.hint}>Kode berlaku 10 menit dan hanya bisa dipakai sekali.</Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
         {error?.includes('internet') ? <Banner tone="warn">Offline</Banner> : null}
       </ScreenContainer>
     </SafeAreaView>
