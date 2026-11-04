@@ -1,7 +1,7 @@
 import { formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { loadSettings } from '../src/catalog/sync';
 import { useSession } from '../src/auth/SessionProvider';
@@ -11,7 +11,8 @@ import { usePrinter } from '../src/printing/PrinterProvider';
 import { shareReceiptText } from '../src/printing/share';
 import { useSales } from '../src/sales/SalesProvider';
 import { colors, radius, space } from '../src/theme';
-import { Banner, Button } from '../src/ui/components';
+import { Banner, Button, ScreenContainer } from '../src/ui/components';
+import { FONT_CAP } from '../src/ui/layout';
 import { PrintBanner } from '../src/ui/PrintBanner';
 
 export default function SuccessScreen() {
@@ -54,55 +55,65 @@ export default function SuccessScreen() {
   const printing = mine?.state === 'printing';
   return (
     <SafeAreaView style={styles.root}>
-      {!online || pending > 0 ? (
-        <Banner tone="info">
-          {pending > 0 ? `${pending} transaksi belum tersinkron` : 'Offline'} — tersimpan di
-          perangkat
-        </Banner>
-      ) : null}
-      <View style={styles.body}>
-        <Text style={{ fontSize: 56 }}>✅</Text>
-        <Text style={styles.title}>{mine?.state === 'failed' ? 'Lunas · tersimpan' : 'Lunas'}</Text>
-        <Text testID="sale-total" style={styles.total}>
-          {formatRupiah(lastSale?.total ?? 0)}
-        </Text>
-        <Text style={styles.muted}>{lastSale?.number}</Text>
-        {lastSale?.method === 'cash' ? (
-          <Text testID="sale-change" style={styles.change}>
-            Kembalian {formatRupiah(lastSale.change ?? 0)}
+      <ScreenContainer>
+        {!online || pending > 0 ? (
+          <Banner tone="info">
+            {pending > 0 ? `${pending} transaksi belum tersinkron` : 'Offline'} — tersimpan di
+            perangkat
+          </Banner>
+        ) : null}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
+          <Text style={{ fontSize: 56 }}>✅</Text>
+          <Text style={styles.title}>
+            {mine?.state === 'failed' ? 'Lunas · tersimpan' : 'Lunas'}
           </Text>
-        ) : (
-          <Text style={styles.muted}>QRIS · dikonfirmasi manual</Text>
-        )}
-        <PrintBanner
-          job={mine}
-          printReceipt={printReceipt}
-          printerName={saved?.name ?? null}
-          connecting={status === 'connecting'}
-          onRetry={() => void retry()}
-          onSkip={dismissJob}
-          onSettings={() => router.push('/printer')}
-        />
-      </View>
-      <View style={styles.actions}>
-        <View style={styles.secondary}>
-          <Button
-            testID="reprint"
-            label="🖨 Cetak ulang"
-            disabled={printing || !lastSale}
-            onPress={() => lastSale && void reprint(lastSale.id)}
-            style={{ flex: 1 }}
+          <Text testID="sale-total" maxFontSizeMultiplier={FONT_CAP} style={styles.total}>
+            {formatRupiah(lastSale?.total ?? 0)}
+          </Text>
+          <Text style={styles.muted}>{lastSale?.number}</Text>
+          {lastSale?.method === 'cash' ? (
+            <Text testID="sale-change" maxFontSizeMultiplier={FONT_CAP} style={styles.change}>
+              Kembalian {formatRupiah(lastSale.change ?? 0)}
+            </Text>
+          ) : (
+            <Text style={styles.muted}>QRIS · dikonfirmasi manual</Text>
+          )}
+          <PrintBanner
+            job={mine}
+            printReceipt={printReceipt}
+            printerName={saved?.name ?? null}
+            connecting={status === 'connecting'}
+            onRetry={() => void retry()}
+            onSkip={dismissJob}
+            onSettings={() => router.push('/printer')}
           />
+        </ScrollView>
+        <View style={styles.actions}>
+          <View style={styles.secondary}>
+            <Button
+              testID="reprint"
+              label="🖨 Cetak ulang"
+              disabled={printing || !lastSale}
+              onPress={() => lastSale && void reprint(lastSale.id)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              testID="share-whatsapp"
+              label="WhatsApp"
+              disabled={sharing || !lastSale}
+              onPress={() => void share()}
+              style={{ flex: 1 }}
+            />
+          </View>
           <Button
-            testID="share-whatsapp"
-            label="WhatsApp"
-            disabled={sharing || !lastSale}
-            onPress={() => void share()}
-            style={{ flex: 1 }}
+            testID="new-order"
+            label="+ Pesanan baru"
+            variant="primary"
+            large
+            onPress={done}
           />
         </View>
-        <Button testID="new-order" label="+ Pesanan baru" variant="primary" large onPress={done} />
-      </View>
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
@@ -110,7 +121,7 @@ export default function SuccessScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   body: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.s2,

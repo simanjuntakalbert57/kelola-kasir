@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, NetworkError } from '../src/api/client';
 import { isValidPairingCode, normalizePairingCode, PAIRING_COPY } from '../src/auth/flows';
 import { useSession } from '../src/auth/SessionProvider';
 import { colors, radius, space } from '../src/theme';
-import { Banner, Button } from '../src/ui/components';
+import { Banner, Button, ScreenContainer } from '../src/ui/components';
 
 function messageFor(error: unknown): string {
   if (error instanceof NetworkError) return 'Tidak ada koneksi. Pairing butuh internet.';
@@ -38,50 +38,56 @@ export default function PairingScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={styles.body}>
-        <Text style={styles.emoji}>🍹</Text>
-        <Text style={styles.title}>{PAIRING_COPY.title}</Text>
-        <Text style={styles.notPin}>{PAIRING_COPY.notPin}</Text>
-        <Text style={styles.sub}>{PAIRING_COPY.subtitle}</Text>
-        <View style={styles.steps}>
-          {PAIRING_COPY.steps.map((step, i) => (
-            <Text key={step} style={styles.step}>
-              {i + 1}. {step}
-            </Text>
-          ))}
-        </View>
-        <TextInput
-          testID="pairing-code"
-          style={[styles.input, error ? styles.inputErr : null]}
-          value={code}
-          onChangeText={(t) => setCode(normalizePairingCode(t).slice(0, 8))}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={8}
-          placeholder="ABCD2345"
-          placeholderTextColor={colors.muted}
-          accessibilityLabel="Kode pairing"
-        />
-        {error ? <Text style={styles.errText}>{error}</Text> : null}
-        <Button
-          testID="pair-submit"
-          label={busy ? 'Memasangkan…' : 'Pasangkan'}
-          variant="primary"
-          large
-          disabled={!valid || busy}
-          onPress={submit}
-          style={{ marginTop: space.s4 }}
-        />
-        <Text style={styles.hint}>Kode berlaku 10 menit dan hanya bisa dipakai sekali.</Text>
-      </View>
-      {error?.includes('internet') ? <Banner tone="warn">Offline</Banner> : null}
+      <ScreenContainer>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.emoji}>🍹</Text>
+          <Text style={styles.title}>{PAIRING_COPY.title}</Text>
+          <Text style={styles.notPin}>{PAIRING_COPY.notPin}</Text>
+          <Text style={styles.sub}>{PAIRING_COPY.subtitle}</Text>
+          <View style={styles.steps}>
+            {PAIRING_COPY.steps.map((step, i) => (
+              <Text key={step} style={styles.step}>
+                {i + 1}. {step}
+              </Text>
+            ))}
+          </View>
+          <TextInput
+            testID="pairing-code"
+            style={[styles.input, error ? styles.inputErr : null]}
+            value={code}
+            onChangeText={(t) => setCode(normalizePairingCode(t).slice(0, 8))}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={8}
+            placeholder="ABCD2345"
+            placeholderTextColor={colors.muted}
+            accessibilityLabel="Kode pairing"
+          />
+          {error ? <Text style={styles.errText}>{error}</Text> : null}
+          <Button
+            testID="pair-submit"
+            label={busy ? 'Memasangkan…' : 'Pasangkan'}
+            variant="primary"
+            large
+            disabled={!valid || busy}
+            onPress={submit}
+            style={{ marginTop: space.s4 }}
+          />
+          <Text style={styles.hint}>Kode berlaku 10 menit dan hanya bisa dipakai sekali.</Text>
+        </ScrollView>
+        {error?.includes('internet') ? <Banner tone="warn">Offline</Banner> : null}
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  body: { flex: 1, padding: space.s5, justifyContent: 'center' },
+  body: { flexGrow: 1, padding: space.s5, justifyContent: 'center' },
   emoji: { fontSize: 56, textAlign: 'center' },
   title: { color: colors.ink, fontSize: 24, fontWeight: '800', textAlign: 'center', marginTop: 8 },
   notPin: { color: colors.danger, fontWeight: '700', textAlign: 'center', marginTop: space.s2 },

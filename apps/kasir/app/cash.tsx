@@ -1,7 +1,7 @@
 import { cashChange, formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePrinter } from '../src/printing/PrinterProvider';
 import { quickCashAmounts, totalsOf } from '../src/sales/cart';
@@ -9,8 +9,9 @@ import { createCashSale } from '../src/sales/checkout';
 import { toCompleted, useSales } from '../src/sales/SalesProvider';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
 import { colors, radius, space } from '../src/theme';
-import { Button, Chip, Keypad, TopBar } from '../src/ui/components';
-import { isCompactHeight } from '../src/ui/layout';
+import { Button, Chip, FitLayout, Keypad, ScreenContainer, TopBar } from '../src/ui/components';
+import { FONT_CAP } from '../src/ui/layout';
+import { useKeypadFit } from '../src/ui/useKeypadFit';
 import { PrintToggle } from '../src/ui/PrintToggle';
 
 export default function CashScreen() {
@@ -21,7 +22,11 @@ export default function CashScreen() {
   const [digits, setDigits] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const compact = isCompactHeight(useWindowDimensions().height);
+  const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
+    chromeEstimate: 200,
+    bodyReserve: 200,
+    compactBodyReserve: 150,
+  });
   const tendered = digitsToRupiah(digits);
   const enough = tendered >= total;
 
@@ -42,78 +47,92 @@ export default function CashScreen() {
     }
   };
 
+  const footer = (
+    <View style={styles.footer} onLayout={onFooterLayout}>
+      <View style={styles.amountBox}>
+        {compact ? null : <Text style={styles.label}>Uang diterima</Text>}
+        <Text testID="cash-tendered" maxFontSizeMultiplier={FONT_CAP} style={styles.amount}>
+          {formatRupiah(tendered)}
+        </Text>
+        <Text
+          testID="cash-change"
+          maxFontSizeMultiplier={FONT_CAP}
+          style={[styles.change, { color: enough ? colors.greenText : colors.warn }]}
+        >
+          {digits === ''
+            ? 'Pilih nominal atau ketik'
+            : enough
+              ? `Kembalian ${formatRupiah(cashChange(total, tendered))}`
+              : `Kurang ${formatRupiah(total - tendered)}`}
+        </Text>
+      </View>
+      <Keypad triple keyHeight={keyHeight} onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+      <Button
+        testID="cash-submit"
+        label={busy ? 'Menyimpan…' : 'Selesai'}
+        variant="accent"
+        large
+        disabled={busy || !enough || !db}
+        onPress={() => void pay(tendered)}
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.root}>
-      <TopBar
-        title="Bayar Cash"
-        right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
-      />
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.body}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.label}>Total</Text>
-        <Text testID="cash-total" style={[styles.total, compact && styles.totalCompact]}>
-          {formatRupiah(total)}
-        </Text>
-        <Button
-          testID="exact-cash"
-          label={`✓ Uang Pas · ${formatRupiah(total)}`}
-          variant="primary"
-          large
-          disabled={busy || !db}
-          onPress={() => void pay(total)}
-          style={{ marginTop: space.s3 }}
+      <ScreenContainer>
+        <TopBar
+          title="Bayar Cash"
+          right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
         />
-        <View style={styles.quick}>
-          {quickCashAmounts(total).map((n) => (
-            <Chip
-              key={n}
-              label={formatRupiah(n)}
-              on={tendered === n}
-              onPress={() => setDigits(String(n))}
-            />
-          ))}
-        </View>
-        {error ? <Text style={styles.err}>{error}</Text> : null}
-        <View style={{ flexGrow: 1 }} />
-        <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
-      </ScrollView>
-      <View style={styles.footer}>
-        <View style={styles.amountBox}>
-          <Text style={styles.label}>Uang diterima</Text>
-          <Text testID="cash-tendered" style={styles.amount}>
-            {formatRupiah(tendered)}
-          </Text>
-          <Text
-            testID="cash-change"
-            style={[styles.change, { color: enough ? colors.greenText : colors.warn }]}
-          >
-            {digits === ''
-              ? 'Pilih nominal atau ketik'
-              : enough
-                ? `Kembalian ${formatRupiah(cashChange(total, tendered))}`
-                : `Kurang ${formatRupiah(total - tendered)}`}
-          </Text>
-        </View>
-        <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
-        <Button
-          testID="cash-submit"
-          label={busy ? 'Menyimpan…' : 'Selesai'}
-          variant="accent"
-          large
-          disabled={busy || !enough || !db}
-          onPress={() => void pay(tendered)}
+        <FitLayout
+          scrollAll={scrollAll}
+          bodyStyle={styles.body}
+          footer={footer}
+          body={
+            <>
+              <Text style={styles.label}>Total</Text>
+              <Text
+                testID="cash-total"
+                maxFontSizeMultiplier={FONT_CAP}
+                style={[styles.total, compact && styles.totalCompact]}
+              >
+                {formatRupiah(total)}
+              </Text>
+              <Button
+                testID="exact-cash"
+                label={`✓ Uang Pas · ${formatRupiah(total)}`}
+                variant="primary"
+                large
+                disabled={busy || !db}
+                onPress={() => void pay(total)}
+                style={{ marginTop: space.s3 }}
+              />
+              {compact ? null : (
+                <View style={styles.quick}>
+                  {quickCashAmounts(total).map((n) => (
+                    <Chip
+                      key={n}
+                      label={formatRupiah(n)}
+                      on={tendered === n}
+                      onPress={() => setDigits(String(n))}
+                    />
+                  ))}
+                </View>
+              )}
+              {error ? <Text style={styles.err}>{error}</Text> : null}
+              <View style={{ flexGrow: 1 }} />
+              <PrintToggle value={printReceipt} onChange={setPrintReceipt} />
+            </>
+          }
         />
-      </View>
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  scroll: { flex: 1 },
   body: { flexGrow: 1, padding: space.s4, gap: space.s2 },
   footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
   label: { color: colors.muted, fontSize: 13, fontWeight: '600' },

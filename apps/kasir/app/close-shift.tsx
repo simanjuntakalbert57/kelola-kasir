@@ -28,7 +28,9 @@ import {
 } from '../src/shift/close';
 import { appendDigit, digitsToRupiah } from '../src/shift/prefill';
 import { colors, radius, space } from '../src/theme';
-import { Banner, Button, Keypad, TopBar } from '../src/ui/components';
+import { Banner, Button, FitLayout, Keypad, ScreenContainer, TopBar } from '../src/ui/components';
+import { FONT_CAP } from '../src/ui/layout';
+import { useKeypadFit } from '../src/ui/useKeypadFit';
 
 function confirmStrong(message: string): Promise<boolean> {
   if (Platform.OS === 'web') return Promise.resolve(globalThis.confirm(message));
@@ -52,6 +54,12 @@ export default function CloseShiftScreen() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CloseOutcome | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
+    chromeEstimate: 210,
+    bodyReserve: 150,
+    compactBodyReserve: 110,
+    frozen: keyboardOpen,
+  });
 
   // The keypad would crowd out the note field while the system keyboard is up.
   useEffect(() => {
@@ -130,92 +138,104 @@ export default function CloseShiftScreen() {
     const t = result.totals;
     return (
       <SafeAreaView style={styles.root}>
-        <TopBar title="Shift ditutup" />
-        <ScrollView contentContainerStyle={styles.body}>
-          {result.mode === 'queued' ? (
-            <Banner tone="warn">
-              Ditutup offline. {result.unsynced} transaksi belum tersinkron; ringkasan final
-              dihitung server setelah tersinkron.
-            </Banner>
-          ) : (
-            <Banner tone="info">Shift ditutup dan dikirim ke owner.</Banner>
-          )}
-          <Summary totals={t} actual={actual} />
-          <Button
-            testID="leave"
-            label="Keluar"
-            variant="primary"
-            large
-            onPress={() => void leaveClosedShift()}
-          />
-        </ScrollView>
+        <ScreenContainer>
+          <TopBar title="Shift ditutup" />
+          <ScrollView contentContainerStyle={styles.body}>
+            {result.mode === 'queued' ? (
+              <Banner tone="warn">
+                Ditutup offline. {result.unsynced} transaksi belum tersinkron; ringkasan final
+                dihitung server setelah tersinkron.
+              </Banner>
+            ) : (
+              <Banner tone="info">Shift ditutup dan dikirim ke owner.</Banner>
+            )}
+            <Summary totals={t} actual={actual} />
+            <Button
+              testID="leave"
+              label="Keluar"
+              variant="primary"
+              large
+              onPress={() => void leaveClosedShift()}
+            />
+          </ScrollView>
+        </ScreenContainer>
       </SafeAreaView>
     );
   }
 
+  const footer = (
+    <View style={styles.footer} onLayout={onFooterLayout}>
+      <View style={styles.box}>
+        {compact ? null : <Text style={styles.label}>Uang kas aktual di laci</Text>}
+        <Text testID="actual-cash" maxFontSizeMultiplier={FONT_CAP} style={styles.amount}>
+          {formatRupiah(actual)}
+        </Text>
+        {entered ? (
+          <Text
+            testID="cash-diff"
+            maxFontSizeMultiplier={FONT_CAP}
+            style={{ color: diff === 0 ? colors.greenText : colors.warn, fontWeight: '800' }}
+          >
+            {diff === 0
+              ? 'Selisih Rp 0 (pas)'
+              : `Selisih ${diff < 0 ? '−' : '+'}${formatRupiah(Math.abs(diff))} (${diff < 0 ? 'kurang' : 'lebih'}). Catatan wajib.`}
+          </Text>
+        ) : compact ? null : (
+          <Text style={styles.label}>Hitung uang di laci lalu masukkan jumlahnya</Text>
+        )}
+      </View>
+      {keyboardOpen ? null : (
+        <Keypad triple keyHeight={keyHeight} onKey={(k) => setDigits((d) => appendDigit(d, k))} />
+      )}
+      <Button
+        testID="close-submit"
+        label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
+        variant="accent"
+        large
+        disabled={!canSubmit}
+        onPress={() => void submit()}
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.root}>
-      <TopBar
-        title="Tutup shift"
-        right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
-      />
-      {/* Targeting SDK 36 is edge-to-edge: the window no longer resizes, so lift the footer above the IME. */}
-      <KeyboardAvoidingView style={styles.avoid} behavior="padding">
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.body}
-          keyboardShouldPersistTaps="handled"
-        >
-          {!online || !fromServer ? (
-            <Banner tone="warn">
-              {pending > 0 ? `${pending} transaksi belum tersinkron. ` : ''}
-              Angka dari perangkat ini saja; ringkasan final dihitung server setelah tersinkron.
-            </Banner>
-          ) : null}
-          {totals ? <Summary totals={totals} /> : null}
-          <TextInput
-            testID="closing-note"
-            value={note}
-            onChangeText={setNote}
-            placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
-            placeholderTextColor={colors.muted}
-            maxLength={500}
-            style={styles.input}
+      <ScreenContainer>
+        <TopBar
+          title="Tutup shift"
+          right={<Button label="Batal" variant="ghost" onPress={() => router.back()} />}
+        />
+        {/* Targeting SDK 36 is edge-to-edge: the window no longer resizes, so lift the footer above the IME. */}
+        <KeyboardAvoidingView style={styles.avoid} behavior="padding">
+          <FitLayout
+            scrollAll={scrollAll}
+            bodyStyle={styles.body}
+            footer={footer}
+            body={
+              <>
+                {!online || !fromServer ? (
+                  <Banner tone="warn">
+                    {pending > 0 ? `${pending} transaksi belum tersinkron. ` : ''}
+                    Angka dari perangkat ini saja; ringkasan final dihitung server setelah
+                    tersinkron.
+                  </Banner>
+                ) : null}
+                {totals ? <Summary totals={totals} /> : null}
+                <TextInput
+                  testID="closing-note"
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder={needsNote ? 'Catatan selisih (wajib)' : 'Catatan (opsional)'}
+                  placeholderTextColor={colors.muted}
+                  maxLength={500}
+                  style={styles.input}
+                />
+                {error ? <Banner tone="error">{error}</Banner> : null}
+              </>
+            }
           />
-          {error ? <Banner tone="error">{error}</Banner> : null}
-        </ScrollView>
-        <View style={styles.footer}>
-          <View style={styles.box}>
-            <Text style={styles.label}>Uang kas aktual di laci</Text>
-            <Text testID="actual-cash" style={styles.amount}>
-              {formatRupiah(actual)}
-            </Text>
-            {entered ? (
-              <Text
-                testID="cash-diff"
-                style={{ color: diff === 0 ? colors.greenText : colors.warn, fontWeight: '800' }}
-              >
-                {diff === 0
-                  ? 'Selisih Rp 0 (pas)'
-                  : `Selisih ${diff < 0 ? '−' : '+'}${formatRupiah(Math.abs(diff))} (${diff < 0 ? 'kurang' : 'lebih'}). Catatan wajib.`}
-              </Text>
-            ) : (
-              <Text style={styles.label}>Hitung uang di laci lalu masukkan jumlahnya</Text>
-            )}
-          </View>
-          {keyboardOpen ? null : (
-            <Keypad triple onKey={(k) => setDigits((d) => appendDigit(d, k))} />
-          )}
-          <Button
-            testID="close-submit"
-            label={busy ? 'Menutup…' : 'Tutup shift & kirim ke owner'}
-            variant="accent"
-            large
-            disabled={!canSubmit}
-            onPress={() => void submit()}
-          />
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </ScreenContainer>
     </SafeAreaView>
   );
 }
@@ -252,7 +272,6 @@ function Summary({ totals, actual }: { totals: ShiftTotals; actual?: number }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   avoid: { flex: 1 },
-  scroll: { flex: 1 },
   body: { padding: space.s4, gap: space.s3 },
   footer: { padding: space.s4, paddingTop: space.s2, gap: space.s2, backgroundColor: colors.bg },
   box: {
