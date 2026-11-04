@@ -61,3 +61,7 @@ Spesifikasi di `notifikasi-laptop.html` (+ `notifikasi-laptop.png`): teks notifi
 ## Impor produk dari Excel/CSV (DEAR-113)
 
 Spesifikasi di `impor-produk.html` (+ `impor-produk.png`): tombol Impor produk di halaman Produk, layar Impor 3 langkah (unduh template, unggah/drag & drop, pratinjau Baru/Diperbarui/Error, Simpan, sukses), dialog batal, error level file, dan copy final semua pesan error (`Baris 7: harga harus angka, contoh 15000`). Terang + gelap, desktop + HP, token Arah A tanpa token baru. File contoh di `impor-produk/`: `template-produk.xlsx` (sheet Produk + Petunjuk), `template-produk.csv`, `contoh-bermasalah.csv`. Asumsi untuk Tech Lead tercantum di bagian 0 dokumen.
+
+## Penjualan per Produk (DEAR-161)
+
+Spesifikasi di `penjualan-produk.html` (+ `penjualan-produk.png`), rev. 2 sesuai arahan investor: **tanpa menu sidebar/tab/route baru**. Kartu "Penjualan per Produk" di halaman Ringkasan (`/`) menggantikan "Top produk": 8 baris teratas (HP 5) + "Lihat semua" yang memperluas di tempat, cari + sortir, Ekspor Excel, memakai filter periode/cabang Ringkasan. Ketuk produk membuka panel samping 470px (desktop) / bottom sheet (HP) berisi kartu, tren, Tunai vs QRIS, per cabang, per kasir; URL `/?produk=<id>`. Memuat usulan urutan kartu Ringkasan di HP, peran Manajer, status kosong/memuat/galat, terang + gelap, dan kebutuhan API. Tahap desain; belum diimplementasi.
