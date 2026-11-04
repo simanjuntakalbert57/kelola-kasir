@@ -15,6 +15,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:migrate:prod": "node dist/db/migrate.js",
     "owner:create": "tsx src/scripts/create-owner.ts",
+    "seed:qa-multibranch": "tsx src/scripts/seed-qa-multibranch.ts",
     "keys:generate": "tsx src/scripts/generate-jwt-key.ts"
   },
   "dependencies": {

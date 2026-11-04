@@ -184,6 +184,26 @@ Kedua skrip non-destruktif, berjalan dalam satu transaksi, dan menulis `audit_lo
 
 `delete-outlet.sql` dan `reset-outlet-data.sql` sudah mengenal tabel pengeluaran (reset outlet **mempertahankan** pengeluaran dan kategorinya, hapus outlet ikut menghapusnya). Keduanya hanya untuk outlet uji, **bukan** untuk Ragunan/Palmerah.
 
+## Seed QA multi-cabang di staging (DEAR-160)
+
+Staging dan produksi berbagi VPS/DB (ADR-0012/0014), jadi seed ini **hanya menambah** baris untuk akun owner QA dan **butuh persetujuan CTO sebelum dijalankan**. Skrip `apps/api/src/scripts/seed-qa-multibranch.ts` (`dist/scripts/seed-qa-multibranch.js` di container API):
+
+- Menambah cabang kedua milik owner QA (kode `QAM2`, nama `Cabang Uji QA (uji)`) dan satu akun manager yang hanya anggota cabang itu.
+- Per cabang (cabang utama QA, default `QAMED`, dan `QAM2`): pegawai, perangkat (`U01`), kategori, dan 2 produk berlabel `(uji)`, satu shift tertutup, serta 3 transaksi lunas hari ini (2 QRIS + 1 tunai). Hari ini: QAMED Rp57.000 (tunai 15.000, QRIS 42.000, 4 cup), QAM2 Rp75.000 (tunai 24.000, QRIS 51.000, 6 cup).
+- Idempoten: id baris deterministik, jalan ulang di hari WIB yang sama tidak mengubah apa pun; di hari lain menambah transaksi hari itu. Tidak pernah mengubah/menghapus baris yang ada, dan menolak berjalan bila `QAM2` sudah ada tetapi bukan cabang uji milik owner itu. Data pelanggan tidak tersentuh.
+
+```sh
+cd /opt/kelola-kasir
+read -rs -p 'Password manager uji (min 12 karakter): ' QA_MANAGER_PASSWORD; echo
+# uji coba dulu (semua dikerjakan lalu di-rollback):
+./compose.sh exec -e QA_DRY_RUN=1 -e QA_OWNER_EMAIL='<email owner QA>' -e QA_MANAGER_EMAIL='<email manager uji>' \
+  -e QA_MANAGER_PASSWORD="$QA_MANAGER_PASSWORD" api node dist/scripts/seed-qa-multibranch.js
+# jalankan sungguhan: sama, tanpa QA_DRY_RUN
+unset QA_MANAGER_PASSWORD
+```
+
+Variabel opsional: `QA_PRIMARY_OUTLET_CODE` (default `QAMED`), `QA_SECOND_OUTLET_CODE` (default `QAM2`). Password manager hanya dipakai bila akun belum ada; jangan ditulis di issue. Menghapus data uji: `delete-outlet.sql` untuk `QAM2` (outlet uji, bukan Ragunan/Palmerah). E2E (`e2e/specs/zz-multibranch.spec.ts`) menjalankan skrip yang sama pada DB sementara.
+
 ## Perawatan server
 
 - **Update keamanan** dipasang otomatis setiap hari (`dnf-automatic` di AlmaLinux, `unattended-upgrades` di Ubuntu). Bila kernel ikut diperbarui (cek `dnf needs-restarting -r` di AlmaLinux; di Ubuntu login SSH menampilkan `*** System restart required ***`), reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
