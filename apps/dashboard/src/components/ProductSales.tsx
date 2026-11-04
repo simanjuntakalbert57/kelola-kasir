@@ -5,6 +5,7 @@ import { Banknote, Download, QrCode, Search, TrendingDown, TrendingUp, X } from 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, download, qs } from '../lib/api';
 import { formatShortDate, formatTime } from '../lib/dates';
+import { useExpenseScope } from '../lib/expenses';
 import { errorMessage } from '../lib/format';
 import { useDebounced } from '../lib/useDebounced';
 import { useIsDesktop } from '../lib/useMediaQuery';
@@ -78,6 +79,7 @@ export function ProductSalesCard({
   onToast: (message: string) => void;
 }) {
   const desktop = useIsDesktop();
+  const { outletId } = useExpenseScope();
   const [search, setSearch] = useState('');
   const q = useDebounced(search.trim(), 300);
   const [sort, setSort] = useState<Sort>('items_sold');
@@ -87,7 +89,17 @@ export function ProductSalesCard({
 
   const params = { ...period, outlet_scope: scope, sort, order };
   const report = useQuery({
-    queryKey: ['reports', 'products', scope, period.date_from, period.date_to, sort, order, q],
+    queryKey: [
+      'reports',
+      'products',
+      outletId,
+      scope,
+      period.date_from,
+      period.date_to,
+      sort,
+      order,
+      q,
+    ],
     queryFn: () => api<Report>(`/reports/products${qs({ ...params, q })}`),
     placeholderData: keepPreviousData,
   });
@@ -185,7 +197,9 @@ export function ProductSalesCard({
         {canExpand ? (
           <div className="mt-2 text-center">
             <Button small aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-              {expanded ? 'Tampilkan 8 teratas' : `Lihat semua ${data.totals.product_count} produk`}
+              {expanded
+                ? `Tampilkan ${limit} teratas`
+                : `Lihat semua ${data.totals.product_count} produk`}
             </Button>
           </div>
         ) : null}
@@ -427,12 +441,13 @@ export function ProductDetailPanel({
   onNotFound: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const { outletId } = useExpenseScope();
   const days = dayCount(period);
   const [picked, setGranularity] = useState<'hour' | 'day' | null>(null);
   const granularity = picked ?? (days <= 3 ? 'hour' : 'day');
 
   const detail = useQuery({
-    queryKey: ['reports', 'product', productId, scope, period.date_from, period.date_to],
+    queryKey: ['reports', 'product', outletId, productId, scope, period.date_from, period.date_to],
     queryFn: () =>
       api<Detail>(`/reports/products/${productId}${qs({ ...period, outlet_scope: scope })}`),
   });
@@ -440,6 +455,7 @@ export function ProductDetailPanel({
     queryKey: [
       'reports',
       'product-series',
+      outletId,
       productId,
       scope,
       period.date_from,
