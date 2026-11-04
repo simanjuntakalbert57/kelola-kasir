@@ -107,10 +107,20 @@ const transactions = createRoute({
   component: TransactionsPage,
 });
 
+const dashboard = createRoute({
+  getParentRoute: () => app,
+  path: '/',
+  validateSearch: (search: Record<string, unknown>): { produk?: string } => {
+    const id = search['produk'];
+    return typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? { produk: id } : {};
+  },
+  component: DashboardPage,
+});
+
 const routeTree = root.addChildren([
   login,
   app.addChildren([
-    page('/', DashboardPage),
+    dashboard,
     transactions,
     page('/transaksi/dihapus', DeletedTransactionsPage),
     page('/pengeluaran', ExpensesPage),

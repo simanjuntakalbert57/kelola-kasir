@@ -22,6 +22,14 @@ const twoBranches = {
   },
 };
 
+const emptyReport = {
+  outlet_scope: 'current',
+  date_from: '2026-10-26',
+  date_to: '2026-10-26',
+  totals: { items_sold: 0, revenue: 0, product_count: 0 },
+  data: [],
+};
+
 const base = {
   revenue: 1325000,
   transaction_count: 66,
@@ -66,7 +74,7 @@ function setup(summary: Record<string, unknown> = base, sess: unknown = twoBranc
           : { ...summary, outlet_scope: 'current' },
       ),
     'GET /dashboard/sales-series': () => json({ data: [] }),
-    'GET /dashboard/top-products': () => json({ data: [] }),
+    'GET /reports/products': () => json({ ...emptyReport, outlet_scope: 'current' }),
     'GET /shifts': () => json({ data: [], next_cursor: null }),
   });
 }
@@ -109,7 +117,7 @@ describe('Dashboard: cup terjual, Rp per metode, cabang', () => {
     expect(within(table).getByRole('row', { name: /Palmerah/ })).toHaveTextContent(/Rp\s?525\.000/);
   });
 
-  it('on "Semua cabang" drops the rame/sepi sentence and labels chart and Terlaris with the active branch', async () => {
+  it('on "Semua cabang" drops the rame/sepi sentence and labels the chart with the active branch', async () => {
     const calls = setup();
     renderApp('/');
     await screen.findByText('312 cup');
@@ -120,9 +128,7 @@ describe('Dashboard: cup terjual, Rp per metode, cabang', () => {
     expect(
       screen.getByRole('heading', { name: /Penjualan per jam · Ragunan/ }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: /Terlaris hari ini · Ragunan/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Penjualan per Produk' })).toBeInTheDocument();
     expect(screen.queryByText(/rame|sepi/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Jam \d+ paling rame/)).not.toBeInTheDocument();
     // The 7-day history feeding rame/sepi spans several days; "today" series is a single day.

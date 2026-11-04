@@ -26,9 +26,9 @@ test.describe('Dashboard (TC-DSH-01/02, O-02)', () => {
     await expect(page.getByText(rp(21_428)).first()).toBeVisible();
   });
 
-  test('produk terlaris tampil dengan qty dan omzet', async ({ page }) => {
+  test('Penjualan per Produk tampil dengan cup dan omzet', async ({ page }) => {
     await openAsOwner(page, '/');
-    await expect(page.getByRole('heading', { name: 'Terlaris' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Penjualan per Produk' })).toBeVisible();
     await expect(page.getByText('Jus Alpukat').first()).toBeVisible();
     await expect(page.getByText('Jus Jeruk').first()).toBeVisible();
   });
