@@ -24,6 +24,7 @@ export default function CashScreen() {
   const [error, setError] = useState<string | null>(null);
   const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
     chromeEstimate: 200,
+    compactSaving: 24,
     bodyReserve: 200,
     compactBodyReserve: 150,
   });

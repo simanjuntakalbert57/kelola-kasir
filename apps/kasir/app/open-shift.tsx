@@ -44,6 +44,7 @@ export default function OpenShiftScreen() {
 
   const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
     chromeEstimate: 100,
+    compactSaving: 0,
     bodyReserve: 220,
     compactBodyReserve: 150,
   });

@@ -3,6 +3,7 @@ import {
   availableHeight,
   contentMaxWidth,
   footerMode,
+  nextFooterMode,
   keyHeightFor,
   keyHeightForMode,
   keypadHeight,
@@ -12,11 +13,13 @@ import {
   shouldScrollFooter,
   tabBarContentHeight,
   type FooterFitInput,
+  type FooterMode,
 } from './layout';
 
-const fit = (available: number, chrome = 210): FooterFitInput => ({
+const fit = (available: number, chrome = 210, saving = 24): FooterFitInput => ({
   available,
-  chrome,
+  chromeFull: chrome,
+  chromeCompact: chrome - saving,
   bodyReserve: 200,
   compactBodyReserve: 150,
 });
@@ -98,7 +101,7 @@ describe('keyHeightForMode', () => {
   it('keeps the whole keypad inside the room it was given', () => {
     const input = fit(616);
     const key = keyHeightForMode(input, 'full');
-    expect(input.chrome + input.bodyReserve + keypadHeight(key)).toBeLessThanOrEqual(616);
+    expect(input.chromeFull + input.bodyReserve + keypadHeight(key)).toBeLessThanOrEqual(616);
   });
 });
 
@@ -114,5 +117,58 @@ describe('tabBarContentHeight', () => {
   it('uses a shorter bar on short screens', () => {
     expect(tabBarContentHeight(640)).toBe(56);
     expect(tabBarContentHeight(915)).toBe(64);
+  });
+});
+
+describe('nextFooterMode', () => {
+  it('never upgrades for the same input', () => {
+    expect(nextFooterMode('scroll', fit(900))).toBe('scroll');
+    expect(nextFooterMode('compact', fit(900))).toBe('compact');
+  });
+
+  it('degrades when the current mode does not fit', () => {
+    expect(nextFooterMode('full', fit(560))).toBe('compact');
+    expect(nextFooterMode('full', fit(512))).toBe('scroll');
+    expect(nextFooterMode('compact', fit(512))).toBe('scroll');
+  });
+
+  /** Replays measure -> decide until nothing changes, like the hook does after each layout. */
+  function settle(available: number, fullChrome: number, hiddenInCompact: number) {
+    let mode: FooterMode = 'full';
+    const history: FooterMode[] = [mode];
+    for (let i = 0; i < 20; i++) {
+      // The footer is measured in the mode it is currently shown in.
+      const input: FooterFitInput = {
+        available,
+        chromeFull: fullChrome,
+        chromeCompact: fullChrome - hiddenInCompact,
+        bodyReserve: 200,
+        compactBodyReserve: 150,
+      };
+      const next = nextFooterMode(mode, input);
+      history.push(next);
+      if (next === mode) break;
+      mode = next;
+    }
+    return { mode, history };
+  }
+
+  it('does not cycle when the condensed footer saves far more than the old 24 dp guess', () => {
+    // Largest font: hidden labels are ~70 dp, not 24. Sweep the band where the old logic flipped.
+    for (let available = 480; available <= 700; available++) {
+      const { history } = settle(available, 300, 70);
+      const changes = history.filter((m, i) => i > 0 && m !== history[i - 1]).length;
+      expect(changes).toBeLessThanOrEqual(2);
+      expect(history.at(-1)).toBe(history.at(-2));
+    }
+  });
+
+  it('settles on compact when only the condensed footer fits', () => {
+    // full needs 300+200+30+160 = 690; compact needs 230+150+30+160 = 570
+    expect(settle(600, 300, 70).mode).toBe('compact');
+  });
+
+  it('is unaffected by saving 0 (open-shift)', () => {
+    expect(settle(616, 100, 0).mode).toBe('full');
   });
 });

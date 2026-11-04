@@ -56,6 +56,7 @@ export default function CloseShiftScreen() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const { compact, scrollAll, keyHeight, onFooterLayout } = useKeypadFit({
     chromeEstimate: 210,
+    compactSaving: 24,
     bodyReserve: 150,
     compactBodyReserve: 110,
     frozen: keyboardOpen,
