@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { openAsOwner, rp } from '../support/ui.js';
 import {
   bearer,
   buildQris,
@@ -487,5 +488,104 @@ test.describe.serial('DEAR-138 multi-cabang & pengeluaran (API)', () => {
       })
     ).data;
     expect(rep.total.total.revenue).toBe(before.revenue + 24_000);
+  });
+});
+
+/**
+ * DEAR-160: the staging QA seed (apps/api/src/scripts/seed-qa-multibranch.ts) run against a fresh owner with one branch,
+ * then the Beranda "Semua cabang" view. Seed totals today: QAMED 57.000 (tunai 15.000, QRIS 42.000, 4 cup),
+ * QAM2 75.000 (tunai 24.000, QRIS 51.000, 6 cup).
+ */
+test.describe.serial('DEAR-160 Beranda "Semua cabang" dari seed QA', () => {
+  const OWNER = 'seedqa@e2e.test';
+  const MANAGER = 'seedqa-mgr@e2e.test';
+  const run = (script: string, env: Record<string, string>) =>
+    execFileSync('pnpm', ['--filter', '@kelola-kasir/api', script], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  const seed = () =>
+    run('seed:qa-multibranch', {
+      QA_OWNER_EMAIL: OWNER,
+      QA_MANAGER_EMAIL: MANAGER,
+      QA_MANAGER_PASSWORD: PASS,
+    });
+
+  test('seed berjalan dan idempoten (jalan kedua tidak menambah apa pun)', async () => {
+    run('owner:create', {
+      OWNER_EMAIL: OWNER,
+      OWNER_PASSWORD: PASS,
+      OUTLET_CODE: 'QAMED',
+      OUTLET_NAME: 'Toko QAMED',
+    });
+    expect((await login(OWNER)).user.outlets).toHaveLength(1);
+    seed();
+    seed();
+    const s = await login(OWNER);
+    expect(s.user.outlets.map((o) => o.code).sort()).toEqual(['QAM2', 'QAMED']);
+    const m = await login(MANAGER);
+    expect(m.user.outlets.map((o) => `${o.code}:${o.role}`)).toEqual(['QAM2:manager']);
+    const q = `date_from=${today}&date_to=${today}&outlet_scope=all`;
+    const sum = (
+      await call<any>('GET', `/dashboard/summary?${q}`, { headers: bearer(s.access_token) })
+    ).data;
+    expect(sum.revenue).toBe(132_000);
+    expect(sum.transaction_count).toBe(6);
+  });
+
+  test('menolak email manager yang sudah terdaftar sebagai akun asli (tidak mengubah apa pun)', async () => {
+    // owner@e2e.test is a real-looking existing account with memberships elsewhere: must never become a manager of QAM2
+    expect(() =>
+      run('seed:qa-multibranch', {
+        QA_OWNER_EMAIL: OWNER,
+        QA_MANAGER_EMAIL: 'owner@e2e.test',
+        QA_MANAGER_PASSWORD: PASS,
+      }),
+    ).toThrow(/not a QA test manager/);
+    const o = await login('owner@e2e.test');
+    expect(o.user.outlets.map((x) => x.code)).not.toContain('QAM2');
+    // the seeded test manager is still accepted on a re-run (covered by the idempotent seed above)
+  });
+
+  test('Semua cabang: tabel Per cabang sesuai seed, tanpa kalimat rame/sepi, judul berlabel cabang', async ({
+    page,
+  }) => {
+    await openAsOwner(page, '/', OWNER);
+    await expect(page.getByRole('heading', { name: 'Per cabang' })).toHaveCount(0);
+    // make QAMED the active branch first (after login the active one can be either), then choose "Semua cabang"
+    await page.getByRole('button', { name: /Ganti cabang/ }).click();
+    await page.getByRole('option', { name: /Toko QAMED/ }).click();
+    await expect(page.getByRole('button', { name: /Cabang aktif: Toko QAMED/ })).toBeVisible();
+    await page.getByRole('button', { name: /Ganti cabang/ }).click();
+    await page.getByRole('option', { name: /Semua cabang/ }).click();
+
+    const table = page.getByRole('table');
+    await expect(page.getByRole('heading', { name: 'Per cabang' })).toBeVisible();
+    const qamed = table.getByRole('row', { name: /Toko QAMED/ });
+    await expect(qamed).toContainText(rp(57_000));
+    await expect(qamed).toContainText(rp(15_000));
+    await expect(qamed).toContainText(rp(42_000));
+    await expect(qamed).toContainText(/42\.000\D*4$/);
+    const qam2 = table.getByRole('row', { name: /Cabang Uji QA \(uji\)/ });
+    await expect(qam2).toContainText(rp(75_000));
+    await expect(qam2).toContainText(rp(24_000));
+    await expect(qam2).toContainText(rp(51_000));
+    await expect(qam2).toContainText(/51\.000\D*6$/);
+
+    await expect(page.getByText(/Hari ini (rame|lagi sepi|normal)/)).toHaveCount(0);
+    // chart and Terlaris keep following the active branch (the one chosen before "Semua cabang"): QAMED
+    await expect(
+      page.getByRole('heading', { name: /^Penjualan per jam · Toko QAMED$/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /^Terlaris hari ini · Toko QAMED$/ }),
+    ).toBeVisible();
+  });
+
+  test('manager satu cabang: tidak ada pilihan Semua cabang', async ({ page }) => {
+    await openAsOwner(page, '/', MANAGER);
+    await expect(page.getByRole('button', { name: /Ganti cabang/ })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Per cabang' })).toHaveCount(0);
   });
 });

@@ -184,6 +184,45 @@ Kedua skrip non-destruktif, berjalan dalam satu transaksi, dan menulis `audit_lo
 
 `delete-outlet.sql` dan `reset-outlet-data.sql` sudah mengenal tabel pengeluaran (reset outlet **mempertahankan** pengeluaran dan kategorinya, hapus outlet ikut menghapusnya). Keduanya hanya untuk outlet uji, **bukan** untuk Ragunan/Palmerah.
 
+## Seed QA multi-cabang di staging (DEAR-160)
+
+Staging dan produksi berbagi VPS/DB (ADR-0012/0014), jadi seed ini **hanya menambah** baris untuk akun owner QA dan **butuh persetujuan CTO sebelum dijalankan**. Skrip `apps/api/src/scripts/seed-qa-multibranch.ts` (`dist/scripts/seed-qa-multibranch.js` di container API):
+
+- Menambah cabang kedua milik owner QA (kode `QAM2`, nama `Cabang Uji QA (uji)`) dan satu akun manager yang hanya anggota cabang itu.
+- Per cabang (cabang utama QA, default `QAMED`, dan `QAM2`): pegawai, perangkat (`U01`), kategori, dan 2 produk berlabel `(uji)`, satu shift tertutup, serta 3 transaksi lunas hari ini (2 QRIS + 1 tunai). Hari ini: QAMED Rp57.000 (tunai 15.000, QRIS 42.000, 4 cup), QAM2 Rp75.000 (tunai 24.000, QRIS 51.000, 6 cup).
+- Idempoten: id baris deterministik, jalan ulang di hari WIB yang sama tidak mengubah apa pun; di hari lain menambah transaksi hari itu. Tidak pernah mengubah/menghapus baris yang ada, dan menolak berjalan bila `QAM2` sudah ada tetapi bukan cabang uji milik owner itu. Data pelanggan tidak tersentuh.
+
+```sh
+cd /opt/kelola-kasir
+read -rs -p 'Password manager uji (min 12 karakter): ' QA_MANAGER_PASSWORD; echo
+# uji coba dulu (semua dikerjakan lalu di-rollback):
+./compose.sh exec -e QA_DRY_RUN=1 -e QA_OWNER_EMAIL='<email owner QA>' -e QA_MANAGER_EMAIL='<email manager uji>' \
+  -e QA_MANAGER_PASSWORD="$QA_MANAGER_PASSWORD" api node dist/scripts/seed-qa-multibranch.js
+# jalankan sungguhan: sama, tanpa QA_DRY_RUN
+unset QA_MANAGER_PASSWORD
+```
+
+Variabel opsional: `QA_PRIMARY_OUTLET_CODE` (default `QAMED`), `QA_SECOND_OUTLET_CODE` (default `QAM2`). Password manager hanya dipakai bila akun belum ada; jangan ditulis di issue. Skrip **menolak** (dan tidak mengubah apa pun) bila `QA_MANAGER_EMAIL` sudah terdaftar sebagai akun yang bukan manager uji milik seed ini (nama berakhiran `(uji)` dan hanya anggota `QAM2`), jadi email orang sungguhan tidak pernah ikut berubah. Pembuatan manager dan cabang tercatat di `audit_logs`. PIN pegawai uji tetap `135790`; bila bentrok dengan PIN pegawai aktif di `QAMED` atau perangkat `U01` sudah ada, skrip gagal dan semua perubahan di-rollback (laporkan, jangan diakali dengan edit manual). E2E (`e2e/specs/zz-multibranch.spec.ts`) menjalankan skrip yang sama pada DB sementara, termasuk jalur penolakan.
+
+### Membersihkan data uji
+
+1. **Cabang `QAM2`** (jalankan dry run dengan `COMMIT;` diganti `ROLLBACK;` di salinan skrip lebih dulu). `email` = akun **manager uji** (dihapus bersama outlet). **Jangan pernah mengisi email owner QA**, karena `delete-outlet.sql` menghapus akun yang diberikan:
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v code=QAM2 -v email='<email manager uji>' < delete-outlet.sql
+   ```
+2. **Baris uji di `QAMED`** tidak ikut terhapus oleh langkah 1. Pegawai, perangkat, kategori, dan produk dinonaktifkan (tidak dihapus, karena transaksi merujuknya):
+   ```sh
+   ./compose.sh exec -T db psql -U kelola_kasir -d kelola_kasir -v ON_ERROR_STOP=1 <<'SQL'
+   BEGIN;
+   UPDATE employees SET is_active = false WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name = 'Kasir Uji (uji)';
+   UPDATE devices SET revoked_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND code = 'U01' AND name = 'HP Uji (uji)' AND revoked_at IS NULL;
+   UPDATE products SET deleted_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name IN ('Jus Alpukat (uji)', 'Jus Jeruk (uji)') AND deleted_at IS NULL;
+   UPDATE categories SET deleted_at = now() WHERE outlet_id = (SELECT id FROM outlets WHERE code = 'QAMED') AND name = 'Uji (uji)' AND deleted_at IS NULL;
+   COMMIT;
+   SQL
+   ```
+   Transaksi dan shift uji (`customer_label = 'Data uji QA (uji)'`, nomor `QAMED-U01-...`) bersifat append-only dan tidak dihapus satu per satu. Biarkan saja (berlabel jelas), atau, bila owner QA setuju seluruh data penjualan `QAMED` dihapus, pakai `reset-outlet-data.sql` (lihat "Hapus data uji per outlet").
+
 ## Perawatan server
 
 - **Update keamanan** dipasang otomatis setiap hari (`dnf-automatic` di AlmaLinux, `unattended-upgrades` di Ubuntu). Bila kernel ikut diperbarui (cek `dnf needs-restarting -r` di AlmaLinux; di Ubuntu login SSH menampilkan `*** System restart required ***`), reboot **di luar jam buka**: `sudo reboot`. Semua container menyala lagi sendiri (`restart: unless-stopped`). Setelah itu cek `/healthz`.
