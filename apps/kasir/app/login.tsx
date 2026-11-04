@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaFrame, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/client';
 import { getLockStatus, loadEmployees, type CachedEmployee } from '../src/auth/flows';
 import { useSession } from '../src/auth/SessionProvider';
+import { createPinEntry, type PinEntry } from '../src/auth/pinEntry';
 import { PIN_LENGTH } from '../src/config';
 import { secureStore } from '../src/lib/secureStore';
 import { colors, space } from '../src/theme';
@@ -43,7 +44,8 @@ export default function LoginScreen() {
 
   const choose = async (employee: CachedEmployee) => {
     setSelected(employee);
-    setPin('');
+    selectedRef.current = employee;
+    entry.clear();
     const status = await getLockStatus(secureStore, employee.id, Date.now());
     setLocked(status.locked);
     setMessage(
@@ -53,28 +55,44 @@ export default function LoginScreen() {
     );
   };
 
-  const onKey = async (key: string) => {
-    if (!selected || busy || locked) return;
-    if (key === '⌫') return setPin((p) => p.slice(0, -1));
-    const next = (pin + key).slice(0, PIN_LENGTH);
-    setPin(next);
-    if (next.length < PIN_LENGTH) return;
-    // Auto-submit at the 6th digit (K-01).
+  // The PIN lives in a synchronous controller so rapid taps never read a stale render closure.
+  const selectedRef = useRef<CachedEmployee | null>(null);
+  selectedRef.current = selected;
+  const lockedRef = useRef(false);
+  lockedRef.current = locked;
+
+  const submit = async (employee: CachedEmployee, value: string) => {
     setBusy(true);
     setMessage(null);
     try {
-      const result = await login(selected, next);
+      const result = await login(employee, value);
       if (!result.ok) {
         setMessage(result.message);
         setLocked(result.reason === 'locked');
-        setPin('');
+        entry.clear();
       }
     } catch {
       setMessage('Terjadi kesalahan. Coba lagi.');
-      setPin('');
+      entry.clear();
     } finally {
       setBusy(false);
+      entry.release();
     }
+  };
+
+  const entryRef = useRef<PinEntry | null>(null);
+  const entry = (entryRef.current ??= createPinEntry({
+    length: PIN_LENGTH,
+    onChange: setPin,
+    onSubmit: (value) => {
+      const employee = selectedRef.current;
+      if (employee) void submit(employee, value);
+    },
+  }));
+
+  const onKey = (key: string) => {
+    if (!selectedRef.current || lockedRef.current) return;
+    entry.press(key);
   };
 
   const noDevice = employees !== null && employees.length === 0;
