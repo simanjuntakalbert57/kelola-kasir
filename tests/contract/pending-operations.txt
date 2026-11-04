@@ -2,8 +2,3 @@
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
-# Per-product sales report (ADR-0022), contract-first; Backend removes these in the DEAR-166 API PR.
-getProductSalesReport  # GET /reports/products
-exportProductSalesReport  # GET /reports/products/export
-getProductSalesDetail  # GET /reports/products/{product_id}
-getProductSalesSeries  # GET /reports/products/{product_id}/series

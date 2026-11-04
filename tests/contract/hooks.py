@@ -141,6 +141,8 @@ _REAL_IDS = {
     ("confirmPayment", "payment_id"): _fresh_qris_payment,
     ("cancelPayment", "payment_id"): _fresh_qris_payment,
     ("getProduct", "product_id"): lambda: SESSION["product_id"],
+    ("getProductSalesDetail", "product_id"): lambda: SESSION["sale_product_id"],
+    ("getProductSalesSeries", "product_id"): lambda: SESSION["sale_product_id"],
     ("updateProduct", "product_id"): lambda: SESSION["product_id"],
     ("setProductAvailability", "product_id"): lambda: SESSION["product_id"],
     ("deleteProduct", "product_id"): _fresh_product,
