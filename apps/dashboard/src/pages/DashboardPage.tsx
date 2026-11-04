@@ -19,24 +19,8 @@ import {
   WIB_HOUR,
 } from '../lib/insight';
 
-type OutletBreakdown = {
-  outlet_id: string;
-  outlet_name: string;
-  revenue: number;
-  cash_revenue: number;
-  qris_revenue: number;
-  items_sold: number;
-};
-// Extends the generated type until the API contract (DEAR-153) lands in packages/contracts.
-type Summary = components['schemas']['DashboardSummary'] & {
-  items_sold?: number;
-  outlet_scope?: 'current' | 'all';
-  by_outlet?: OutletBreakdown[];
-  compare_previous_period?: {
-    revenue_change_pct?: number | null;
-    items_sold_change_pct?: number | null;
-  };
-};
+type Summary = components['schemas']['DashboardSummary'];
+type OutletBreakdown = Summary['by_outlet'][number];
 type Point = { bucket_start: string; revenue: number; transaction_count: number };
 type Top = { product_id?: string | null; product_name: string; quantity: number; revenue: number };
 
