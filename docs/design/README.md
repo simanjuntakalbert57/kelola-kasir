@@ -65,3 +65,7 @@ Spesifikasi di `impor-produk.html` (+ `impor-produk.png`): tombol Impor produk d
 ## Penjualan per Produk (DEAR-161)
 
 Spesifikasi di `penjualan-produk.html` (+ `penjualan-produk.png`), rev. 2 sesuai arahan investor: **tanpa menu sidebar/tab/route baru**. Kartu "Penjualan per Produk" di halaman Ringkasan (`/`) menggantikan "Top produk": 8 baris teratas (HP 5) + "Lihat semua" yang memperluas di tempat, cari + sortir, Ekspor Excel, memakai filter periode/cabang Ringkasan. Ketuk produk membuka panel samping 470px (desktop) / bottom sheet (HP) berisi kartu, tren, Tunai vs QRIS, per cabang, per kasir; URL `/?produk=<id>`. Memuat usulan urutan kartu Ringkasan di HP, peran Manajer, status kosong/memuat/galat, terang + gelap, dan kebutuhan API. Tahap desain; belum diimplementasi.
+
+## Menu Diskon + harga coret di APK (DEAR-186)
+
+Spesifikasi di `diskon.html` (+ `diskon.png`), bagian dari DEAR-184. Menu sidebar/tab baru "Diskon" (pemilik buat/ubah/nonaktifkan, manajer hanya lihat cabangnya): daftar dengan filter status/cabang, form buat/ubah dengan pratinjau harga akhir per produk, status galat/bentrok/konfirmasi/kosong, badge "Diskon 20%" di halaman Produk, APK kasir tema gelap (harga coret + pita di katalog, "Hemat Rp X" di keranjang, struk 58 mm, offline, happy hour), dan baris Omzet kotor/Diskon/Omzet bersih di Ringkasan. Terang + gelap, desktop + HP. Token Arah A tanpa token baru di dashboard; APK menambah `--disc #FFB454` dan `--disc-bg #3A2616`. Asumsi dan kebutuhan data tercantum di bagian atas dokumen.
