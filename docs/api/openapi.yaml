@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kelola Kasir API
-  version: 0.6.0-draft
+  version: 0.7.0-draft
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -55,6 +55,8 @@ tags:
     description: Owner reports
   - name: settings
     description: Store settings (receipt header/footer, QRIS)
+  - name: discounts
+    description: Item discounts per product or category set by the owner (ADR-0023)
   - name: expenses
     description: Outlet expenses, expense categories and the monthly expense & profit report (ADR-0021)
   - name: uploads
@@ -949,6 +951,12 @@ paths:
         The server recomputes all totals from the submitted snapshot and rejects inconsistent math
         (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
         `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
+        Item discounts (ADR-0023 §3): `unit_price` stays the normal catalog price, `discount_amount` of an item is the
+        per-unit discount of rule `discount_id` at `discount_version` times `quantity`, and the transaction
+        `discount_amount` must equal the sum of the item discounts (`TOTAL_MISMATCH`). A discount that does not follow
+        that rule version is `DISCOUNT_INVALID`; a valid version that does not apply at `client_created_at` or was
+        replaced more than 10 minutes before it is `DISCOUNT_STALE` (pull the catalog, recompute the cart, retry).
+        Items without discount fields (older apps) are accepted at the normal price.
         `number` must start with the outlet code and the device code (`{OUTLET}-{DEV}-`). A device clock more than
         10 minutes ahead (or behind, online) is accepted and recorded as `transaction.clock_skew` in the audit log.
       operationId: createTransaction
@@ -975,7 +983,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422':
-          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN`'
+          description: '`TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN`, `DISCOUNT_INVALID`, `DISCOUNT_STALE` (ADR-0023 §3)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -995,7 +1003,8 @@ paths:
         prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
         (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
         Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
-        Harga satuan, Total baris, Catatan` (one row per item). Transactions deleted by the owner (ADR-0019) are never exported.
+        Harga satuan, Total baris, Diskon, Total bersih, Promo, Catatan` (one row per item; `Total baris` = normal price ×
+        qty, `Total bersih` = after the item discount, ADR-0023 §5). Transactions deleted by the owner (ADR-0019) are never exported.
       operationId: exportTransactions
       security: [{ ownerAuth: [] }]
       parameters:
@@ -1392,6 +1401,10 @@ paths:
         Without `cursor` the response is a full snapshot (no tombstones). Rows are upserted by id; deletions arrive as
         `changes.deleted` tombstones. Repeat while `has_more` is true, then keep `next_cursor`.
         Employee `pin_hash` is only filled when the owner enabled offline login.
+        `changes.discounts` carries the discount rules of the device's outlet (ADR-0023 §4); a deleted or deactivated
+        discount, or one this outlet was removed from, arrives as a `discount` tombstone. A full snapshot only holds
+        active discounts that have not ended. Apps send `X-App-Version` so the owner sees devices that cannot apply
+        discounts yet (`GET /discounts` `outdated_devices`).
       operationId: syncPull
       security: [{ deviceAuth: [] }]
       parameters:
@@ -1412,8 +1425,10 @@ paths:
         Mutations are applied in order, each in its own database transaction; a rejected mutation does not stop the batch.
         `applied` = done now, `duplicate` = already applied earlier (safe replay), `rejected` = business rule failed, see `code`
         (e.g. `TOTAL_MISMATCH`, `PRODUCT_UNAVAILABLE`, `NUMBER_CONFLICT`, `SHIFT_CLOSED`, `PENDING_QRIS_EXISTS`, `QRIS_NOT_SYNCABLE`,
-        `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`).
-        Real sales are never dropped: stale prices and unavailable products are accepted and flagged, sales for an already closed
+        `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`,
+        `DISCOUNT_INVALID`).
+        Real sales are never dropped: stale prices, stale discount rule versions (ADR-0023 §3, flagged `price_mismatch` and
+        audited `sync.discount_stale`) and unavailable products are accepted and flagged, sales for an already closed
         shift are accepted (flagged `after_shift_close` when created after `closed_at`, otherwise the closed shift's totals are
         recomputed). `void_request.create` is rejected with `UNSUPPORTED_MUTATION` until void requests ship.
       operationId: syncPush
@@ -1462,6 +1477,9 @@ paths:
         period. `compare_previous_period` compares with the period of the same length right before it
         (`revenue_change_pct` and `items_sold_change_pct` are `null` when that period had none).
         `items_sold` is the sum of item quantities (cups) of the same transactions as `revenue`.
+        `revenue` (Omzet) = sum of `total` = `gross_sales - discount_total + tax`; with no tax it is the net sales
+        (omzet bersih). `gross_sales` (omzet kotor) = sum of `subtotal` (normal prices), `discount_total` = sum of
+        `discount_amount` (ADR-0023 §5).
         `outlet_scope=all` (owner only, else `403`) merges every outlet where the caller is owner into the top-level
         fields and fills `by_outlet` (ordered by outlet code); with `current` (default) `by_outlet` is `[]`. Owner only.
       operationId: getDashboardSummary
@@ -1515,7 +1533,7 @@ paths:
     get:
       tags: [dashboard]
       summary: Best-selling products by quantity and revenue (O-02)
-      description: Ranked by quantity, then revenue. Counts `paid` and `void_requested` sales only; `product_name` is the newest sale snapshot.
+      description: Ranked by quantity, then revenue. Counts `paid` and `void_requested` sales only; `product_name` is the newest sale snapshot. `revenue` is net of item discounts (sum of `line_total - discount_amount`, ADR-0023 §5).
       operationId: getTopProducts
       security: [{ ownerAuth: [] }]
       parameters:
@@ -1551,7 +1569,9 @@ paths:
         items (cups) sold (sum of `transaction_items.quantity`; for `group_by=payment_method` and `employee` it covers
         the items of those transactions), `transaction_count` the number of transactions, and `revenue` the amount in
         Rupiah. `group_by=product` gives cups per product; `group_by=payment_method` gives Rp and transaction count per
-        method (`cash`, `qris`).
+        method (`cash`, `qris`). `revenue` is net of discounts (ADR-0023 §5): for `group_by=product` the sum of
+        `line_total - discount_amount` of the items, otherwise the sum of `total`. `gross_revenue` is the same before
+        discounts and `discount_amount` the difference.
       operationId: getSalesReport
       security: [{ ownerAuth: [] }]
       parameters:
@@ -1578,6 +1598,8 @@ paths:
                         quantity: { type: integer, description: Number of items (cups) sold in the group }
                         transaction_count: { type: integer, description: Number of transactions in the group }
                         revenue: { $ref: '#/components/schemas/Rupiah' }
+                        gross_revenue: { $ref: '#/components/schemas/Rupiah', description: 'Before discounts (ADR-0023)' }
+                        discount_amount: { $ref: '#/components/schemas/Rupiah', description: '`gross_revenue - revenue` (ADR-0023)' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /reports/products:
@@ -1587,8 +1609,9 @@ paths:
       description: |
         Every product of the scope with its cups, Rupiah and share of the period. Counting rule of
         `GET /dashboard/summary`: transactions `paid` or `void_requested`, not deleted, `client_created_at` in the WIB
-        period. `items_sold` = sum of item quantities (cups), `revenue` = sum of `line_total` (transaction-level
-        discount/tax is not allocated to items). `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
+        period. `items_sold` = sum of item quantities (cups), `revenue` = net sales of the product = sum of
+        `line_total - discount_amount` (ADR-0023 §5), `gross_revenue` = sum of `line_total` (normal prices),
+        `discount_amount` = their difference. Tax is not allocated to items. `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
         product of the scope and period **before** `q` is applied. Active, non-deleted catalog products without sales
         are included with zeros; deleted or inactive products appear only when they sold in the period.
         With `outlet_scope=current` there is one row per product of the active outlet. With `all` rows are merged across
@@ -1619,8 +1642,9 @@ paths:
       summary: Export the per-product sales list as Excel or CSV (ADR-0022)
       description: |
         Every row of `GET /reports/products` for the same `outlet_scope`, period, `sort` and `order` (no `q`: the file
-        always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Total (Rp),
-        % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`), followed by a total row. Amounts whole
+        always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Kotor (Rp),
+        Diskon (Rp), Bersih (Rp), % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`; ADR-0023 §5),
+        followed by a total row. Amounts whole
         Rupiah, `% omzet` one decimal. CSV UTF-8 with BOM, CRLF and formula-injection guard exactly like
         `GET /transactions/export`. File name `penjualan-produk_<date_from>_<date_to>.<format>`. Audited as
         `reports.products_exported`. Owner or manager; `outlet_scope=all` is owner only (`403`).
@@ -2044,6 +2068,225 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  # ---------------------------------------------------------------- discounts (ADR-0023)
+  /discounts:
+    get:
+      tags: [discounts]
+      summary: List item discounts (menu Diskon)
+      description: |
+        Discounts that cover the active outlet (`outlet_scope=current`) or any outlet where the caller is owner (`all`,
+        owner only, else `403`). `status` is derived on today's local date (ADR-0023 §6): `deleted` (owner only), then
+        `inactive`, `scheduled`, `ended`, `active`; without `status` every non-deleted discount is listed. Ordered by
+        status (`active`, `scheduled`, `inactive`, `ended`), then `starts_on` desc, then name. No pagination (tens of
+        rows). A manager only sees discounts of their outlet, cut down to that outlet (`outlets` holds one entry).
+        `outdated_devices` lists active paired devices of the scope whose app version cannot apply discounts yet
+        (older than the server's `DISCOUNT_MIN_APP_VERSION`, or unknown). Owner or manager.
+      operationId: listDiscounts
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DiscountStatus' } }
+      responses:
+        '200':
+          description: Discounts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, outdated_devices]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Discount' } }
+                  outdated_devices: { type: array, items: { $ref: '#/components/schemas/DiscountOutdatedDevice' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [discounts]
+      summary: Create an item discount (owner only)
+      description: |
+        The discount applies in the outlets of its targets (`product_ids` or `category_ids`, matching `target_type`);
+        the caller must be owner in every one of them (`403`). Targets that do not exist or are deleted are
+        `422 DISCOUNT_TARGET_INVALID`. Writes `discount_history` (`create`, version 1) and `audit_logs`
+        (`discount.created`) in one database transaction; cashier devices receive it on their next `/sync/pull`.
+      operationId: createDiscount
+      security: [{ ownerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiscountInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Discount' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: '`DISCOUNT_TARGET_INVALID`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /discounts/target-options:
+    get:
+      tags: [discounts]
+      summary: Products and categories to pick as discount targets, grouped across branches
+      description: |
+        Active, non-deleted products and non-deleted categories of the scope, grouped by normalized name (lower case,
+        trimmed, inner spaces collapsed; ADR-0022 §3) so "Jus Mangga" of Ragunan and Palmerah is one option carrying
+        both ids. Picking an option sends every id of `outlets[]` (or of the outlets the owner chose). Ordered by name.
+        Owner only; `outlet_scope=all` = every outlet where the caller is owner.
+      operationId: listDiscountTargetOptions
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+      responses:
+        '200':
+          description: Options
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscountTargetOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /discounts/{discount_id}:
+    get:
+      tags: [discounts]
+      summary: Discount detail with its change history
+      description: |
+        Owner: a discount with at least one outlet where the caller is owner (deleted ones included). Manager: only a
+        non-deleted discount covering their outlet, cut down to that outlet, with `history[].snapshot` and `changes`
+        omitted; other discounts are `404`.
+      operationId: getDiscount
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DiscountId' }]
+      responses:
+        '200':
+          description: Discount
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscountDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [discounts]
+      summary: Edit, deactivate or reactivate a discount (owner only)
+      description: |
+        `version` must equal the stored version, else `409 DISCOUNT_VERSION_CONFLICT` (someone else changed it; reload).
+        Only sent fields change; `product_ids`/`category_ids` replace the whole target list (and with it the outlets).
+        Changing `target_type` needs the matching id list. The caller must be owner in every outlet before and after the
+        change (`403`). `is_active: false` is "Nonaktifkan". A deleted discount cannot be edited (`409 DISCOUNT_DELETED`).
+        A no-op answers `200` without a new version. Otherwise `version + 1`, `discount_history`
+        (`update`, `activate` or `deactivate`, with `changes`) and `audit_logs` in one database transaction.
+      operationId: updateDiscount
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DiscountId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiscountUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Discount' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`DISCOUNT_VERSION_CONFLICT` or `DISCOUNT_DELETED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`DISCOUNT_TARGET_INVALID`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [discounts]
+      summary: Delete a discount (owner only; soft delete)
+      description: |
+        Sets `deleted_*`, `version + 1`, appends `discount_history` (`delete`) and `audit_logs` (`discount.deleted`).
+        Devices receive a tombstone. Past transactions keep their discount snapshot. Idempotent: an already deleted
+        discount answers `200` and the new reason is ignored.
+      operationId: deleteDiscount
+      security: [{ ownerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DiscountId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransactionDeleteInput' }
+      responses:
+        '200':
+          description: Deleted (or already deleted)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Discount' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reports/discounts:
+    get:
+      tags: [reports, discounts]
+      summary: Sales per discount (promo) in the period (ADR-0023 §5)
+      description: |
+        Counting rule of `GET /dashboard/summary`. One row per discount used by at least one counted item in the period
+        (deleted discounts included, current name), ordered by `discount_total` desc. `items_sold` = cups of the
+        discounted items, `transaction_count` = transactions with at least one of them, `gross_revenue` /
+        `discount_total` / `revenue` = sum of `line_total` / `discount_amount` / `line_total - discount_amount` of those
+        items. `totals` adds `sales_gross` / `sales_discount_total` of every counted transaction (also without promo),
+        equal to `gross_sales` / `discount_total` of the summary. Owner or manager; `outlet_scope=all` is owner only.
+      operationId: getDiscountSalesReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Rows
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscountSalesReport' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports/discounts/export:
+    get:
+      tags: [reports, discounts]
+      summary: Export the per-discount report as Excel or CSV (ADR-0023 §5)
+      description: |
+        Rows of `GET /reports/discounts`. Columns: `Promo, Jenis, Nilai, Transaksi, Cup, Kotor (Rp), Diskon (Rp),
+        Bersih (Rp), Periode, Cabang`, followed by a total row. CSV/XLSX conventions and formula-injection guard of
+        `GET /reports/products/export`. File name `diskon_<date_from>_<date_to>.<format>`. Audited as
+        `reports.discounts_exported`. Owner or manager; `outlet_scope=all` is owner only.
+      operationId: exportDiscountSalesReport
+      security: [{ ownerAuth: [] }]
+      parameters:
+        - { name: format, in: query, required: true, schema: { type: string, enum: [csv, xlsx] } }
+        - $ref: '#/components/parameters/OutletScope'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: File stream
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, contentEncoding: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   # ---------------------------------------------------------------- settings & uploads
   /settings:
     get:
@@ -2400,6 +2643,7 @@ components:
     DateTo: { name: date_to, in: query, description: Inclusive business date (WIB) (2000-01-01 to 2099-12-31), schema: { type: string, format: date } }
     ExpenseId: { name: expense_id, in: path, required: true, schema: { type: string, format: uuid } }
     ExpenseCategoryId: { name: expense_category_id, in: path, required: true, schema: { type: string, format: uuid } }
+    DiscountId: { name: discount_id, in: path, required: true, schema: { type: string, format: uuid } }
     OutletScope:
       name: outlet_scope
       in: query
@@ -2560,6 +2804,12 @@ components:
         - IMPORT_HAS_ERRORS
         - IMPORT_TOKEN_INVALID
         - IMPORT_STALE
+        # item discounts (ADR-0023, planned)
+        - DISCOUNT_INVALID
+        - DISCOUNT_STALE
+        - DISCOUNT_TARGET_INVALID
+        - DISCOUNT_VERSION_CONFLICT
+        - DISCOUNT_DELETED
     Problem:
       type: object
       required: [type, title, status, code]
@@ -2883,10 +3133,13 @@ components:
         id: { type: string, format: uuid }
         product_id: { type: string, format: uuid }
         product_name: { type: string, description: Snapshot }
-        unit_price: { $ref: '#/components/schemas/Rupiah', description: Snapshot of the product price }
+        unit_price: { $ref: '#/components/schemas/Rupiah', description: Snapshot of the normal product price (before any discount) }
         quantity: { type: integer, minimum: 1, maximum: 999 }
         note: { type: string, maxLength: 140 }
-        line_total: { $ref: '#/components/schemas/Rupiah', description: 'unit_price * quantity' }
+        line_total: { $ref: '#/components/schemas/Rupiah', description: 'unit_price * quantity (before discount)' }
+        discount_id: { type: [string, 'null'], format: uuid, description: 'Discount rule applied to this item (ADR-0023); omit or `null` without discount' }
+        discount_version: { type: [integer, 'null'], minimum: 1, description: '`version` of the synced `DiscountRule` used; required with `discount_id`' }
+        discount_amount: { $ref: '#/components/schemas/Rupiah', description: 'Per-unit discount of that rule version × `quantity`, at most `line_total`; omitted = 0' }
     CashPaymentInput:
       type: object
       required: [id, method, cash_tendered]
@@ -2920,7 +3173,7 @@ components:
         customer_label: { type: string, maxLength: 40, description: Optional buyer name/number }
         items: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TransactionItemInput' } }
         subtotal: { $ref: '#/components/schemas/Rupiah' }
-        discount_amount: { $ref: '#/components/schemas/Rupiah', default: 0 }
+        discount_amount: { $ref: '#/components/schemas/Rupiah', default: 0, description: 'Sum of the item `discount_amount` values (ADR-0023 §1)' }
         tax_amount: { $ref: '#/components/schemas/Rupiah', default: 0 }
         total: { $ref: '#/components/schemas/Rupiah' }
         payment: { $ref: '#/components/schemas/PaymentInput' }
@@ -2977,9 +3230,12 @@ components:
                   id: { type: string, format: uuid }
                   product_id: { type: [string, 'null'], format: uuid }
                   product_name: { type: string }
-                  unit_price: { $ref: '#/components/schemas/Rupiah' }
+                  unit_price: { $ref: '#/components/schemas/Rupiah', description: Normal price snapshot }
                   quantity: { type: integer }
-                  line_total: { $ref: '#/components/schemas/Rupiah' }
+                  line_total: { $ref: '#/components/schemas/Rupiah', description: 'unit_price * quantity (before discount)' }
+                  discount_id: { type: [string, 'null'], format: uuid, description: ADR-0023 }
+                  discount_name: { type: [string, 'null'], description: Name of the discount at sale time }
+                  discount_amount: { $ref: '#/components/schemas/Rupiah', description: 'Discount of this line; net line = `line_total - discount_amount`' }
                   note: { type: [string, 'null'] }
             payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
             void_request: { oneOf: [{ $ref: '#/components/schemas/VoidRequest' }, { type: 'null' }] }
@@ -3110,13 +3366,14 @@ components:
                   is_active: { type: boolean }
                   pin_hash: { type: [string, 'null'] }
             settings: { oneOf: [{ $ref: '#/components/schemas/OutletSettings' }, { type: 'null' }] }
+            discounts: { type: array, description: Discount rules of this outlet (ADR-0023 §4), items: { $ref: '#/components/schemas/DiscountRule' } }
             deleted:
               type: array
               items:
                 type: object
                 required: [entity, id]
                 properties:
-                  entity: { type: string, enum: [category, product, employee] }
+                  entity: { type: string, enum: [category, product, employee, discount] }
                   id: { type: string, format: uuid }
         current_shift: { oneOf: [{ $ref: '#/components/schemas/Shift' }, { type: 'null' }], description: "The outlet's open shift, so every device joins the same one" }
         device_revoked: { type: boolean, description: 'When true the app must wipe local credentials. A revoked device is normally answered with 401 `DEVICE_REVOKED` before this is reached.' }
@@ -3331,6 +3588,228 @@ components:
           properties:
             per_outlet: { type: array, items: { $ref: '#/components/schemas/ExpenseReportOutletCell' } }
             total: { $ref: '#/components/schemas/ExpenseReportCell' }
+    DiscountType:
+      type: string
+      enum: [percent, amount]
+      description: '`percent` = whole percent of the normal price (rounded half up per unit); `amount` = Rupiah off per unit, capped at the price'
+    DiscountTargetType: { type: string, enum: [product, category] }
+    DiscountStatus:
+      type: string
+      enum: [active, scheduled, ended, inactive, deleted]
+      description: Derived on the local date (ADR-0023 §6); the hour schedule does not change it
+    DiscountTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', description: 'Local time `HH:MM` of the outlet (WIB)' }
+    DiscountRuleFields:
+      type: object
+      required: [name, target_type, type, value, starts_on]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60, pattern: '\S' }
+        target_type: { $ref: '#/components/schemas/DiscountTargetType' }
+        type: { $ref: '#/components/schemas/DiscountType' }
+        value: { type: integer, minimum: 1, maximum: 100000000, description: 'Percent 1-100 for `percent`, Rupiah for `amount`' }
+        starts_on: { type: string, format: date, description: 'First day, inclusive, outlet local date' }
+        ends_on: { type: [string, 'null'], format: date, description: 'Last day, inclusive; `null` = no end. Not before `starts_on`' }
+        days_of_week:
+          type: [array, 'null']
+          description: 'ISO weekdays 1 = Monday … 7 = Sunday; `null` = every day'
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          items: { type: integer, minimum: 1, maximum: 7 }
+        time_start: { oneOf: [{ $ref: '#/components/schemas/DiscountTime' }, { type: 'null' }], description: 'Happy hour start, inclusive; set together with `time_end`' }
+        time_end: { oneOf: [{ $ref: '#/components/schemas/DiscountTime' }, { type: 'null' }], description: 'Happy hour end, exclusive; after `time_start` (no overnight window)' }
+    DiscountInput:
+      allOf:
+        - $ref: '#/components/schemas/DiscountRuleFields'
+        - type: object
+          properties:
+            is_active: { type: boolean, default: true }
+            product_ids:
+              type: array
+              description: 'Required when `target_type` = `product`; products of any outlet where the caller is owner'
+              minItems: 1
+              maxItems: 200
+              uniqueItems: true
+              items: { type: string, format: uuid }
+            category_ids:
+              type: array
+              description: 'Required when `target_type` = `category`'
+              minItems: 1
+              maxItems: 200
+              uniqueItems: true
+              items: { type: string, format: uuid }
+    DiscountUpdate:
+      type: object
+      required: [version]
+      description: Partial update; `version` is the version the owner edited (optimistic lock).
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1, maxLength: 60, pattern: '\S' }
+        target_type: { $ref: '#/components/schemas/DiscountTargetType' }
+        type: { $ref: '#/components/schemas/DiscountType' }
+        value: { type: integer, minimum: 1, maximum: 100000000 }
+        starts_on: { type: string, format: date }
+        ends_on: { type: [string, 'null'], format: date }
+        days_of_week: { type: [array, 'null'], minItems: 1, maxItems: 7, uniqueItems: true, items: { type: integer, minimum: 1, maximum: 7 } }
+        time_start: { oneOf: [{ $ref: '#/components/schemas/DiscountTime' }, { type: 'null' }] }
+        time_end: { oneOf: [{ $ref: '#/components/schemas/DiscountTime' }, { type: 'null' }] }
+        is_active: { type: boolean }
+        product_ids: { type: array, minItems: 1, maxItems: 200, uniqueItems: true, items: { type: string, format: uuid } }
+        category_ids: { type: array, minItems: 1, maxItems: 200, uniqueItems: true, items: { type: string, format: uuid } }
+    DiscountProductRef:
+      type: object
+      required: [id, name, price, category_id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        price: { $ref: '#/components/schemas/Rupiah', description: Current normal price; the final price is computed with the shared discount formula }
+        category_id: { type: string, format: uuid }
+    DiscountOutlet:
+      type: object
+      required: [outlet, products, categories]
+      properties:
+        outlet: { $ref: '#/components/schemas/OutletRef' }
+        products: { type: array, description: 'Targeted products (`target_type` = `product`), else `[]`', items: { $ref: '#/components/schemas/DiscountProductRef' } }
+        categories: { type: array, description: 'Targeted categories (`target_type` = `category`), else `[]`', items: { $ref: '#/components/schemas/Category' } }
+    Discount:
+      allOf:
+        - $ref: '#/components/schemas/DiscountRuleFields'
+        - type: object
+          required: [id, version, is_active, status, outlets, created_by, created_at, updated_by, updated_at, deleted]
+          properties:
+            id: { type: string, format: uuid }
+            version: { type: integer, minimum: 1 }
+            is_active: { type: boolean }
+            status: { $ref: '#/components/schemas/DiscountStatus' }
+            outlets: { type: array, description: 'Outlets where the discount applies, ordered by outlet code (a manager only gets their own)', items: { $ref: '#/components/schemas/DiscountOutlet' } }
+            created_by: { $ref: '#/components/schemas/UserRef' }
+            created_at: { type: string, format: date-time }
+            updated_by: { $ref: '#/components/schemas/UserRef' }
+            updated_at: { type: string, format: date-time }
+            deleted: { oneOf: [{ $ref: '#/components/schemas/TransactionDeleted' }, { type: 'null' }] }
+    DiscountHistoryEvent:
+      type: object
+      required: [id, version, action, reason, actor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        action: { type: string, enum: [create, update, activate, deactivate, delete] }
+        changes:
+          type: [object, 'null']
+          description: '`{ "<field>": { "from": ..., "to": ... } }` with `DiscountUpdate` field names; owner only'
+          additionalProperties:
+            type: object
+            required: [from, to]
+            properties:
+              from: {}
+              to: {}
+        reason: { type: [string, 'null'], description: Delete reason }
+        actor: { $ref: '#/components/schemas/UserRef' }
+        created_at: { type: string, format: date-time }
+    DiscountDetail:
+      allOf:
+        - $ref: '#/components/schemas/Discount'
+        - type: object
+          required: [history]
+          properties:
+            history: { type: array, description: Oldest first, items: { $ref: '#/components/schemas/DiscountHistoryEvent' } }
+    DiscountOutdatedDevice:
+      type: object
+      required: [device_id, outlet, code, name, app_version, last_seen_at]
+      properties:
+        device_id: { type: string, format: uuid }
+        outlet: { $ref: '#/components/schemas/OutletRef' }
+        code: { type: string }
+        name: { type: string }
+        app_version: { type: [string, 'null'] }
+        last_seen_at: { type: [string, 'null'], format: date-time }
+    DiscountTargetOptions:
+      type: object
+      required: [products, categories]
+      properties:
+        products:
+          type: array
+          items:
+            type: object
+            required: [key, name, outlets]
+            properties:
+              key: { type: string, description: '`name:<normalized name>`' }
+              name: { type: string }
+              outlets:
+                type: array
+                items:
+                  type: object
+                  required: [outlet, product_id, price, category_id, category_name]
+                  properties:
+                    outlet: { $ref: '#/components/schemas/OutletRef' }
+                    product_id: { type: string, format: uuid }
+                    price: { $ref: '#/components/schemas/Rupiah' }
+                    category_id: { type: string, format: uuid }
+                    category_name: { type: string }
+        categories:
+          type: array
+          items:
+            type: object
+            required: [key, name, outlets]
+            properties:
+              key: { type: string }
+              name: { type: string }
+              outlets:
+                type: array
+                items:
+                  type: object
+                  required: [outlet, category_id, product_count]
+                  properties:
+                    outlet: { $ref: '#/components/schemas/OutletRef' }
+                    category_id: { type: string, format: uuid }
+                    product_count: { type: integer, minimum: 0, description: Active products in the category now }
+    DiscountRule:
+      type: object
+      description: Discount rule as synced to a cashier device, targets of that device's outlet only (ADR-0023 §4)
+      required: [id, version, name, type, value, target_type, product_ids, category_ids, starts_on, ends_on, days_of_week, time_start, time_end, utc_offset_minutes]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1, description: Send as `discount_version` on discounted items }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/DiscountType' }
+        value: { type: integer, minimum: 1 }
+        target_type: { $ref: '#/components/schemas/DiscountTargetType' }
+        product_ids: { type: array, items: { type: string, format: uuid } }
+        category_ids: { type: array, items: { type: string, format: uuid } }
+        starts_on: { type: string, format: date }
+        ends_on: { type: [string, 'null'], format: date }
+        days_of_week: { type: [array, 'null'], items: { type: integer, minimum: 1, maximum: 7 } }
+        time_start: { type: [string, 'null'] }
+        time_end: { type: [string, 'null'] }
+        utc_offset_minutes: { type: integer, description: 'Local time of the outlet = UTC + this (WIB = 420); never the phone time zone' }
+    DiscountSalesRow:
+      type: object
+      required: [discount_id, name, type, value, transaction_count, items_sold, gross_revenue, discount_total, revenue]
+      properties:
+        discount_id: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/DiscountType' }
+        value: { type: integer }
+        transaction_count: { type: integer, minimum: 0 }
+        items_sold: { type: integer, minimum: 0 }
+        gross_revenue: { $ref: '#/components/schemas/Rupiah' }
+        discount_total: { $ref: '#/components/schemas/Rupiah' }
+        revenue: { $ref: '#/components/schemas/Rupiah', description: Net (after discount) }
+    DiscountSalesReport:
+      type: object
+      required: [outlet_scope, date_from, date_to, totals, data]
+      properties:
+        outlet_scope: { type: string, enum: [current, all] }
+        date_from: { type: string, format: date }
+        date_to: { type: string, format: date }
+        totals:
+          type: object
+          required: [discount_total, sales_gross, sales_discount_total]
+          properties:
+            discount_total: { $ref: '#/components/schemas/Rupiah', description: Sum of the rows }
+            sales_gross: { $ref: '#/components/schemas/Rupiah', description: '`gross_sales` of `GET /dashboard/summary`' }
+            sales_discount_total: { $ref: '#/components/schemas/Rupiah', description: '`discount_total` of `GET /dashboard/summary`' }
+        data: { type: array, items: { $ref: '#/components/schemas/DiscountSalesRow' } }
+
     ChangePct:
       type: [number, 'null']
       description: Change vs the previous period of the same length in percent, one decimal; `null` when that period had none.
@@ -3343,7 +3822,9 @@ components:
         product_name: { type: string }
         category_name: { type: [string, 'null'] }
         items_sold: { type: integer, minimum: 0, description: Cups (sum of item quantities) }
-        revenue: { $ref: '#/components/schemas/Rupiah' }
+        revenue: { $ref: '#/components/schemas/Rupiah', description: 'Net: sum of `line_total - discount_amount` (ADR-0023)' }
+        gross_revenue: { $ref: '#/components/schemas/Rupiah', description: 'Sum of `line_total` (normal prices)' }
+        discount_amount: { $ref: '#/components/schemas/Rupiah', description: '`gross_revenue - revenue`' }
         share_pct: { type: number, minimum: 0, maximum: 100, description: 'Share of `totals.revenue`, one decimal' }
         transaction_count: { type: integer, minimum: 0 }
         has_sales: { type: boolean, description: '`false` = "Belum terjual"' }
@@ -3361,6 +3842,8 @@ components:
           properties:
             items_sold: { type: integer, minimum: 0 }
             revenue: { $ref: '#/components/schemas/Rupiah' }
+            gross_revenue: { $ref: '#/components/schemas/Rupiah' }
+            discount_amount: { $ref: '#/components/schemas/Rupiah' }
             product_count: { type: integer, minimum: 0 }
         data:
           type: array
@@ -3395,8 +3878,10 @@ components:
         date_from: { type: string, format: date }
         date_to: { type: string, format: date }
         items_sold: { type: integer, minimum: 0 }
-        revenue: { $ref: '#/components/schemas/Rupiah' }
-        average_price: { allOf: [{ $ref: '#/components/schemas/Rupiah' }], description: '`floor(revenue / items_sold)`, 0 without sales' }
+        revenue: { $ref: '#/components/schemas/Rupiah', description: Net of item discounts (ADR-0023) }
+        gross_revenue: { $ref: '#/components/schemas/Rupiah' }
+        discount_amount: { $ref: '#/components/schemas/Rupiah' }
+        average_price: { allOf: [{ $ref: '#/components/schemas/Rupiah' }], description: '`floor(revenue / items_sold)` (net), 0 without sales' }
         share_pct: { type: number, minimum: 0, maximum: 100 }
         transaction_count: { type: integer, minimum: 0 }
         rank: { type: integer, minimum: 1 }
@@ -3442,7 +3927,9 @@ components:
       type: object
       required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count, items_sold, outlet_scope, by_outlet]
       properties:
-        revenue: { $ref: '#/components/schemas/Rupiah' }
+        revenue: { $ref: '#/components/schemas/Rupiah', description: 'Omzet: sum of `total` = `gross_sales - discount_total + tax`' }
+        gross_sales: { $ref: '#/components/schemas/Rupiah', description: 'Omzet kotor: sum of `subtotal` (normal prices, ADR-0023 §5)' }
+        discount_total: { $ref: '#/components/schemas/Rupiah', description: 'Sum of `discount_amount` (ADR-0023 §5)' }
         transaction_count: { type: integer }
         average_ticket: { $ref: '#/components/schemas/Rupiah', description: Rounded down to whole Rupiah }
         cash_revenue: { $ref: '#/components/schemas/Rupiah' }
@@ -3468,6 +3955,8 @@ components:
               outlet_id: { type: string, format: uuid }
               outlet_name: { type: string }
               revenue: { $ref: '#/components/schemas/Rupiah' }
+              gross_sales: { $ref: '#/components/schemas/Rupiah' }
+              discount_total: { $ref: '#/components/schemas/Rupiah' }
               cash_revenue: { $ref: '#/components/schemas/Rupiah' }
               qris_revenue: { $ref: '#/components/schemas/Rupiah' }
               cash_count: { type: integer }

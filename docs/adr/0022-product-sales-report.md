@@ -28,7 +28,7 @@ Semua memakai `guards.owner` (owner atau manager), `date_from`/`date_to` (WIB, m
 ### 2. Aturan angka = Ringkasan
 - Transaksi dihitung bila `status IN ('paid','void_requested')` (`COUNTED_STATUSES`) dan `deleted_at IS NULL`, berdasarkan `client_created_at` dalam hari bisnis WIB. **`void_requested` tetap dihitung** sampai owner memutuskan, sama dengan `/dashboard/summary` dan keputusan DEAR-155. `voided`, `cancelled`, `pending`, dan transaksi terhapus tidak dihitung.
 - Cup (`items_sold`) = `SUM(transaction_items.quantity)`. Semua item dihitung sebagai cup (DEAR-153/154); belum ada penanda produk non-minuman.
-- Rp per produk (`revenue`) = `SUM(transaction_items.line_total)`. Diskon/pajak tingkat transaksi tidak dibagi ke item, jadi `totals.revenue` bisa sedikit berbeda dari Omzet Ringkasan bila ada diskon/pajak. `share_pct` = `revenue` produk ÷ `totals.revenue` (seluruh produk pada scope + periode, **sebelum** filter `q`), satu desimal, sehingga total kolom % omzet ≈ 100%.
+- Rp per produk (`revenue`) = `SUM(transaction_items.line_total)`. Diskon/pajak tingkat transaksi tidak dibagi ke item, jadi `totals.revenue` bisa sedikit berbeda dari Omzet Ringkasan bila ada diskon/pajak. *(Diubah ADR-0023 §5: `revenue` menjadi bersih = `SUM(line_total - discount_amount)`, sehingga sama dengan Omzet Ringkasan selama pajak 0.)* `share_pct` = `revenue` produk ÷ `totals.revenue` (seluruh produk pada scope + periode, **sebelum** filter `q`), satu desimal, sehingga total kolom % omzet ≈ 100%.
 - Periode sebelumnya = panjang yang sama tepat sebelum periode ini (seperti summary). `*_change_pct` = `null` bila periode sebelumnya 0.
 
 ### 3. Kunci produk dan "Semua cabang"

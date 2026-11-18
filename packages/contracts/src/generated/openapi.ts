@@ -578,6 +578,12 @@ export interface paths {
          *     The server recomputes all totals from the submitted snapshot and rejects inconsistent math
          *     (`TOTAL_MISMATCH`). Snapshot prices that differ from the current catalog are accepted and flagged
          *     `price_mismatch`. The authenticated employee is recorded as the cashier of the transaction.
+         *     Item discounts (ADR-0023 §3): `unit_price` stays the normal catalog price, `discount_amount` of an item is the
+         *     per-unit discount of rule `discount_id` at `discount_version` times `quantity`, and the transaction
+         *     `discount_amount` must equal the sum of the item discounts (`TOTAL_MISMATCH`). A discount that does not follow
+         *     that rule version is `DISCOUNT_INVALID`; a valid version that does not apply at `client_created_at` or was
+         *     replaced more than 10 minutes before it is `DISCOUNT_STALE` (pull the catalog, recompute the cart, retry).
+         *     Items without discount fields (older apps) are accepted at the normal price.
          *     `number` must start with the outlet code and the device code (`{OUTLET}-{DEV}-`). A device clock more than
          *     10 minutes ahead (or behind, online) is accepted and recorded as `transaction.clock_skew` in the audit log.
          */
@@ -603,7 +609,8 @@ export interface paths {
          *     prefixed with `'` so spreadsheets do not run it as a formula. The export is written to the audit log
          *     (`transactions.exported`). Columns: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Jumlah item, Subtotal,
          *     Diskon, Pajak, Total`; with `detail=true`: `Nomor, Waktu (WIB), Kasir, Status, Metode, Pelanggan, Produk, Qty,
-         *     Harga satuan, Total baris, Catatan` (one row per item). Transactions deleted by the owner (ADR-0019) are never exported.
+         *     Harga satuan, Total baris, Diskon, Total bersih, Promo, Catatan` (one row per item; `Total baris` = normal price ×
+         *     qty, `Total bersih` = after the item discount, ADR-0023 §5). Transactions deleted by the owner (ADR-0019) are never exported.
          */
         get: operations["exportTransactions"];
         put?: never;
@@ -908,6 +915,10 @@ export interface paths {
          * @description Without `cursor` the response is a full snapshot (no tombstones). Rows are upserted by id; deletions arrive as
          *     `changes.deleted` tombstones. Repeat while `has_more` is true, then keep `next_cursor`.
          *     Employee `pin_hash` is only filled when the owner enabled offline login.
+         *     `changes.discounts` carries the discount rules of the device's outlet (ADR-0023 §4); a deleted or deactivated
+         *     discount, or one this outlet was removed from, arrives as a `discount` tombstone. A full snapshot only holds
+         *     active discounts that have not ended. Apps send `X-App-Version` so the owner sees devices that cannot apply
+         *     discounts yet (`GET /discounts` `outdated_devices`).
          */
         get: operations["syncPull"];
         put?: never;
@@ -932,8 +943,10 @@ export interface paths {
          * @description Mutations are applied in order, each in its own database transaction; a rejected mutation does not stop the batch.
          *     `applied` = done now, `duplicate` = already applied earlier (safe replay), `rejected` = business rule failed, see `code`
          *     (e.g. `TOTAL_MISMATCH`, `PRODUCT_UNAVAILABLE`, `NUMBER_CONFLICT`, `SHIFT_CLOSED`, `PENDING_QRIS_EXISTS`, `QRIS_NOT_SYNCABLE`,
-         *     `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`).
-         *     Real sales are never dropped: stale prices and unavailable products are accepted and flagged, sales for an already closed
+         *     `EMPLOYEE_REQUIRED`, `EMPLOYEE_UNKNOWN`, `ID_MISMATCH`, `VALIDATION_ERROR`, `UNKNOWN_MUTATION`, `UNSUPPORTED_MUTATION`,
+         *     `DISCOUNT_INVALID`).
+         *     Real sales are never dropped: stale prices, stale discount rule versions (ADR-0023 §3, flagged `price_mismatch` and
+         *     audited `sync.discount_stale`) and unavailable products are accepted and flagged, sales for an already closed
          *     shift are accepted (flagged `after_shift_close` when created after `closed_at`, otherwise the closed shift's totals are
          *     recomputed). `void_request.create` is rejected with `UNSUPPORTED_MUTATION` until void requests ship.
          */
@@ -958,6 +971,9 @@ export interface paths {
          *     period. `compare_previous_period` compares with the period of the same length right before it
          *     (`revenue_change_pct` and `items_sold_change_pct` are `null` when that period had none).
          *     `items_sold` is the sum of item quantities (cups) of the same transactions as `revenue`.
+         *     `revenue` (Omzet) = sum of `total` = `gross_sales - discount_total + tax`; with no tax it is the net sales
+         *     (omzet bersih). `gross_sales` (omzet kotor) = sum of `subtotal` (normal prices), `discount_total` = sum of
+         *     `discount_amount` (ADR-0023 §5).
          *     `outlet_scope=all` (owner only, else `403`) merges every outlet where the caller is owner into the top-level
          *     fields and fills `by_outlet` (ordered by outlet code); with `current` (default) `by_outlet` is `[]`. Owner only.
          */
@@ -1001,7 +1017,7 @@ export interface paths {
         };
         /**
          * Best-selling products by quantity and revenue (O-02)
-         * @description Ranked by quantity, then revenue. Counts `paid` and `void_requested` sales only; `product_name` is the newest sale snapshot.
+         * @description Ranked by quantity, then revenue. Counts `paid` and `void_requested` sales only; `product_name` is the newest sale snapshot. `revenue` is net of item discounts (sum of `line_total - discount_amount`, ADR-0023 §5).
          */
         get: operations["getTopProducts"];
         put?: never;
@@ -1025,7 +1041,9 @@ export interface paths {
          *     items (cups) sold (sum of `transaction_items.quantity`; for `group_by=payment_method` and `employee` it covers
          *     the items of those transactions), `transaction_count` the number of transactions, and `revenue` the amount in
          *     Rupiah. `group_by=product` gives cups per product; `group_by=payment_method` gives Rp and transaction count per
-         *     method (`cash`, `qris`).
+         *     method (`cash`, `qris`). `revenue` is net of discounts (ADR-0023 §5): for `group_by=product` the sum of
+         *     `line_total - discount_amount` of the items, otherwise the sum of `total`. `gross_revenue` is the same before
+         *     discounts and `discount_amount` the difference.
          */
         get: operations["getSalesReport"];
         put?: never;
@@ -1047,8 +1065,9 @@ export interface paths {
          * Sales per product for the Ringkasan card "Penjualan per Produk" (ADR-0022)
          * @description Every product of the scope with its cups, Rupiah and share of the period. Counting rule of
          *     `GET /dashboard/summary`: transactions `paid` or `void_requested`, not deleted, `client_created_at` in the WIB
-         *     period. `items_sold` = sum of item quantities (cups), `revenue` = sum of `line_total` (transaction-level
-         *     discount/tax is not allocated to items). `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
+         *     period. `items_sold` = sum of item quantities (cups), `revenue` = net sales of the product = sum of
+         *     `line_total - discount_amount` (ADR-0023 §5), `gross_revenue` = sum of `line_total` (normal prices),
+         *     `discount_amount` = their difference. Tax is not allocated to items. `share_pct` = `revenue` ÷ `totals.revenue`, where `totals` covers every
          *     product of the scope and period **before** `q` is applied. Active, non-deleted catalog products without sales
          *     are included with zeros; deleted or inactive products appear only when they sold in the period.
          *     With `outlet_scope=current` there is one row per product of the active outlet. With `all` rows are merged across
@@ -1075,8 +1094,9 @@ export interface paths {
         /**
          * Export the per-product sales list as Excel or CSV (ADR-0022)
          * @description Every row of `GET /reports/products` for the same `outlet_scope`, period, `sort` and `order` (no `q`: the file
-         *     always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Total (Rp),
-         *     % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`), followed by a total row. Amounts whole
+         *     always holds the whole list, not only the visible or searched rows). Columns: `Produk, Kategori, Cup, Kotor (Rp),
+         *     Diskon (Rp), Bersih (Rp), % omzet, Periode, Cabang` (`Cabang` = outlet name, or `Semua cabang`; ADR-0023 §5),
+         *     followed by a total row. Amounts whole
          *     Rupiah, `% omzet` one decimal. CSV UTF-8 with BOM, CRLF and formula-injection guard exactly like
          *     `GET /transactions/export`. File name `penjualan-produk_<date_from>_<date_to>.<format>`. Audited as
          *     `reports.products_exported`. Owner or manager; `outlet_scope=all` is owner only (`403`).
@@ -1326,6 +1346,147 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List item discounts (menu Diskon)
+         * @description Discounts that cover the active outlet (`outlet_scope=current`) or any outlet where the caller is owner (`all`,
+         *     owner only, else `403`). `status` is derived on today's local date (ADR-0023 §6): `deleted` (owner only), then
+         *     `inactive`, `scheduled`, `ended`, `active`; without `status` every non-deleted discount is listed. Ordered by
+         *     status (`active`, `scheduled`, `inactive`, `ended`), then `starts_on` desc, then name. No pagination (tens of
+         *     rows). A manager only sees discounts of their outlet, cut down to that outlet (`outlets` holds one entry).
+         *     `outdated_devices` lists active paired devices of the scope whose app version cannot apply discounts yet
+         *     (older than the server's `DISCOUNT_MIN_APP_VERSION`, or unknown). Owner or manager.
+         */
+        get: operations["listDiscounts"];
+        put?: never;
+        /**
+         * Create an item discount (owner only)
+         * @description The discount applies in the outlets of its targets (`product_ids` or `category_ids`, matching `target_type`);
+         *     the caller must be owner in every one of them (`403`). Targets that do not exist or are deleted are
+         *     `422 DISCOUNT_TARGET_INVALID`. Writes `discount_history` (`create`, version 1) and `audit_logs`
+         *     (`discount.created`) in one database transaction; cashier devices receive it on their next `/sync/pull`.
+         */
+        post: operations["createDiscount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/discounts/target-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Products and categories to pick as discount targets, grouped across branches
+         * @description Active, non-deleted products and non-deleted categories of the scope, grouped by normalized name (lower case,
+         *     trimmed, inner spaces collapsed; ADR-0022 §3) so "Jus Mangga" of Ragunan and Palmerah is one option carrying
+         *     both ids. Picking an option sends every id of `outlets[]` (or of the outlets the owner chose). Ordered by name.
+         *     Owner only; `outlet_scope=all` = every outlet where the caller is owner.
+         */
+        get: operations["listDiscountTargetOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/discounts/{discount_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discount detail with its change history
+         * @description Owner: a discount with at least one outlet where the caller is owner (deleted ones included). Manager: only a
+         *     non-deleted discount covering their outlet, cut down to that outlet, with `history[].snapshot` and `changes`
+         *     omitted; other discounts are `404`.
+         */
+        get: operations["getDiscount"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a discount (owner only; soft delete)
+         * @description Sets `deleted_*`, `version + 1`, appends `discount_history` (`delete`) and `audit_logs` (`discount.deleted`).
+         *     Devices receive a tombstone. Past transactions keep their discount snapshot. Idempotent: an already deleted
+         *     discount answers `200` and the new reason is ignored.
+         */
+        delete: operations["deleteDiscount"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit, deactivate or reactivate a discount (owner only)
+         * @description `version` must equal the stored version, else `409 DISCOUNT_VERSION_CONFLICT` (someone else changed it; reload).
+         *     Only sent fields change; `product_ids`/`category_ids` replace the whole target list (and with it the outlets).
+         *     Changing `target_type` needs the matching id list. The caller must be owner in every outlet before and after the
+         *     change (`403`). `is_active: false` is "Nonaktifkan". A deleted discount cannot be edited (`409 DISCOUNT_DELETED`).
+         *     A no-op answers `200` without a new version. Otherwise `version + 1`, `discount_history`
+         *     (`update`, `activate` or `deactivate`, with `changes`) and `audit_logs` in one database transaction.
+         */
+        patch: operations["updateDiscount"];
+        trace?: never;
+    };
+    "/reports/discounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales per discount (promo) in the period (ADR-0023 §5)
+         * @description Counting rule of `GET /dashboard/summary`. One row per discount used by at least one counted item in the period
+         *     (deleted discounts included, current name), ordered by `discount_total` desc. `items_sold` = cups of the
+         *     discounted items, `transaction_count` = transactions with at least one of them, `gross_revenue` /
+         *     `discount_total` / `revenue` = sum of `line_total` / `discount_amount` / `line_total - discount_amount` of those
+         *     items. `totals` adds `sales_gross` / `sales_discount_total` of every counted transaction (also without promo),
+         *     equal to `gross_sales` / `discount_total` of the summary. Owner or manager; `outlet_scope=all` is owner only.
+         */
+        get: operations["getDiscountSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/discounts/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the per-discount report as Excel or CSV (ADR-0023 §5)
+         * @description Rows of `GET /reports/discounts`. Columns: `Promo, Jenis, Nilai, Transaksi, Cup, Kotor (Rp), Diskon (Rp),
+         *     Bersih (Rp), Periode, Cabang`, followed by a total row. CSV/XLSX conventions and formula-injection guard of
+         *     `GET /reports/products/export`. File name `diskon_<date_from>_<date_to>.<format>`. Audited as
+         *     `reports.discounts_exported`. Owner or manager; `outlet_scope=all` is owner only.
+         */
+        get: operations["exportDiscountSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -1543,7 +1704,7 @@ export interface components {
          *     Codes marked (planned) belong to endpoints that are specified but not implemented yet.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "TRANSACTION_NOT_DELETABLE" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "EXPENSE_DELETED" | "EXPENSE_CATEGORY_ARCHIVED" | "EXPENSE_CATEGORY_NAME_TAKEN" | "INVALID_RECEIPT_URL" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE";
+        ErrorCode: "VALIDATION_ERROR" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "UNSUPPORTED_MEDIA_TYPE" | "INTERNAL_ERROR" | "INVALID_CREDENTIALS" | "ACCOUNT_LOCKED" | "DEVICE_REVOKED" | "INVALID_PAIRING_CODE" | "DEVICE_LIMIT_REACHED" | "INVALID_PIN" | "PIN_LOCKED" | "PIN_NOT_UNIQUE" | "ID_CONFLICT" | "ID_REUSED" | "NUMBER_CONFLICT" | "CATEGORY_NOT_EMPTY" | "INVALID_QRIS_PAYLOAD" | "QRIS_PAYLOAD_REQUIRED" | "UPLOADS_NOT_CONFIGURED" | "NOTIFICATIONS_NOT_CONFIGURED" | "INVALID_PUSH_SUBSCRIPTION" | "NOTIFICATION_SUBSCRIPTION_GONE" | "PUSH_DELIVERY_FAILED" | "SHIFT_ALREADY_OPEN" | "SHIFT_CLOSED" | "SHIFT_NOT_OPEN" | "PENDING_QRIS_EXISTS" | "TOTAL_MISMATCH" | "CASH_INSUFFICIENT" | "PRODUCT_UNAVAILABLE" | "EMPLOYEE_UNKNOWN" | "QRIS_PROVIDER_UNAVAILABLE" | "QRIS_NOT_SYNCABLE" | "CONFIRMATION_NOT_ALLOWED" | "PAYMENT_NOT_PENDING" | "EMPLOYEE_REQUIRED" | "ID_MISMATCH" | "UNKNOWN_MUTATION" | "UNSUPPORTED_MUTATION" | "TRANSACTION_NOT_VOIDABLE" | "VOID_ALREADY_DECIDED" | "TRANSACTION_NOT_DELETABLE" | "INVALID_OWNER_PIN" | "OWNER_PIN_LOCKED" | "EXPENSE_DELETED" | "EXPENSE_CATEGORY_ARCHIVED" | "EXPENSE_CATEGORY_NAME_TAKEN" | "INVALID_RECEIPT_URL" | "IMPORT_FILE_TOO_LARGE" | "IMPORT_FILE_UNREADABLE" | "IMPORT_COLUMNS_INVALID" | "IMPORT_TOO_MANY_ROWS" | "IMPORT_HAS_ERRORS" | "IMPORT_TOKEN_INVALID" | "IMPORT_STALE" | "DISCOUNT_INVALID" | "DISCOUNT_STALE" | "DISCOUNT_TARGET_INVALID" | "DISCOUNT_VERSION_CONFLICT" | "DISCOUNT_DELETED";
         Problem: {
             /** Format: uri */
             type: string;
@@ -1865,12 +2026,21 @@ export interface components {
             product_id: string;
             /** @description Snapshot */
             product_name: string;
-            /** @description Snapshot of the product price */
+            /** @description Snapshot of the normal product price (before any discount) */
             unit_price: components["schemas"]["Rupiah"];
             quantity: number;
             note?: string;
-            /** @description unit_price * quantity */
+            /** @description unit_price * quantity (before discount) */
             line_total: components["schemas"]["Rupiah"];
+            /**
+             * Format: uuid
+             * @description Discount rule applied to this item (ADR-0023); omit or `null` without discount
+             */
+            discount_id?: string | null;
+            /** @description `version` of the synced `DiscountRule` used; required with `discount_id` */
+            discount_version?: number | null;
+            /** @description Per-unit discount of that rule version × `quantity`, at most `line_total`; omitted = 0 */
+            discount_amount?: components["schemas"]["Rupiah"];
         };
         CashPaymentInput: {
             /** Format: uuid */
@@ -1908,7 +2078,10 @@ export interface components {
             customer_label?: string;
             items: components["schemas"]["TransactionItemInput"][];
             subtotal: components["schemas"]["Rupiah"];
-            /** @default 0 */
+            /**
+             * @description Sum of the item `discount_amount` values (ADR-0023 §1)
+             * @default 0
+             */
             discount_amount: components["schemas"]["Rupiah"];
             /** @default 0 */
             tax_amount: components["schemas"]["Rupiah"];
@@ -1977,9 +2150,20 @@ export interface components {
                 /** Format: uuid */
                 product_id?: string | null;
                 product_name: string;
+                /** @description Normal price snapshot */
                 unit_price: components["schemas"]["Rupiah"];
                 quantity: number;
+                /** @description unit_price * quantity (before discount) */
                 line_total: components["schemas"]["Rupiah"];
+                /**
+                 * Format: uuid
+                 * @description ADR-0023
+                 */
+                discount_id?: string | null;
+                /** @description Name of the discount at sale time */
+                discount_name?: string | null;
+                /** @description Discount of this line; net line = `line_total - discount_amount` */
+                discount_amount?: components["schemas"]["Rupiah"];
                 note?: string | null;
             }[];
             payments: components["schemas"]["Payment"][];
@@ -2105,9 +2289,11 @@ export interface components {
                     pin_hash?: string | null;
                 }[];
                 settings?: components["schemas"]["OutletSettings"] | null;
+                /** @description Discount rules of this outlet (ADR-0023 §4) */
+                discounts?: components["schemas"]["DiscountRule"][];
                 deleted?: {
                     /** @enum {string} */
-                    entity: "category" | "product" | "employee";
+                    entity: "category" | "product" | "employee" | "discount";
                     /** Format: uuid */
                     id: string;
                 }[];
@@ -2329,6 +2515,213 @@ export interface components {
                 total: components["schemas"]["ExpenseReportCell"];
             };
         };
+        /**
+         * @description `percent` = whole percent of the normal price (rounded half up per unit); `amount` = Rupiah off per unit, capped at the price
+         * @enum {string}
+         */
+        DiscountType: "percent" | "amount";
+        /** @enum {string} */
+        DiscountTargetType: "product" | "category";
+        /**
+         * @description Derived on the local date (ADR-0023 §6); the hour schedule does not change it
+         * @enum {string}
+         */
+        DiscountStatus: "active" | "scheduled" | "ended" | "inactive" | "deleted";
+        /** @description Local time `HH:MM` of the outlet (WIB) */
+        DiscountTime: string;
+        DiscountRuleFields: {
+            name: string;
+            target_type: components["schemas"]["DiscountTargetType"];
+            type: components["schemas"]["DiscountType"];
+            /** @description Percent 1-100 for `percent`, Rupiah for `amount` */
+            value: number;
+            /**
+             * Format: date
+             * @description First day, inclusive, outlet local date
+             */
+            starts_on: string;
+            /**
+             * Format: date
+             * @description Last day, inclusive; `null` = no end. Not before `starts_on`
+             */
+            ends_on?: string | null;
+            /** @description ISO weekdays 1 = Monday … 7 = Sunday; `null` = every day */
+            days_of_week?: number[] | null;
+            /** @description Happy hour start, inclusive; set together with `time_end` */
+            time_start?: components["schemas"]["DiscountTime"] | null;
+            /** @description Happy hour end, exclusive; after `time_start` (no overnight window) */
+            time_end?: components["schemas"]["DiscountTime"] | null;
+        };
+        DiscountInput: components["schemas"]["DiscountRuleFields"] & {
+            /** @default true */
+            is_active: boolean;
+            /** @description Required when `target_type` = `product`; products of any outlet where the caller is owner */
+            product_ids?: string[];
+            /** @description Required when `target_type` = `category` */
+            category_ids?: string[];
+        };
+        /** @description Partial update; `version` is the version the owner edited (optimistic lock). */
+        DiscountUpdate: {
+            version: number;
+            name?: string;
+            target_type?: components["schemas"]["DiscountTargetType"];
+            type?: components["schemas"]["DiscountType"];
+            value?: number;
+            /** Format: date */
+            starts_on?: string;
+            /** Format: date */
+            ends_on?: string | null;
+            days_of_week?: number[] | null;
+            time_start?: components["schemas"]["DiscountTime"] | null;
+            time_end?: components["schemas"]["DiscountTime"] | null;
+            is_active?: boolean;
+            product_ids?: string[];
+            category_ids?: string[];
+        };
+        DiscountProductRef: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Current normal price; the final price is computed with the shared discount formula */
+            price: components["schemas"]["Rupiah"];
+            /** Format: uuid */
+            category_id: string;
+        };
+        DiscountOutlet: {
+            outlet: components["schemas"]["OutletRef"];
+            /** @description Targeted products (`target_type` = `product`), else `[]` */
+            products: components["schemas"]["DiscountProductRef"][];
+            /** @description Targeted categories (`target_type` = `category`), else `[]` */
+            categories: components["schemas"]["Category"][];
+        };
+        Discount: components["schemas"]["DiscountRuleFields"] & {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            is_active: boolean;
+            status: components["schemas"]["DiscountStatus"];
+            /** @description Outlets where the discount applies, ordered by outlet code (a manager only gets their own) */
+            outlets: components["schemas"]["DiscountOutlet"][];
+            created_by: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            created_at: string;
+            updated_by: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            updated_at: string;
+            deleted: components["schemas"]["TransactionDeleted"] | null;
+        };
+        DiscountHistoryEvent: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** @enum {string} */
+            action: "create" | "update" | "activate" | "deactivate" | "delete";
+            /** @description `{ "<field>": { "from": ..., "to": ... } }` with `DiscountUpdate` field names; owner only */
+            changes?: {
+                [key: string]: {
+                    from: unknown;
+                    to: unknown;
+                };
+            } | null;
+            /** @description Delete reason */
+            reason: string | null;
+            actor: components["schemas"]["UserRef"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        DiscountDetail: components["schemas"]["Discount"] & {
+            /** @description Oldest first */
+            history: components["schemas"]["DiscountHistoryEvent"][];
+        };
+        DiscountOutdatedDevice: {
+            /** Format: uuid */
+            device_id: string;
+            outlet: components["schemas"]["OutletRef"];
+            code: string;
+            name: string;
+            app_version: string | null;
+            /** Format: date-time */
+            last_seen_at: string | null;
+        };
+        DiscountTargetOptions: {
+            products: {
+                /** @description `name:<normalized name>` */
+                key: string;
+                name: string;
+                outlets: {
+                    outlet: components["schemas"]["OutletRef"];
+                    /** Format: uuid */
+                    product_id: string;
+                    price: components["schemas"]["Rupiah"];
+                    /** Format: uuid */
+                    category_id: string;
+                    category_name: string;
+                }[];
+            }[];
+            categories: {
+                key: string;
+                name: string;
+                outlets: {
+                    outlet: components["schemas"]["OutletRef"];
+                    /** Format: uuid */
+                    category_id: string;
+                    /** @description Active products in the category now */
+                    product_count: number;
+                }[];
+            }[];
+        };
+        /** @description Discount rule as synced to a cashier device, targets of that device's outlet only (ADR-0023 §4) */
+        DiscountRule: {
+            /** Format: uuid */
+            id: string;
+            /** @description Send as `discount_version` on discounted items */
+            version: number;
+            name: string;
+            type: components["schemas"]["DiscountType"];
+            value: number;
+            target_type: components["schemas"]["DiscountTargetType"];
+            product_ids: string[];
+            category_ids: string[];
+            /** Format: date */
+            starts_on: string;
+            /** Format: date */
+            ends_on: string | null;
+            days_of_week: number[] | null;
+            time_start: string | null;
+            time_end: string | null;
+            /** @description Local time of the outlet = UTC + this (WIB = 420); never the phone time zone */
+            utc_offset_minutes: number;
+        };
+        DiscountSalesRow: {
+            /** Format: uuid */
+            discount_id: string;
+            name: string;
+            type: components["schemas"]["DiscountType"];
+            value: number;
+            transaction_count: number;
+            items_sold: number;
+            gross_revenue: components["schemas"]["Rupiah"];
+            discount_total: components["schemas"]["Rupiah"];
+            /** @description Net (after discount) */
+            revenue: components["schemas"]["Rupiah"];
+        };
+        DiscountSalesReport: {
+            /** @enum {string} */
+            outlet_scope: "current" | "all";
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            totals: {
+                /** @description Sum of the rows */
+                discount_total: components["schemas"]["Rupiah"];
+                /** @description `gross_sales` of `GET /dashboard/summary` */
+                sales_gross: components["schemas"]["Rupiah"];
+                /** @description `discount_total` of `GET /dashboard/summary` */
+                sales_discount_total: components["schemas"]["Rupiah"];
+            };
+            data: components["schemas"]["DiscountSalesRow"][];
+        };
         /** @description Change vs the previous period of the same length in percent, one decimal; `null` when that period had none. */
         ChangePct: number | null;
         ProductSalesRow: {
@@ -2343,7 +2736,12 @@ export interface components {
             category_name: string | null;
             /** @description Cups (sum of item quantities) */
             items_sold: number;
+            /** @description Net: sum of `line_total - discount_amount` (ADR-0023) */
             revenue: components["schemas"]["Rupiah"];
+            /** @description Sum of `line_total` (normal prices) */
+            gross_revenue?: components["schemas"]["Rupiah"];
+            /** @description `gross_revenue - revenue` */
+            discount_amount?: components["schemas"]["Rupiah"];
             /** @description Share of `totals.revenue`, one decimal */
             share_pct: number;
             transaction_count: number;
@@ -2361,6 +2759,8 @@ export interface components {
             totals: {
                 items_sold: number;
                 revenue: components["schemas"]["Rupiah"];
+                gross_revenue?: components["schemas"]["Rupiah"];
+                discount_amount?: components["schemas"]["Rupiah"];
                 product_count: number;
             };
             data: components["schemas"]["ProductSalesRow"][];
@@ -2378,8 +2778,11 @@ export interface components {
             /** Format: date */
             date_to: string;
             items_sold: number;
+            /** @description Net of item discounts (ADR-0023) */
             revenue: components["schemas"]["Rupiah"];
-            /** @description `floor(revenue / items_sold)`, 0 without sales */
+            gross_revenue?: components["schemas"]["Rupiah"];
+            discount_amount?: components["schemas"]["Rupiah"];
+            /** @description `floor(revenue / items_sold)` (net), 0 without sales */
             average_price: components["schemas"]["Rupiah"];
             share_pct: number;
             transaction_count: number;
@@ -2414,7 +2817,12 @@ export interface components {
             }[];
         };
         DashboardSummary: {
+            /** @description Omzet: sum of `total` = `gross_sales - discount_total + tax` */
             revenue: components["schemas"]["Rupiah"];
+            /** @description Omzet kotor: sum of `subtotal` (normal prices, ADR-0023 §5) */
+            gross_sales?: components["schemas"]["Rupiah"];
+            /** @description Sum of `discount_amount` (ADR-0023 §5) */
+            discount_total?: components["schemas"]["Rupiah"];
             transaction_count: number;
             /** @description Rounded down to whole Rupiah */
             average_ticket: components["schemas"]["Rupiah"];
@@ -2439,6 +2847,8 @@ export interface components {
                 outlet_id: string;
                 outlet_name: string;
                 revenue: components["schemas"]["Rupiah"];
+                gross_sales?: components["schemas"]["Rupiah"];
+                discount_total?: components["schemas"]["Rupiah"];
                 cash_revenue: components["schemas"]["Rupiah"];
                 qris_revenue: components["schemas"]["Rupiah"];
                 cash_count: number;
@@ -2663,6 +3073,7 @@ export interface components {
         DateTo: string;
         ExpenseId: string;
         ExpenseCategoryId: string;
+        DiscountId: string;
         /**
          * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
          *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
@@ -3867,7 +4278,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN` */
+            /** @description `TOTAL_MISMATCH`, `CASH_INSUFFICIENT`, `PRODUCT_UNAVAILABLE` (unknown, deleted, inactive or sold out), `EMPLOYEE_UNKNOWN`, `DISCOUNT_INVALID`, `DISCOUNT_STALE` (ADR-0023 §3) */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4582,6 +4993,10 @@ export interface operations {
                             /** @description Number of transactions in the group */
                             transaction_count: number;
                             revenue: components["schemas"]["Rupiah"];
+                            /** @description Before discounts (ADR-0023) */
+                            gross_revenue?: components["schemas"]["Rupiah"];
+                            /** @description `gross_revenue - revenue` (ADR-0023) */
+                            discount_amount?: components["schemas"]["Rupiah"];
                         }[];
                     };
                 };
@@ -5158,6 +5573,274 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExpenseReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listDiscounts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                status?: components["schemas"]["DiscountStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Discount"][];
+                        outdated_devices: components["schemas"]["DiscountOutdatedDevice"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createDiscount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscountInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Discount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `DISCOUNT_TARGET_INVALID` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listDiscountTargetOptions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscountTargetOptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getDiscount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                discount_id: components["parameters"]["DiscountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discount */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscountDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteDiscount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                discount_id: components["parameters"]["DiscountId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionDeleteInput"];
+            };
+        };
+        responses: {
+            /** @description Deleted (or already deleted) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Discount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateDiscount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                discount_id: components["parameters"]["DiscountId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Discount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `DISCOUNT_VERSION_CONFLICT` or `DISCOUNT_DELETED` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `DISCOUNT_TARGET_INVALID` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDiscountSalesReport: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscountSalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    exportDiscountSalesReport: {
+        parameters: {
+            query: {
+                format: "csv" | "xlsx";
+                /**
+                 * @description `current` = the active outlet of the token (default). `all` = every outlet where the caller has the `owner` role
+                 *     ("Semua cabang", ADR-0020); a caller whose role in the active outlet is `manager` gets `403 FORBIDDEN`.
+                 */
+                outlet_scope?: components["parameters"]["OutletScope"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description Inclusive business date (WIB) (2000-01-01 to 2099-12-31) */
+                date_to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
             400: components["responses"]["BadRequest"];
