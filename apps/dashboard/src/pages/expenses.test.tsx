@@ -255,12 +255,14 @@ describe('expenses list and form', () => {
   });
 
   it('shows the Rekap warning when the date is before operations started', async () => {
+    // Relative to today so the form's default date is always before the start date.
+    const future = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
     const started = {
       ...twoBranches,
       user: {
         ...twoBranches.user,
         outlets: [
-          { ...outletRef(RGN, 'RGN', 'Ragunan', 'owner'), operations_started_on: '2026-11-10' },
+          { ...outletRef(RGN, 'RGN', 'Ragunan', 'owner'), operations_started_on: future },
           outletRef(PLM, 'PLM', 'Palmerah', 'owner'),
         ],
       },
@@ -271,7 +273,7 @@ describe('expenses list and form', () => {
           outlet: {},
           display_name: 'X',
           qris_mode: 'static',
-          operations_started_on: '2026-11-10',
+          operations_started_on: future,
         }),
     });
     renderApp('/pengeluaran');
