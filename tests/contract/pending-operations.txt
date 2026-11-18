@@ -2,3 +2,12 @@
 # Remove a line when the Backend ships the endpoint so the contract test starts covering it.
 # Webhook is for a dynamic QRIS provider; MVP uses static QRIS (ADR), so it is not implemented yet.
 paymentWebhook  # POST /webhooks/payments/{provider}
+# Item discounts (ADR-0023, DEAR-184): remove each line when the Backend ships it.
+listDiscounts  # GET /discounts
+createDiscount  # POST /discounts
+listDiscountTargetOptions  # GET /discounts/target-options
+getDiscount  # GET /discounts/{discount_id}
+updateDiscount  # PATCH /discounts/{discount_id}
+deleteDiscount  # DELETE /discounts/{discount_id}
+getDiscountSalesReport  # GET /reports/discounts
+exportDiscountSalesReport  # GET /reports/discounts/export

@@ -64,6 +64,16 @@ export type ExpenseDeleteInput = Schemas['ExpenseDeleteInput'];
 export type ExpenseHistoryEvent = Schemas['ExpenseHistoryEvent'];
 export type ExpenseReport = Schemas['ExpenseReport'];
 export type ExpenseReportCell = Schemas['ExpenseReportCell'];
+export type Discount = Schemas['Discount'];
+export type DiscountDetail = Schemas['DiscountDetail'];
+export type DiscountInput = Schemas['DiscountInput'];
+export type DiscountUpdate = Schemas['DiscountUpdate'];
+export type DiscountStatus = Schemas['DiscountStatus'];
+export type DiscountType = Schemas['DiscountType'];
+export type DiscountRule = Schemas['DiscountRule'];
+export type DiscountHistoryEvent = Schemas['DiscountHistoryEvent'];
+export type DiscountTargetOptions = Schemas['DiscountTargetOptions'];
+export type DiscountSalesReport = Schemas['DiscountSalesReport'];
 export type OutletScope = NonNullable<
   operations['getExpenseReport']['parameters']['query']
 >['outlet_scope'];
