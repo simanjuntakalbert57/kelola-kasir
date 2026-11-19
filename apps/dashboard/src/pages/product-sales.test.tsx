@@ -30,6 +30,8 @@ const manager = {
 
 const summary = {
   revenue: 1325000,
+  gross_sales: 1325000,
+  discount_total: 0,
   transaction_count: 66,
   average_ticket: 20075,
   cash_revenue: 820000,
@@ -50,6 +52,8 @@ const row = (i: number, extra: Record<string, unknown> = {}) => ({
   category_name: 'Jus',
   items_sold: 100 - i,
   revenue: (100 - i) * 10000,
+  gross_revenue: (100 - i) * 10000,
+  discount_amount: 0,
   share_pct: 10,
   transaction_count: 5,
   has_sales: true,
@@ -149,11 +153,11 @@ describe('Kartu Penjualan per Produk', () => {
           x.key.includes('sort=items_sold'),
       ),
     ).toBe(true);
-    await userEvent.click(c.getByRole('button', { name: /^Total/ }));
+    await userEvent.click(c.getByRole('button', { name: /^Bersih/ }));
     await waitFor(() =>
       expect(calls.some((x) => x.key.includes('sort=revenue&order=desc'))).toBe(true),
     );
-    expect(c.getByRole('columnheader', { name: /Total/ })).toHaveAttribute(
+    expect(c.getByRole('columnheader', { name: /Bersih/ })).toHaveAttribute(
       'aria-sort',
       'descending',
     );

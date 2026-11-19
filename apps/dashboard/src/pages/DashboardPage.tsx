@@ -126,14 +126,20 @@ function BranchBreakdown({ rows }: { rows: OutletBreakdown[] }) {
     <Card className="mt-3 min-w-0">
       <h2 className="mb-3 text-lg">Per cabang</h2>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-left text-sm tabular-nums">
+        <table className="w-full min-w-[620px] text-left text-sm tabular-nums">
           <thead className="text-muted">
             <tr>
               <th scope="col" className="py-1 pr-3 font-bold">
                 Cabang
               </th>
               <th scope="col" className="px-3 py-1 text-right font-bold">
-                Omzet
+                Kotor
+              </th>
+              <th scope="col" className="px-3 py-1 text-right font-bold">
+                Diskon
+              </th>
+              <th scope="col" className="px-3 py-1 text-right font-bold">
+                Omzet bersih
               </th>
               <th scope="col" className="px-3 py-1 text-right font-bold">
                 Tunai
@@ -152,6 +158,10 @@ function BranchBreakdown({ rows }: { rows: OutletBreakdown[] }) {
                 <th scope="row" className="py-2 pr-3 font-extrabold">
                   {r.outlet_name}
                 </th>
+                <td className="px-3 py-2 text-right">{formatRupiah(r.gross_sales)}</td>
+                <td className="px-3 py-2 text-right">
+                  {r.discount_total > 0 ? `−${formatRupiah(r.discount_total)}` : '—'}
+                </td>
                 <td className="px-3 py-2 text-right">{formatRupiah(r.revenue)}</td>
                 <td className="px-3 py-2 text-right">{formatRupiah(r.cash_revenue)}</td>
                 <td className="px-3 py-2 text-right">{formatRupiah(r.qris_revenue)}</td>
@@ -292,6 +302,12 @@ export function DashboardPage() {
                   <p className="mt-2 text-sm font-bold">
                     {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))}%{' '}
                     {isToday ? 'dari kemarin' : 'dari periode lalu'}
+                  </p>
+                ) : null}
+                {s.discount_total > 0 ? (
+                  <p className="mt-2 text-sm font-bold tabular-nums">
+                    Kotor {formatRupiah(s.gross_sales)} · Diskon −{formatRupiah(s.discount_total)} ·
+                    Bersih {formatRupiah(s.revenue)}
                   </p>
                 ) : null}
                 <p className="mt-3 text-[15px] font-semibold">

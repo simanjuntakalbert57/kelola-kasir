@@ -16,6 +16,7 @@ import { DateRangePicker, initialRange, type RangeState } from '../components/Da
 import {
   Alert,
   Badge,
+  CheckboxField,
   Button,
   Card,
   Dialog,
@@ -81,12 +82,38 @@ export function DetailBody({ id }: { id: string }) {
               <li key={i.id} className="flex justify-between gap-3 py-2">
                 <span className="min-w-0">
                   {i.quantity}× {i.product_name}
+                  {i.discount_amount > 0 ? (
+                    <span className="block text-[13px] font-bold text-info-ink">
+                      Promo {i.discount_name ?? 'diskon'} −{formatRupiah(i.discount_amount)}
+                    </span>
+                  ) : null}
                   {i.note ? <span className="block text-[13px] text-muted">{i.note}</span> : null}
                 </span>
-                <span className="shrink-0">{formatRupiah(i.line_total)}</span>
+                <span className="shrink-0 text-right">
+                  {i.discount_amount > 0 ? (
+                    <>
+                      <s className="block text-[13px] text-muted">{formatRupiah(i.line_total)}</s>
+                      {formatRupiah(i.line_total - i.discount_amount)}
+                    </>
+                  ) : (
+                    formatRupiah(i.line_total)
+                  )}
+                </span>
               </li>
             ))}
           </ul>
+          {data.discount_amount > 0 ? (
+            <>
+              <p className="mt-2 flex justify-between text-muted">
+                <span>Subtotal (harga normal)</span>
+                <span>{formatRupiah(data.subtotal)}</span>
+              </p>
+              <p className="flex justify-between text-muted">
+                <span>Hemat (diskon)</span>
+                <span>−{formatRupiah(data.discount_amount)}</span>
+              </p>
+            </>
+          ) : null}
           <p className="mt-2 flex justify-between font-extrabold">
             <span>Total</span>
             <span>{formatRupiah(data.total)}</span>
@@ -217,6 +244,7 @@ export function TransactionsPage() {
   const [employeeId, setEmployeeId] = useState('');
   const [method, setMethod] = useState('');
   const [status, setStatus] = useState('');
+  const [stale, setStale] = useState(false);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const q = useDebounced(search.trim());
@@ -233,6 +261,7 @@ export function TransactionsPage() {
     shift_id: shiftId,
     payment_method: method,
     status,
+    discount_stale: stale || undefined,
   };
   const list = useInfiniteQuery({
     queryKey: ['transactions', filters, q],
@@ -244,18 +273,19 @@ export function TransactionsPage() {
   const rows = list.data?.pages.flatMap((p) => p.data) ?? [];
   const multiDay = state.range.from !== state.range.to;
   const singleToday = !multiDay && state.range.from === wibDate();
-  const filtered = Boolean(shiftId || employeeId || method || status || q);
+  const filtered = Boolean(shiftId || employeeId || method || status || stale || q);
   const reset = () => {
     setShiftId('');
     setEmployeeId('');
     setMethod('');
     setStatus('');
+    setStale(false);
     setSearch('');
   };
 
   const desktop = useIsDesktop();
   const [sheet, setSheet] = useState(false);
-  const activeFilters = [employeeId, method, status].filter(Boolean).length;
+  const activeFilters = [employeeId, method, status, stale].filter(Boolean).length;
 
   const filterFields = (
     <>
@@ -284,6 +314,11 @@ export function TransactionsPage() {
           </option>
         ))}
       </SelectField>
+      <CheckboxField
+        label="Promo basi (HP belum sinkron aturan diskon)"
+        checked={stale}
+        onChange={(e) => setStale(e.target.checked)}
+      />
     </>
   );
   const searchField = (

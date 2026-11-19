@@ -24,6 +24,7 @@ Butuh `psql` dan server PostgreSQL yang user-nya boleh `CREATE DATABASE`. `E2E_K
 | `void.spec.ts`            | TC-STM-05/06/09, TC-SHF-13, TC-RBAC-04                                                           |
 | `zz-deletion.spec.ts`     | TC-DEL-01..09 hapus transaksi + Riwayat Hapus (DEAR-124)                                         |
 | `zz-expenses.spec.ts`     | TC-EXP-01..06 cabang, pengeluaran, Rekap, tanggal mulai, hapus oleh manajer (DEAR-137, DEAR-143) |
+| `zz-discounts.spec.ts`    | Diskon item (DEAR-190): owner buat → badge Produk → nonaktifkan → hapus, manajer lihat saja      |
 | `zz-pagination.spec.ts`   | data >1 halaman (jalan terakhir; menambah banyak data)                                           |
 
 Test yang menandai bug terbuka memakai `test.fail(true, 'DEAR-xx: …')`: suite tetap hijau dan akan **merah** saat bug

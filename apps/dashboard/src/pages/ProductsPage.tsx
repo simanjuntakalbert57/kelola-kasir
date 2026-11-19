@@ -1,7 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Category, Product } from '@kelola-kasir/contracts';
-import { formatRupiah } from '@kelola-kasir/money';
+import {
+  formatRupiah,
+  isDiscountActive,
+  type DiscountQuote,
+  type DiscountRule,
+} from '@kelola-kasir/money';
+import { formatDiscountValue, quoteFor, useActiveRules } from '../lib/discounts';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -79,7 +85,15 @@ function CategoryDialog({ category, onClose }: { category: Category | null; onCl
   );
 }
 
-function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Category) => void }) {
+function CategoryRow({
+  category,
+  promo,
+  onEdit,
+}: {
+  category: Category;
+  promo: DiscountRule | undefined;
+  onEdit: (c: Category) => void;
+}) {
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
@@ -94,6 +108,7 @@ function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Cat
     <li className="rounded-2xl bg-bg p-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-extrabold">{category.name}</span>
+        {promo ? <Badge tone="info">Diskon {formatDiscountValue(promo)}</Badge> : null}
         <Button
           small
           onClick={() => onEdit(category)}
@@ -133,7 +148,13 @@ function CategoryRow({ category, onEdit }: { category: Category; onEdit: (c: Cat
   );
 }
 
-function CategoriesCard({ categories }: { categories: Category[] }) {
+function CategoriesCard({
+  categories,
+  rules,
+}: {
+  categories: Category[];
+  rules: readonly DiscountRule[];
+}) {
   const [editing, setEditing] = useState<Category | 'new' | null>(null);
   return (
     <Card className="mt-4 lg:mt-0">
@@ -150,7 +171,17 @@ function CategoriesCard({ categories }: { categories: Category[] }) {
       ) : (
         <ul className="space-y-1.5">
           {categories.map((c) => (
-            <CategoryRow key={c.id} category={c} onEdit={setEditing} />
+            <CategoryRow
+              key={c.id}
+              category={c}
+              promo={rules.find(
+                (r) =>
+                  r.target_type === 'category' &&
+                  r.category_ids.includes(c.id) &&
+                  isDiscountActive(r, new Date()),
+              )}
+              onEdit={setEditing}
+            />
           ))}
         </ul>
       )}
@@ -286,10 +317,12 @@ function ProductDialog({
 function ProductRow({
   product,
   categoryName,
+  quote,
   onEdit,
 }: {
   product: Product;
   categoryName: string;
+  quote: DiscountQuote | null;
   onEdit: (p: Product) => void;
 }) {
   const qc = useQueryClient();
@@ -323,15 +356,29 @@ function ProductRow({
         <p className="truncate font-extrabold">{product.name}</p>
         <p className="text-sm text-muted">
           {categoryName} ·{' '}
-          <span className="font-extrabold text-ink tabular-nums">
-            {formatRupiah(product.price)}
-          </span>
+          {quote ? (
+            <>
+              <s className="text-muted tabular-nums">{formatRupiah(product.price)}</s>{' '}
+              <span className="font-extrabold text-ink tabular-nums">
+                {formatRupiah(quote.finalUnitPrice)}
+              </span>
+            </>
+          ) : (
+            <span className="font-extrabold text-ink tabular-nums">
+              {formatRupiah(product.price)}
+            </span>
+          )}
         </p>
         <div className="mt-1 flex flex-wrap gap-1.5">
           <Badge tone={product.is_active ? 'ok' : 'off'}>
             {product.is_active ? 'Aktif' : 'Nonaktif'}
           </Badge>
           {product.is_sold_out ? <Badge tone="warn">Habis</Badge> : null}
+          {quote ? (
+            <Badge tone="info">
+              Diskon {formatDiscountValue(quote.rule)} · {quote.rule.name}
+            </Badge>
+          ) : null}
         </div>
         {soldOut.error ? (
           <p role="alert" className="mt-1 text-[13px] text-danger">
@@ -405,6 +452,7 @@ export function ProductsPage() {
       return api<{ data: Product[] }>(`/products${qs ? `?${qs}` : ''}`);
     },
   });
+  const rules = useActiveRules();
   const categories = cats.data?.data ?? [];
   const names = new Map(categories.map((c) => [c.id, c.name]));
 
@@ -501,13 +549,14 @@ export function ProductsPage() {
                   key={p.id}
                   product={p}
                   categoryName={names.get(p.category_id) ?? '—'}
+                  quote={quoteFor(rules, p)}
                   onEdit={setEditing}
                 />
               ))}
             </ul>
           ) : null}
         </div>
-        {cats.data ? <CategoriesCard categories={categories} /> : null}
+        {cats.data ? <CategoriesCard categories={categories} rules={rules} /> : null}
       </div>
       {editing ? (
         <ProductDialog

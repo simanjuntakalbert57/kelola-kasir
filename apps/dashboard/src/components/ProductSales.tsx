@@ -162,7 +162,7 @@ export function ProductSalesCard({
         {desktop ? (
           <div
             role="row"
-            className="grid grid-cols-[minmax(0,1fr)_72px_120px_150px] gap-3 border-b border-line px-2 pb-2 text-[13px] font-bold text-muted"
+            className="grid grid-cols-[minmax(0,1fr)_72px_110px_120px_150px] gap-3 border-b border-line px-2 pb-2 text-[13px] font-bold text-muted"
           >
             <HeaderCell
               label="Produk"
@@ -173,7 +173,8 @@ export function ProductSalesCard({
               align="left"
             />
             <HeaderCell label="Cup" sort="items_sold" cur={sort} order={order} onSort={pickSort} />
-            <HeaderCell label="Total" sort="revenue" cur={sort} order={order} onSort={pickSort} />
+            <span className="text-right">Diskon</span>
+            <HeaderCell label="Bersih" sort="revenue" cur={sort} order={order} onSort={pickSort} />
             <HeaderCell
               label="% omzet"
               sort="share_pct"
@@ -334,12 +335,15 @@ function ProductRow({
     </span>
   );
   const layout = desktop
-    ? 'grid-cols-[minmax(0,1fr)_72px_120px_150px] items-center'
+    ? 'grid-cols-[minmax(0,1fr)_72px_110px_120px_150px] items-center'
     : 'grid-cols-[minmax(0,1fr)_auto] items-center';
   const content = desktop ? (
     <>
       {name}
       <span className="text-right tabular-nums">{cups.format(row.items_sold)}</span>
+      <span className="text-right text-muted tabular-nums">
+        {row.discount_amount > 0 ? `−${formatRupiah(row.discount_amount)}` : '—'}
+      </span>
       <span className="text-right tabular-nums">{formatRupiah(row.revenue)}</span>
       <span className="grid gap-1 text-right tabular-nums">
         {oneDecimal.format(row.share_pct)}%
@@ -354,6 +358,11 @@ function ProductRow({
         <span className="block text-[13px] text-muted">
           {formatRupiah(row.revenue)} · {oneDecimal.format(row.share_pct)}%
         </span>
+        {row.discount_amount > 0 ? (
+          <span className="block text-[13px] text-info-ink">
+            Diskon −{formatRupiah(row.discount_amount)}
+          </span>
+        ) : null}
       </span>
       <span className="col-span-2">
         <ShareBar pct={row.share_pct} dim={dim} />
@@ -533,11 +542,16 @@ export function ProductDetailPanel({
                 {cups.format(d.items_sold)} cup
               </Stat>
               <Stat
-                label="Total Rp"
+                label="Total bersih"
                 note={<Delta pct={d.compare_previous_period.revenue_change_pct} vs={vsWord} />}
               >
                 {formatRupiah(d.revenue)}
               </Stat>
+              {d.discount_amount > 0 ? (
+                <Stat label="Diskon" note={`Kotor ${formatRupiah(d.gross_revenue)}`}>
+                  −{formatRupiah(d.discount_amount)}
+                </Stat>
+              ) : null}
               <Stat label="Harga rata-rata" note={`Harga katalog ${formatRupiah(d.catalog_price)}`}>
                 {formatRupiah(d.average_price)}
               </Stat>
