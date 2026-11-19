@@ -118,6 +118,79 @@ describe('Menu Diskon', () => {
     );
   });
 
+  it('edits a discount of another branch than the active one without losing its targets', async () => {
+    const PLM = '66666666-6666-4666-8666-666666666666';
+    const PLM_PRODUCT = '77777777-7777-4777-8777-777777777777';
+    const plm = { id: PLM, code: 'PLM', name: 'Palmerah', timezone: 'Asia/Jakarta' };
+    const twoBranches = {
+      ...session,
+      user: {
+        ...session.user,
+        outlets: [
+          session.user.outlets[0],
+          { ...session.user.outlets[0], id: PLM, code: 'PLM', name: 'Palmerah' },
+        ],
+      },
+    };
+    const calls = mockApi({
+      'POST /auth/refresh': () => json(twoBranches),
+      [`GET /discounts/${DISC}`]: () =>
+        json({
+          ...discount({
+            outlets: [
+              {
+                outlet: plm,
+                products: [
+                  { id: PLM_PRODUCT, name: 'Jus Mangga', price: 13000, category_id: 'c9' },
+                ],
+                categories: [],
+              },
+            ],
+          }),
+          history: [],
+        }),
+      'GET /discounts/target-options': () =>
+        json({
+          products: [
+            {
+              key: 'name:jus mangga',
+              name: 'Jus Mangga',
+              outlets: [
+                {
+                  outlet: outletRef,
+                  product_id: MANGGA,
+                  price: 12000,
+                  category_id: 'c1',
+                  category_name: 'Jus',
+                },
+                {
+                  outlet: plm,
+                  product_id: PLM_PRODUCT,
+                  price: 13000,
+                  category_id: 'c9',
+                  category_name: 'Jus',
+                },
+              ],
+            },
+          ],
+          categories: [],
+        }),
+      [`PATCH /discounts/${DISC}`]: () => json(discount()),
+      'GET /discounts': () => json({ data: [], outdated_devices: [] }),
+    });
+    renderApp(`/diskon/${DISC}`);
+    const box = await screen.findByRole('checkbox', { name: /Jus Mangga/ });
+    expect(box).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Simpan' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.key === `PATCH /discounts/${DISC}`)?.body).toMatchObject({
+        version: 3,
+        product_ids: [PLM_PRODUCT],
+      }),
+    );
+    expect(calls.some((c) => c.key.includes('outlet_scope=all'))).toBe(true);
+  });
+
   it('validates the form before calling the API', async () => {
     const calls = mockApi({
       'POST /auth/refresh': () => json(session),

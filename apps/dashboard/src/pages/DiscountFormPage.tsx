@@ -215,7 +215,7 @@ function Form({
         <Field
           label="Nama promo"
           value={f.name}
-          maxLength={80}
+          maxLength={60}
           onChange={(e) => set({ name: e.target.value })}
           error={show('name')}
         />
@@ -408,6 +408,15 @@ function Form({
   );
 }
 
+/** Target options limited to some branches; entries left without any branch are dropped. */
+export function restrictToOutlets(options: Options, outletIds: ReadonlySet<string>): Options {
+  const keep = <T extends { outlets: { outlet: { id: string } }[] }>(list: T[]): T[] =>
+    list
+      .map((x) => ({ ...x, outlets: x.outlets.filter((o) => outletIds.has(o.outlet.id)) }))
+      .filter((x) => x.outlets.length > 0);
+  return { products: keep(options.products), categories: keep(options.categories) };
+}
+
 /** Create (`/diskon/baru`) or edit (`/diskon/:id`) a discount. Owner only. */
 export function DiscountFormPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
@@ -421,11 +430,19 @@ export function DiscountFormPage() {
     enabled: Boolean(id),
   });
   const editScope = (detail.data?.outlets.length ?? 0) > 1 ? 'all' : scope;
+  // Editing loads every branch of the owner, so a discount of another branch than the active one still finds its
+  // targets; the options are then cut down to the branches the discount already covers.
+  const fetchScope = id ? 'all' : scope;
   const options = useQuery({
-    queryKey: [...DISCOUNT_KEY, 'options', editScope],
-    queryFn: () => api<Options>(`/discounts/target-options${qs({ outlet_scope: editScope })}`),
+    queryKey: [...DISCOUNT_KEY, 'options', fetchScope],
+    queryFn: () => api<Options>(`/discounts/target-options${qs({ outlet_scope: fetchScope })}`),
     enabled: role === 'owner' && (!id || detail.data !== undefined),
   });
+  const optionsForForm = options.data
+    ? detail.data
+      ? restrictToOutlets(options.data, new Set(detail.data.outlets.map((o) => o.outlet.id)))
+      : options.data
+    : undefined;
   if (role !== 'owner') {
     return (
       <>
@@ -450,11 +467,11 @@ export function DiscountFormPage() {
           {discountErrorMessage(error)}
         </ErrorState>
       ) : null}
-      {options.data && (!id || detail.data) ? (
+      {optionsForForm && (!id || detail.data) ? (
         <Form
           // Re-seed when the discount was reloaded after a version conflict.
           key={`${id ?? 'new'}-${detail.data?.version ?? 0}`}
-          options={options.data}
+          options={optionsForForm}
           detail={detail.data}
           multi={multi}
           scope={editScope}

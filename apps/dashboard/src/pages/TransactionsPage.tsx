@@ -103,10 +103,16 @@ export function DetailBody({ id }: { id: string }) {
             ))}
           </ul>
           {data.discount_amount > 0 ? (
-            <p className="mt-2 flex justify-between text-muted">
-              <span>Diskon</span>
-              <span>−{formatRupiah(data.discount_amount)}</span>
-            </p>
+            <>
+              <p className="mt-2 flex justify-between text-muted">
+                <span>Subtotal (harga normal)</span>
+                <span>{formatRupiah(data.subtotal)}</span>
+              </p>
+              <p className="flex justify-between text-muted">
+                <span>Hemat (diskon)</span>
+                <span>−{formatRupiah(data.discount_amount)}</span>
+              </p>
+            </>
           ) : null}
           <p className="mt-2 flex justify-between font-extrabold">
             <span>Total</span>
