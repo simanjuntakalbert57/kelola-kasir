@@ -7,7 +7,7 @@ test.describe.serial('Diskon item (ADR-0023)', () => {
     await openAsOwner(page, '/diskon/baru');
     await page.getByLabel('Nama promo').fill('Promo E2E');
     await page.getByLabel('Cari produk').fill('Jus Jeruk');
-    await page.getByRole('checkbox', { name: /Jus Jeruk/ }).check();
+    await page.getByRole('checkbox', { name: 'Jus Jeruk', exact: true }).check();
     await page.getByLabel('Potongan (%)').fill('20');
     await expect(page.getByLabel('Pratinjau harga akhir')).toContainText(rp(9_600));
     await page.getByRole('button', { name: 'Simpan' }).click();
@@ -17,7 +17,7 @@ test.describe.serial('Diskon item (ADR-0023)', () => {
     await expect(row).toContainText('20%');
 
     await page.goto('/produk');
-    const product = page.getByRole('listitem').filter({ hasText: 'Jus Jeruk' });
+    const product = page.getByRole('listitem').filter({ hasText: 'Diskon 20% · Promo E2E' });
     await expect(product).toContainText('Diskon 20% · Promo E2E');
     await expect(product).toContainText(rp(9_600));
   });
