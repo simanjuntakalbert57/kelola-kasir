@@ -11,6 +11,7 @@ interface Row {
   cash_change: number | null;
   sync_state: string;
   body: string;
+  discount_names: string | null;
 }
 
 export interface ReceiptContext {
@@ -31,12 +32,15 @@ export async function loadLocalReceipt(
 ): Promise<ReceiptData | null> {
   const row = await get<Row>(
     db,
-    `SELECT employee_name, method, status, cash_tendered, cash_change, sync_state, body
+    `SELECT employee_name, method, status, cash_tendered, cash_change, sync_state, body, discount_names
      FROM transactions WHERE id = ?`,
     [transactionId],
   );
   if (!row) return null;
   const tx = JSON.parse(row.body) as TransactionCreate;
+  const names = row.discount_names
+    ? (JSON.parse(row.discount_names) as Record<string, string>)
+    : {};
   return {
     store: storeFromSettings(ctx.settings, ctx.outletName),
     number: tx.number,
@@ -49,6 +53,9 @@ export async function loadLocalReceipt(
       quantity: i.quantity,
       unitPrice: i.unit_price,
       lineTotal: i.line_total,
+      ...(i.discount_id && (i.discount_amount ?? 0) > 0
+        ? { discountName: names[i.discount_id] ?? 'Diskon', discountAmount: i.discount_amount ?? 0 }
+        : {}),
     })),
     subtotal: tx.subtotal,
     discount: tx.discount_amount ?? 0,

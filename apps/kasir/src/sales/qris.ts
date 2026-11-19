@@ -1,7 +1,8 @@
 import type { Payment, Transaction, TransactionCreate } from '@kelola-kasir/contracts';
-import type { ApiClient } from '../api/client';
+import { ApiError, type ApiClient } from '../api/client';
 import type { Db } from '../db/types';
 import type { Cart } from './cart';
+import { discountNamesOf } from './pricing';
 import { buildQrisTransaction, recordPaidQris, type SaleContext } from './checkout';
 
 /** A pending static-QRIS payment lives 15 minutes (TDD §5.3). */
@@ -13,6 +14,8 @@ export interface QrisSession {
   payment: Payment;
   /** Epoch ms when the QR stops being valid. */
   expiresAt: number;
+  /** `discount_id → promo name`, kept with the local history row for the receipt. */
+  discountNames: Record<string, string>;
 }
 
 type QrisApi = Pick<ApiClient, 'createTransaction' | 'confirmPayment' | 'cancelPayment'>;
@@ -41,6 +44,26 @@ export function qrisAvailability(online: boolean): { enabled: boolean; hint: str
     : { enabled: false, hint: 'QRIS butuh internet. Gunakan Cash.' };
 }
 
+/** The server refused the QRIS sale because a promo changed (`DISCOUNT_STALE`): refresh the catalog and re-price. */
+export class DiscountStaleError extends Error {
+  override readonly name = 'DiscountStaleError';
+}
+
+/**
+ * After `DISCOUNT_STALE`: pull the catalog and re-price. `refreshed` is true only when the pull succeeded, i.e. when the
+ * cart total on screen is really the new one; otherwise the cashier may only retry, never continue.
+ */
+export async function recoverFromStale(
+  refresh: () => Promise<void>,
+): Promise<'refreshed' | 'failed'> {
+  try {
+    await refresh();
+    return 'refreshed';
+  } catch {
+    return 'failed';
+  }
+}
+
 export async function startQris(
   api: QrisApi,
   db: Db,
@@ -49,11 +72,25 @@ export async function startQris(
   now: Date = new Date(),
 ): Promise<QrisSession> {
   const body = await buildQrisTransaction(db, ctx, cart, now);
-  const transaction = await api.createTransaction(body);
+  let transaction: Transaction;
+  try {
+    transaction = await api.createTransaction(body);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'DISCOUNT_STALE') {
+      throw new DiscountStaleError(error.message);
+    }
+    throw error;
+  }
   const payment =
     transaction.payments.find((p) => p.id === body.payment.id) ?? transaction.payments[0];
   if (!payment) throw new Error('Respons transaksi QRIS tanpa pembayaran');
-  return { body, transaction, payment, expiresAt: qrisExpiry(payment, now.getTime()) };
+  return {
+    body,
+    transaction,
+    payment,
+    expiresAt: qrisExpiry(payment, now.getTime()),
+    discountNames: discountNamesOf(cart),
+  };
 }
 
 /** Cashier checked the bank notification: mark paid on the server, then keep it in local history. */
@@ -64,7 +101,7 @@ export async function confirmQris(
   session: QrisSession,
 ): Promise<Transaction> {
   const paid = await api.confirmPayment(session.payment.id);
-  await recordPaidQris(db, ctx, session.body);
+  await recordPaidQris(db, ctx, session.body, session.discountNames);
   return paid;
 }
 

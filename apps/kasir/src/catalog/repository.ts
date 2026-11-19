@@ -1,4 +1,4 @@
-import type { Category, Product } from '@kelola-kasir/contracts';
+import type { Category, DiscountRule, Product } from '@kelola-kasir/contracts';
 import { get, type Db } from '../db/types';
 import { uuidv7 } from '../lib/uuid';
 import { enqueueMutation } from '../sync/outbox';
@@ -29,6 +29,23 @@ interface ProductRow {
   price: number;
 }
 
+interface DiscountRow {
+  id: string;
+  version: number;
+  name: string;
+  type: string;
+  value: number;
+  target_type: string;
+  product_ids: string;
+  category_ids: string;
+  starts_on: string;
+  ends_on: string | null;
+  days_of_week: string | null;
+  time_start: string | null;
+  time_end: string | null;
+  utc_offset_minutes: number;
+}
+
 const toProduct = (r: ProductRow): CatalogProduct => ({
   id: r.id,
   categoryId: r.category_id,
@@ -45,6 +62,7 @@ export function createCatalogRepository(db: Db, now: () => number = Date.now) {
     async applyChanges(changes: {
       categories?: readonly Category[];
       products?: readonly Product[];
+      discounts?: readonly DiscountRule[];
       deleted?: readonly { entity: string; id: string }[];
     }): Promise<void> {
       await db.transaction(async (tx) => {
@@ -83,13 +101,64 @@ export function createCatalogRepository(db: Db, now: () => number = Date.now) {
             ],
           );
         }
+        for (const r of changes.discounts ?? []) {
+          await tx.run(
+            `INSERT INTO discounts (id, version, name, type, value, target_type, product_ids, category_ids,
+               starts_on, ends_on, days_of_week, time_start, time_end, utc_offset_minutes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET version = excluded.version, name = excluded.name,
+               type = excluded.type, value = excluded.value, target_type = excluded.target_type,
+               product_ids = excluded.product_ids, category_ids = excluded.category_ids,
+               starts_on = excluded.starts_on, ends_on = excluded.ends_on,
+               days_of_week = excluded.days_of_week, time_start = excluded.time_start,
+               time_end = excluded.time_end, utc_offset_minutes = excluded.utc_offset_minutes`,
+            [
+              r.id,
+              r.version,
+              r.name,
+              r.type,
+              r.value,
+              r.target_type,
+              JSON.stringify(r.product_ids),
+              JSON.stringify(r.category_ids),
+              r.starts_on,
+              r.ends_on,
+              r.days_of_week ? JSON.stringify(r.days_of_week) : null,
+              r.time_start,
+              r.time_end,
+              r.utc_offset_minutes,
+            ],
+          );
+        }
         for (const d of changes.deleted ?? []) {
+          if (d.entity === 'discount') await tx.run('DELETE FROM discounts WHERE id = ?', [d.id]);
           if (d.entity === 'product') await tx.run('DELETE FROM products WHERE id = ?', [d.id]);
           if (d.entity === 'category') {
             await tx.run('DELETE FROM categories WHERE id = ?', [d.id]);
           }
         }
       });
+    },
+
+    /** Discount rules of this outlet, as synced. Whether one applies is decided by `@kelola-kasir/money`. */
+    async listDiscountRules(): Promise<DiscountRule[]> {
+      const rows = await db.all<DiscountRow>('SELECT * FROM discounts ORDER BY id');
+      return rows.map((r) => ({
+        id: r.id,
+        version: r.version,
+        name: r.name,
+        type: r.type as DiscountRule['type'],
+        value: r.value,
+        target_type: r.target_type as DiscountRule['target_type'],
+        product_ids: JSON.parse(r.product_ids) as string[],
+        category_ids: JSON.parse(r.category_ids) as string[],
+        starts_on: r.starts_on,
+        ends_on: r.ends_on,
+        days_of_week: r.days_of_week ? (JSON.parse(r.days_of_week) as number[]) : null,
+        time_start: r.time_start,
+        time_end: r.time_end,
+        utc_offset_minutes: r.utc_offset_minutes,
+      }));
     },
 
     async listCategories(): Promise<Category[]> {

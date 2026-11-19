@@ -40,6 +40,46 @@ createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
   const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+  function sampleCatalog() {
+    const id = (n) => `00000000-0000-4000-8000-00000000000${n}`;
+    const p = (n, name, price) => ({
+      id: id(n),
+      category_id: id(9),
+      name,
+      price,
+      is_active: true,
+      is_sold_out: false,
+      sort_order: n,
+    });
+    return {
+      categories: [{ id: id(9), name: 'Jus', sort_order: 1 }],
+      products: [
+        p(1, 'Jus Mangga', 15000),
+        p(2, 'Jus Alpukat', 18000),
+        p(3, 'Jus Jeruk', 12000),
+        p(4, 'Jus Stroberi', 16000),
+      ],
+      discounts: [
+        {
+          id: id(5),
+          version: 1,
+          name: 'Promo Mangga',
+          type: 'percent',
+          value: 20,
+          target_type: 'product',
+          product_ids: [id(1), id(4)],
+          category_ids: [],
+          starts_on: '2026-01-01',
+          ends_on: null,
+          days_of_week: null,
+          time_start: null,
+          time_end: null,
+          utc_offset_minutes: 420,
+        },
+      ],
+    };
+  }
+
   const route = `${req.method} ${req.url.split('?')[0]}`;
   if (route === 'POST /devices/pair') {
     if (body.pairing_code !== 'AB12CD34') return problem(res, 400, 'INVALID_CODE', 'Invalid code');
@@ -49,7 +89,12 @@ createServer(async (req, res) => {
     return problem(res, 401, 'DEVICE_REVOKED', 'Unauthorized');
   if (route === 'GET /devices/me/employees') return send(res, 200, { data: employees });
   if (route === 'GET /sync/pull')
-    return send(res, 200, { next_cursor: '1', has_more: false, changes: {} });
+    return send(res, 200, {
+      next_cursor: '1',
+      has_more: false,
+      // Sample catalog with item discounts (DEAR-191) so the web preview shows strikethrough prices and ribbons.
+      changes: sampleCatalog(),
+    });
   if (route === 'POST /auth/pin-login') {
     const e = employees.find((x) => x.id === body.employee_id);
     if ((failures[body.employee_id] ?? 0) >= 5) return problem(res, 423, 'PIN_LOCKED', 'Locked');

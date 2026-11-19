@@ -3,7 +3,8 @@ import { cashChange } from '@kelola-kasir/money';
 import type { Db } from '../db/types';
 import { enqueueMutation } from '../sync/outbox';
 import { uuidv7 } from '../lib/uuid';
-import { totalsOf, type Cart } from './cart';
+import { lineDiscount, totalsOf, type Cart } from './cart';
+import { discountNamesOf } from './pricing';
 import { reserveNumber } from './number';
 
 export interface SaleContext {
@@ -35,6 +36,13 @@ function baseBody(cart: Cart, ctx: SaleContext, number: string, now: Date) {
       unit_price: l.unitPrice,
       quantity: l.quantity,
       line_total: totals.lineTotals[i] ?? 0,
+      ...(l.discount
+        ? {
+            discount_id: l.discount.id,
+            discount_version: l.discount.version,
+            discount_amount: lineDiscount(l),
+          }
+        : {}),
       ...(l.note?.trim() ? { note: l.note.trim() } : {}),
     })),
     subtotal: totals.subtotal,
@@ -49,13 +57,18 @@ async function insertLocal(
   db: Db,
   tx: TransactionCreate,
   ctx: SaleContext,
-  extra: { status: 'paid' | 'pending'; cashChange: number | null; syncState: 'pending' | 'synced' },
+  extra: {
+    status: 'paid' | 'pending';
+    cashChange: number | null;
+    syncState: 'pending' | 'synced';
+    discountNames?: Record<string, string>;
+  },
 ) {
   const cash = tx.payment.method === 'cash' ? tx.payment.cash_tendered : null;
   await db.run(
     `INSERT INTO transactions (id, number, employee_id, employee_name, shift_id, method, status,
-       total, cash_tendered, cash_change, customer_label, created_at, body, sync_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       total, cash_tendered, cash_change, customer_label, created_at, body, sync_state, discount_names)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tx.id,
       tx.number,
@@ -71,6 +84,7 @@ async function insertLocal(
       tx.client_created_at,
       JSON.stringify(tx),
       extra.syncState,
+      extra.discountNames ? JSON.stringify(extra.discountNames) : null,
     ],
   );
   for (const item of tx.items) {
@@ -109,7 +123,12 @@ export async function createCashSale(
       ...body,
       payment: { id: uuidv7(now.getTime()), method: 'cash', cash_tendered: cashTendered },
     };
-    await insertLocal(dbTx, tx, ctx, { status: 'paid', cashChange: change, syncState: 'pending' });
+    await insertLocal(dbTx, tx, ctx, {
+      status: 'paid',
+      cashChange: change,
+      syncState: 'pending',
+      discountNames: discountNamesOf(cart),
+    });
     await enqueueMutation(dbTx, {
       id: tx.id,
       type: 'transaction.create',
@@ -136,8 +155,18 @@ export async function buildQrisTransaction(
 }
 
 /** Keeps a paid QRIS sale in local history (already on the server, so nothing to push). */
-export async function recordPaidQris(db: Db, ctx: SaleContext, tx: TransactionCreate) {
+export async function recordPaidQris(
+  db: Db,
+  ctx: SaleContext,
+  tx: TransactionCreate,
+  discountNames: Record<string, string> = {},
+) {
   await db.transaction((dbTx) =>
-    insertLocal(dbTx, tx, ctx, { status: 'paid', cashChange: null, syncState: 'synced' }),
+    insertLocal(dbTx, tx, ctx, {
+      status: 'paid',
+      cashChange: null,
+      syncState: 'synced',
+      discountNames,
+    }),
   );
 }

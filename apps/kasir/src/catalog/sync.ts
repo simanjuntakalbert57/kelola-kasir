@@ -32,7 +32,13 @@ export async function pullCatalog(
       currentShift: res.current_shift,
       changed:
         result.changed ||
-        !!(ch.categories?.length || ch.products?.length || ch.deleted?.length || ch.settings),
+        !!(
+          ch.categories?.length ||
+          ch.products?.length ||
+          ch.discounts?.length ||
+          ch.deleted?.length ||
+          ch.settings
+        ),
     };
     if (!res.has_more) break;
   }

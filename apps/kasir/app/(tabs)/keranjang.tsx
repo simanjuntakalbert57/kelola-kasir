@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   clearCartIfConfirmed,
   itemCount,
+  lineDiscount,
   NOTE_MAX,
   payAvailability,
   removeLine,
@@ -23,6 +24,7 @@ import {
   summaryLabel,
   totalsOf,
 } from '../../src/sales/cart';
+import { discountBadge } from '../../src/sales/pricing';
 import { qrisAvailability } from '../../src/sales/qris';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors, radius, space } from '../../src/theme';
@@ -47,7 +49,7 @@ function confirmClear(summary: string): Promise<boolean> {
 
 export default function KeranjangScreen() {
   const router = useRouter();
-  const { cart, setCart, online } = useSales();
+  const { cart, setCart, online, lockPricing } = useSales();
   const count = itemCount(cart);
   const qris = qrisAvailability(online);
   const pay = payAvailability(cart, qris.enabled);
@@ -110,13 +112,26 @@ export default function KeranjangScreen() {
             renderItem={({ item }) => (
               <View style={styles.line}>
                 <View style={styles.row}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{item.name}</Text>
-                    <Text style={styles.muted}>{formatRupiah(item.unitPrice)}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.name} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    {item.discount ? null : (
+                      <Text style={styles.muted} numberOfLines={1}>
+                        {formatRupiah(item.unitPrice)}
+                      </Text>
+                    )}
                   </View>
-                  <Text style={styles.lineTotal} numberOfLines={1} adjustsFontSizeToFit>
-                    {formatRupiah(totalsOf({ ...cart, lines: [item] }).total)}
-                  </Text>
+                  <View style={{ flexShrink: 0 }}>
+                    <Text style={styles.lineTotal} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatRupiah(totalsOf({ ...cart, lines: [item] }).total)}
+                    </Text>
+                    {lineDiscount(item) > 0 ? (
+                      <Text style={[styles.strike, { textAlign: 'right' }]}>
+                        {formatRupiah(item.unitPrice * item.quantity)}
+                      </Text>
+                    ) : null}
+                  </View>
                   <Button
                     label="−"
                     onPress={() =>
@@ -133,6 +148,24 @@ export default function KeranjangScreen() {
                     style={styles.step}
                   />
                 </View>
+                {item.discount ? (
+                  <View style={{ gap: 2 }}>
+                    <View style={[styles.row, { flexWrap: 'wrap' }]}>
+                      <View style={styles.ribbon}>
+                        <Text style={styles.ribbonText} numberOfLines={1}>
+                          {discountBadge(item.discount, item.discount.perUnit, formatRupiah)}
+                        </Text>
+                      </View>
+                      <Text style={styles.muted} numberOfLines={1}>
+                        <Text style={styles.strike}>{formatRupiah(item.unitPrice)}</Text>{' '}
+                        {formatRupiah(item.unitPrice - item.discount.perUnit)} / item
+                      </Text>
+                    </View>
+                    <Text style={styles.save} numberOfLines={1} ellipsizeMode="tail">
+                      {item.discount.name} · Hemat {formatRupiah(item.discount.perUnit)} / item
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={styles.row}>
                   <TextInput
                     value={item.note ?? ''}
@@ -161,7 +194,10 @@ export default function KeranjangScreen() {
               variant="accent"
               large
               disabled={!pay.cash}
-              onPress={() => router.push('/cash')}
+              onPress={() => {
+                lockPricing();
+                router.push('/cash');
+              }}
               style={{ flex: 1 }}
             />
             <Button
@@ -170,7 +206,10 @@ export default function KeranjangScreen() {
               variant="primary"
               large
               disabled={!pay.qris}
-              onPress={() => router.push('/qris')}
+              onPress={() => {
+                lockPricing();
+                router.push('/qris');
+              }}
               style={{ flex: 1 }}
             />
           </View>
@@ -192,6 +231,21 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.s2 },
   name: { color: colors.ink, fontWeight: '700', fontSize: 16 },
   muted: { color: colors.muted },
+  strike: {
+    color: colors.muted,
+    textDecorationLine: 'line-through',
+    fontVariant: ['tabular-nums'],
+  },
+  save: { color: colors.disc, fontSize: 12, fontWeight: '700' },
+  ribbon: {
+    alignSelf: 'flex-start',
+    flexShrink: 0,
+    backgroundColor: colors.disc,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  ribbonText: { color: colors.discInk, fontSize: 12, fontWeight: '800' },
   qty: { color: colors.ink, fontWeight: '800', fontSize: 18, minWidth: 32, textAlign: 'center' },
   step: { minWidth: 48, paddingHorizontal: 0 },
   lineTotal: {

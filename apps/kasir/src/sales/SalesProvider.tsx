@@ -8,9 +8,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { DiscountRule } from '@kelola-kasir/money';
 import { NetworkError } from '../api/client';
 import { useSession } from '../auth/SessionProvider';
-import { createCatalogRepository, type CatalogRepository } from '../catalog/repository';
+import {
+  createCatalogRepository,
+  type CatalogProduct,
+  type CatalogRepository,
+} from '../catalog/repository';
 import { resetCatalog } from '../catalog/reset';
 import { pullCatalog } from '../catalog/sync';
 import { openDatabase } from '../db/expoDb';
@@ -19,10 +24,14 @@ import type { Db } from '../db/types';
 import { pendingCount, pushOutbox, PUSH_INTERVAL_MS, resetDeferred } from '../sync/outbox';
 import { cartAfterPayment, emptyCart, type Cart } from './cart';
 import type { CashSale, SaleContext } from './checkout';
+import { priceCart, quoteProduct } from './pricing';
 import type { QrisSession } from './qris';
+import type { DiscountQuote } from '@kelola-kasir/money';
 
 /** Catalog refresh: the owner's product edits reach the cashier within a minute (design DEAR-5). */
 export const PULL_INTERVAL_MS = 60_000;
+/** Prices are re-evaluated every minute so a happy hour starts and ends on the cart without a tap (ADR-0023 §2). */
+export const PRICING_TICK_MS = 60_000;
 
 export interface CompletedSale {
   id: string;
@@ -38,7 +47,17 @@ export interface SalesValue {
   catalog: CatalogRepository | null;
   /** Bumped after every catalog pull so the grid reloads. */
   catalogVersion: number;
+  /** The cart priced with the synced discount rules at `pricingAt`. */
   cart: Cart;
+  /** Instant the cart is priced at: the live clock, or the moment of **Bayar** once `lockPricing` ran. */
+  pricingAt: Date;
+  /** Best discount of a catalog product right now (card price, strikethrough, ribbon). */
+  quote: (product: CatalogProduct) => DiscountQuote | null;
+  /** Freezes prices at this instant when the cashier presses Bayar; the sale is created at the same instant. */
+  lockPricing: () => Date;
+  unlockPricing: () => void;
+  /** After `DISCOUNT_STALE`: pull the catalog, reload the rules and re-price the cart at a new locked instant. Throws offline. */
+  refreshPricing: () => Promise<void>;
   setCart: (update: (cart: Cart) => Cart) => void;
   /** Last network outcome: false after a network failure, true after any success. */
   online: boolean;
@@ -78,7 +97,10 @@ export function SalesProvider({ children }: { children: ReactNode }) {
   const { boot, api, paired, session, shift, resetDevice } = useSession();
   const [db, setDb] = useState<Db | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
-  const [cart, setCartState] = useState<Cart>(emptyCart);
+  const [rawCart, setCartState] = useState<Cart>(emptyCart);
+  const [rules, setRules] = useState<readonly DiscountRule[]>([]);
+  const [clock, setClock] = useState(() => new Date());
+  const [lockedAt, setLockedAt] = useState<Date | null>(null);
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(0);
   const [printReceipt, setPrintReceiptState] = useState(true);
@@ -104,6 +126,59 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       void resetCatalog(db).then(() => setCatalogVersion((v) => v + 1));
     }
   }, [db, boot, paired_]);
+
+  const loadRules = useCallback(async () => {
+    if (catalog) setRules(await catalog.listDiscountRules());
+  }, [catalog]);
+
+  useEffect(() => {
+    void loadRules();
+  }, [loadRules, catalogVersion]);
+
+  // Re-price every minute (happy hour start/end) unless the price is locked for payment.
+  useEffect(() => {
+    // Aligned to the start of each minute so a happy-hour ribbon appears and goes away on time.
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(
+      () => {
+        setClock(new Date());
+        interval = setInterval(() => setClock(new Date()), PRICING_TICK_MS);
+      },
+      PRICING_TICK_MS - (Date.now() % PRICING_TICK_MS),
+    );
+    return () => {
+      clearTimeout(first);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+
+  const pricingAt = lockedAt ?? clock;
+  const cart = useMemo(() => priceCart(rawCart, rules, pricingAt), [rawCart, rules, pricingAt]);
+  const quote = useCallback(
+    (product: CatalogProduct) =>
+      quoteProduct(
+        rules,
+        { id: product.id, categoryId: product.categoryId, price: product.price },
+        pricingAt,
+      ),
+    [rules, pricingAt],
+  );
+  const lockPricing = useCallback(() => {
+    const at = new Date();
+    setLockedAt(at);
+    return at;
+  }, []);
+  const unlockPricing = useCallback(() => {
+    setLockedAt(null);
+    setClock(new Date());
+  }, []);
+  const refreshPricing = useCallback(async () => {
+    if (!db || !catalog) return;
+    await pullCatalog(api, db, catalog);
+    await loadRules();
+    setCatalogVersion((v) => v + 1);
+    setLockedAt(new Date());
+  }, [api, db, catalog, loadRules]);
 
   const refreshPending = useCallback(async () => {
     if (db) setPending(await pendingCount(db));
@@ -175,7 +250,15 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       catalog,
       catalogVersion,
       cart,
-      setCart: (update) => setCartState(update),
+      pricingAt,
+      quote,
+      lockPricing,
+      unlockPricing,
+      refreshPricing,
+      setCart: (update) => {
+        setClock(new Date());
+        setCartState(update);
+      },
       online,
       pending,
       printReceipt,
@@ -188,6 +271,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       completeSale: (sale) => {
         setLastSale(sale);
         setCartState((c) => cartAfterPayment(c, true));
+        setLockedAt(null);
         setQris(null);
         void refreshPending();
         void push();
@@ -196,6 +280,7 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       setQris,
       newOrder: () => {
         setLastSale(null);
+        setLockedAt(null);
         setCartState(emptyCart);
       },
       refreshPending,
@@ -209,6 +294,11 @@ export function SalesProvider({ children }: { children: ReactNode }) {
       catalog,
       catalogVersion,
       cart,
+      pricingAt,
+      quote,
+      lockPricing,
+      unlockPricing,
+      refreshPricing,
       online,
       pending,
       printReceipt,
