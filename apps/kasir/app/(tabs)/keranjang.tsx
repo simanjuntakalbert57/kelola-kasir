@@ -112,28 +112,17 @@ export default function KeranjangScreen() {
             renderItem={({ item }) => (
               <View style={styles.line}>
                 <View style={styles.row}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{item.name}</Text>
-                    {item.discount ? (
-                      <>
-                        <View style={styles.ribbon}>
-                          <Text style={styles.ribbonText}>
-                            {discountBadge(item.discount, item.discount.perUnit, formatRupiah)}
-                          </Text>
-                        </View>
-                        <Text style={styles.muted}>
-                          <Text style={styles.strike}>{formatRupiah(item.unitPrice)}</Text>{' '}
-                          {formatRupiah(item.unitPrice - item.discount.perUnit)} / item
-                        </Text>
-                        <Text style={styles.save}>
-                          {item.discount.name} · Hemat {formatRupiah(item.discount.perUnit)} / item
-                        </Text>
-                      </>
-                    ) : (
-                      <Text style={styles.muted}>{formatRupiah(item.unitPrice)}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.name} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    {item.discount ? null : (
+                      <Text style={styles.muted} numberOfLines={1}>
+                        {formatRupiah(item.unitPrice)}
+                      </Text>
                     )}
                   </View>
-                  <View>
+                  <View style={{ flexShrink: 0 }}>
                     <Text style={styles.lineTotal} numberOfLines={1} adjustsFontSizeToFit>
                       {formatRupiah(totalsOf({ ...cart, lines: [item] }).total)}
                     </Text>
@@ -159,6 +148,24 @@ export default function KeranjangScreen() {
                     style={styles.step}
                   />
                 </View>
+                {item.discount ? (
+                  <View style={{ gap: 2 }}>
+                    <View style={[styles.row, { flexWrap: 'wrap' }]}>
+                      <View style={styles.ribbon}>
+                        <Text style={styles.ribbonText} numberOfLines={1}>
+                          {discountBadge(item.discount, item.discount.perUnit, formatRupiah)}
+                        </Text>
+                      </View>
+                      <Text style={styles.muted} numberOfLines={1}>
+                        <Text style={styles.strike}>{formatRupiah(item.unitPrice)}</Text>{' '}
+                        {formatRupiah(item.unitPrice - item.discount.perUnit)} / item
+                      </Text>
+                    </View>
+                    <Text style={styles.save} numberOfLines={1} ellipsizeMode="tail">
+                      {item.discount.name} · Hemat {formatRupiah(item.discount.perUnit)} / item
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={styles.row}>
                   <TextInput
                     value={item.note ?? ''}
@@ -232,6 +239,7 @@ const styles = StyleSheet.create({
   save: { color: colors.disc, fontSize: 12, fontWeight: '700' },
   ribbon: {
     alignSelf: 'flex-start',
+    flexShrink: 0,
     backgroundColor: colors.disc,
     borderRadius: 6,
     paddingHorizontal: 6,

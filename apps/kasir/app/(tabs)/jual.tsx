@@ -174,7 +174,7 @@ export default function JualScreen() {
                 </Text>
                 {promo ? (
                   <View style={styles.ribbon}>
-                    <Text style={styles.ribbonText}>
+                    <Text style={styles.ribbonText} numberOfLines={1}>
                       {discountBadge(promo.rule, promo.perUnit, formatRupiah)}
                     </Text>
                   </View>
@@ -270,6 +270,7 @@ const styles = StyleSheet.create({
   },
   ribbon: {
     alignSelf: 'flex-start',
+    flexShrink: 0,
     backgroundColor: colors.disc,
     borderRadius: 6,
     paddingHorizontal: 6,
