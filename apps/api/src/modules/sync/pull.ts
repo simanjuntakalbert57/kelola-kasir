@@ -9,11 +9,13 @@ import {
   transactions,
 } from '../../db/schema.js';
 import { errors } from '../../errors.js';
+import { loadDiscountChanges, type DiscountChange } from '../discounts/sync.js';
 import { toCategory, toProduct } from '../catalog/serialize.js';
 import { currentSyncSeq, encodeSyncCursor } from '../catalog/routes.js';
 import { loadSettings, toSettings } from '../settings/serialize.js';
 import { toShiftDtos } from '../shifts/summary.js';
 import { z } from 'zod';
+import type { DiscountRule } from '@kelola-kasir/money';
 
 export const MAX_PULL = 500;
 
@@ -32,7 +34,8 @@ type Change =
   | { seq: number; kind: 'category'; row: typeof categories.$inferSelect }
   | { seq: number; kind: 'product'; row: typeof products.$inferSelect }
   | { seq: number; kind: 'employee'; row: typeof employees.$inferSelect }
-  | { seq: number; kind: 'settings'; row: typeof outletSettings.$inferSelect };
+  | { seq: number; kind: 'settings'; row: typeof outletSettings.$inferSelect }
+  | DiscountChange;
 
 /**
  * Incremental catalog/config changes of an outlet since `cursor` (ADR-0008). Without a cursor the
@@ -43,7 +46,13 @@ type Change =
  */
 export async function pullChanges(
   db: Database,
-  input: { outletId: string; deviceId: string; cursor: string | undefined; limit: number },
+  input: {
+    outletId: string;
+    deviceId: string;
+    cursor: string | undefined;
+    limit: number;
+    now?: Date;
+  },
 ) {
   const after = input.cursor === undefined ? 0 : decodeSyncCursor(input.cursor);
   const full = input.cursor === undefined;
@@ -51,7 +60,8 @@ export async function pullChanges(
   const take = input.limit + 1;
   const { outletId } = input;
 
-  const [cats, prods, emps, sets] = await Promise.all([
+  const { outlet, settings } = await loadSettings(db, outletId);
+  const [cats, prods, emps, sets, discs] = await Promise.all([
     db
       .select()
       .from(categories)
@@ -87,6 +97,14 @@ export async function pullChanges(
       .from(outletSettings)
       .where(and(eq(outletSettings.outletId, outletId), gt(outletSettings.updatedSeq, after)))
       .limit(1),
+    loadDiscountChanges(db, {
+      outletId,
+      timezone: outlet.timezone,
+      after,
+      full,
+      take,
+      now: input.now ?? new Date(),
+    }),
   ]);
 
   const merged: Change[] = [
@@ -94,20 +112,21 @@ export async function pullChanges(
     ...prods.map((row) => ({ seq: row.updatedSeq, kind: 'product' as const, row })),
     ...emps.map((row) => ({ seq: row.updatedSeq, kind: 'employee' as const, row })),
     ...sets.map((row) => ({ seq: row.updatedSeq, kind: 'settings' as const, row })),
+    ...discs,
   ].sort((a, b) => a.seq - b.seq);
   const hasMore = merged.length > input.limit;
   const page = merged.slice(0, input.limit);
   const last = page[page.length - 1];
   const nextSeq = last ? last.seq : full ? snapshotSeq : after;
 
-  const { outlet, settings } = await loadSettings(db, outletId);
   const changes: {
     categories: ReturnType<typeof toCategory>[];
     products: ReturnType<typeof toProduct>[];
     employees: { id: string; name: string; is_active: boolean; pin_hash: string | null }[];
     settings: ReturnType<typeof toSettings> | null;
-    deleted: { entity: 'category' | 'product'; id: string }[];
-  } = { categories: [], products: [], employees: [], settings: null, deleted: [] };
+    discounts: DiscountRule[];
+    deleted: { entity: 'category' | 'product' | 'discount'; id: string }[];
+  } = { categories: [], products: [], employees: [], settings: null, discounts: [], deleted: [] };
 
   for (const change of page) {
     switch (change.kind) {
@@ -130,6 +149,12 @@ export async function pullChanges(
         break;
       case 'settings':
         changes.settings = toSettings(outlet, change.row);
+        break;
+      case 'discount':
+        changes.discounts.push(change.rule);
+        break;
+      case 'discount_deleted':
+        changes.deleted.push({ entity: 'discount', id: change.id });
         break;
     }
   }

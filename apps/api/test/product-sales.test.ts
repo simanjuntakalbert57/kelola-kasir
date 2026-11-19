@@ -168,7 +168,13 @@ describe('GET /reports/products', () => {
       date_from: '2026-03-10',
       date_to: '2026-03-10',
     });
-    expect(body.totals).toEqual({ items_sold: 7, revenue: 93_000, product_count: 3 });
+    expect(body.totals).toEqual({
+      items_sold: 7,
+      revenue: 93_000,
+      gross_revenue: 93_000,
+      discount_amount: 0,
+      product_count: 3,
+    });
     const names = body.data.map((r) => r.product_name);
     expect(names).toEqual(['Jus Mangga', 'Jus Alpukat', 'Jus Jeruk']);
     const [m, a, u] = body.data;
@@ -504,11 +510,21 @@ describe('GET /reports/products/export', () => {
     const rows = parseCsv(res.body);
     const outlet = `Outlet ${shop.seeded.code}`;
     expect(rows).toEqual([
-      ['Produk', 'Kategori', 'Cup', 'Total (Rp)', '% omzet', 'Periode', 'Cabang'],
-      ['Jus Mangga', 'Jus Buah', '4', '48000', '51.6', '2026-03-10', outlet],
-      ['Jus Alpukat', 'Jus Buah', '3', '45000', '48.4', '2026-03-10', outlet],
-      ['Jus Jeruk', 'Jus Buah', '0', '0', '0', '2026-03-10', outlet],
-      ['Total', '', '7', '93000', '100', '2026-03-10', outlet],
+      [
+        'Produk',
+        'Kategori',
+        'Cup',
+        'Kotor (Rp)',
+        'Diskon (Rp)',
+        'Bersih (Rp)',
+        '% omzet',
+        'Periode',
+        'Cabang',
+      ],
+      ['Jus Mangga', 'Jus Buah', '4', '48000', '0', '48000', '51.6', '2026-03-10', outlet],
+      ['Jus Alpukat', 'Jus Buah', '3', '45000', '0', '45000', '48.4', '2026-03-10', outlet],
+      ['Jus Jeruk', 'Jus Buah', '0', '0', '0', '0', '0', '2026-03-10', outlet],
+      ['Total', '', '7', '93000', '0', '93000', '100', '2026-03-10', outlet],
     ]);
     const audit = await env.handle.db
       .select()
@@ -536,12 +552,14 @@ describe('GET /reports/products/export', () => {
       'Produk',
       'Kategori',
       'Cup',
-      'Total (Rp)',
+      'Kotor (Rp)',
+      'Diskon (Rp)',
+      'Bersih (Rp)',
       '% omzet',
       'Periode',
       'Cabang',
     ]);
-    expect(sheet?.getRow(2).getCell(7).value).toBe('Semua cabang');
+    expect(sheet?.getRow(2).getCell(9).value).toBe('Semua cabang');
     const last = sheet?.getRow(sheet.rowCount);
     expect(last?.getCell(1).value).toBe('Total');
     expect(last?.getCell(3).value).toBe(6);

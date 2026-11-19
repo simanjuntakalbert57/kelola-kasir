@@ -57,6 +57,20 @@
       "when": 1793554396297,
       "tag": "0007_expenses_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795008374825,
+      "tag": "0008_discounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795008383498,
+      "tag": "0009_discounts_triggers",
+      "breakpoints": true
     }
   ]
 }

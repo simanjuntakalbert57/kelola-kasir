@@ -7,7 +7,9 @@ export const PRODUCT_EXPORT_HEADER = [
   'Produk',
   'Kategori',
   'Cup',
-  'Total (Rp)',
+  'Kotor (Rp)',
+  'Diskon (Rp)',
+  'Bersih (Rp)',
   '% omzet',
   'Periode',
   'Cabang',
@@ -18,9 +20,15 @@ type Cell = string | number;
 export interface ProductExport {
   rows: Pick<
     ProductSalesRow,
-    'product_name' | 'category_name' | 'items_sold' | 'revenue' | 'share_pct'
+    | 'product_name'
+    | 'category_name'
+    | 'items_sold'
+    | 'revenue'
+    | 'gross_revenue'
+    | 'discount_amount'
+    | 'share_pct'
   >[];
-  totals: { items_sold: number; revenue: number };
+  totals: { items_sold: number; revenue: number; gross_revenue: number; discount_amount: number };
   dateFrom: string;
   dateTo: string;
   /** Outlet name, or `Semua cabang`. */
@@ -34,6 +42,8 @@ export function productExportRows(e: ProductExport): Cell[][] {
     r.product_name,
     r.category_name ?? '',
     r.items_sold,
+    r.gross_revenue,
+    r.discount_amount,
     r.revenue,
     r.share_pct,
     period,
@@ -43,6 +53,8 @@ export function productExportRows(e: ProductExport): Cell[][] {
     'Total',
     '',
     e.totals.items_sold,
+    e.totals.gross_revenue,
+    e.totals.discount_amount,
     e.totals.revenue,
     e.totals.revenue > 0 ? 100 : 0,
     period,

@@ -6,14 +6,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "node --conditions=kelola-runtime dist/server.js",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:migrate:prod": "node dist/db/migrate.js",
+    "db:migrate:prod": "node --conditions=kelola-runtime dist/db/migrate.js",
     "owner:create": "tsx src/scripts/create-owner.ts",
     "seed:qa-multibranch": "tsx src/scripts/seed-qa-multibranch.ts",
     "keys:generate": "tsx src/scripts/generate-jwt-key.ts"

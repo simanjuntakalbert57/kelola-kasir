@@ -11,6 +11,7 @@ import {
   pgSequence,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -237,7 +238,11 @@ export const categories = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
     updatedSeq: updatedSeq(),
   },
-  (t) => [index('categories_outlet_seq_idx').on(t.outletId, t.updatedSeq)],
+  (t) => [
+    index('categories_outlet_seq_idx').on(t.outletId, t.updatedSeq),
+    // Target of the composite FK of `discount_targets` (a category belongs to the outlet of the row).
+    uniqueIndex('categories_id_outlet_unique').on(t.id, t.outletId),
+  ],
 );
 
 export const products = pgTable(
@@ -266,6 +271,7 @@ export const products = pgTable(
   },
   (t) => [
     index('products_outlet_seq_idx').on(t.outletId, t.updatedSeq),
+    uniqueIndex('products_id_outlet_unique').on(t.id, t.outletId),
     check('products_price_check', sql`${t.price} >= 0`),
   ],
 );
@@ -381,6 +387,160 @@ export const transactions = pgTable(
   ],
 );
 
+/**
+ * Item discount rule owned by the owner (ADR-0023 §1). One promo can cover several outlets (`discount_outlets`);
+ * every change bumps `version` and appends a `discount_history` snapshot.
+ */
+export const discounts = pgTable(
+  'discounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    targetType: text('target_type').notNull(),
+    type: text('type').notNull(),
+    value: integer('value').notNull(),
+    /** Outlet local dates, inclusive. */
+    startsOn: date('starts_on', { mode: 'string' }).notNull(),
+    endsOn: date('ends_on', { mode: 'string' }),
+    /** ISO weekdays 1 = Monday … 7 = Sunday; `NULL` = every day. */
+    daysOfWeek: smallint('days_of_week').array(),
+    /** `HH:MM`, both or none; the end is exclusive and never past midnight. */
+    timeStart: text('time_start'),
+    timeEnd: text('time_end'),
+    isActive: boolean('is_active').notNull().default(true),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    updatedBy: uuid('updated_by')
+      .notNull()
+      .references(() => users.id),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    deletedAt: ts('deleted_at'),
+    deletedBy: uuid('deleted_by').references(() => users.id),
+    deleteReason: text('delete_reason'),
+  },
+  (t) => [
+    check('discounts_name_check', sql`char_length(${t.name}) BETWEEN 1 AND 60`),
+    check('discounts_target_type_check', sql`${t.targetType} IN ('product', 'category')`),
+    check('discounts_type_check', sql`${t.type} IN ('percent', 'amount')`),
+    check(
+      'discounts_value_check',
+      sql`(${t.type} = 'percent' AND ${t.value} BETWEEN 1 AND 100) OR (${t.type} = 'amount' AND ${t.value} BETWEEN 1 AND 100000000)`,
+    ),
+    check('discounts_period_check', sql`${t.endsOn} IS NULL OR ${t.endsOn} >= ${t.startsOn}`),
+    check(
+      'discounts_days_check',
+      sql`${t.daysOfWeek} IS NULL OR (cardinality(${t.daysOfWeek}) BETWEEN 1 AND 7 AND ${t.daysOfWeek} <@ ARRAY[1,2,3,4,5,6,7]::smallint[])`,
+    ),
+    check(
+      'discounts_time_check',
+      sql`(${t.timeStart} IS NULL AND ${t.timeEnd} IS NULL) OR (${t.timeStart} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' AND ${t.timeEnd} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' AND ${t.timeStart} < ${t.timeEnd})`,
+    ),
+    check('discounts_version_check', sql`${t.version} >= 1`),
+    check(
+      'discounts_deleted_fields_check',
+      sql`(${t.deletedAt} IS NULL AND ${t.deletedBy} IS NULL AND ${t.deleteReason} IS NULL) OR (${t.deletedAt} IS NOT NULL AND ${t.deletedBy} IS NOT NULL AND ${t.deleteReason} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/** Sync unit of a discount: one row per outlet it covers, with its own `updated_seq` (ADR-0023 §1). */
+export const discountOutlets = pgTable(
+  'discount_outlets',
+  {
+    discountId: uuid('discount_id')
+      .notNull()
+      .references(() => discounts.id),
+    outletId: uuid('outlet_id')
+      .notNull()
+      .references(() => outlets.id),
+    /** The outlet was taken out of the promo: devices receive a tombstone. */
+    removedAt: ts('removed_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    updatedSeq: updatedSeq(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.discountId, t.outletId] }),
+    index('discount_outlets_outlet_seq_idx').on(t.outletId, t.updatedSeq),
+  ],
+);
+
+/** Products or categories a discount targets, per outlet. Exactly one of the two ids is set. */
+export const discountTargets = pgTable(
+  'discount_targets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    discountId: uuid('discount_id').notNull(),
+    outletId: uuid('outlet_id').notNull(),
+    productId: uuid('product_id'),
+    categoryId: uuid('category_id'),
+  },
+  (t) => [
+    foreignKey({
+      name: 'discount_targets_discount_outlet_fk',
+      columns: [t.discountId, t.outletId],
+      foreignColumns: [discountOutlets.discountId, discountOutlets.outletId],
+    }),
+    foreignKey({
+      name: 'discount_targets_product_outlet_fk',
+      columns: [t.productId, t.outletId],
+      foreignColumns: [products.id, products.outletId],
+    }),
+    foreignKey({
+      name: 'discount_targets_category_outlet_fk',
+      columns: [t.categoryId, t.outletId],
+      foreignColumns: [categories.id, categories.outletId],
+    }),
+    check(
+      'discount_targets_one_target_check',
+      sql`(${t.productId} IS NOT NULL) <> (${t.categoryId} IS NOT NULL)`,
+    ),
+    uniqueIndex('discount_targets_product_unique')
+      .on(t.discountId, t.productId)
+      .where(sql`${t.productId} IS NOT NULL`),
+    uniqueIndex('discount_targets_category_unique')
+      .on(t.discountId, t.categoryId)
+      .where(sql`${t.categoryId} IS NOT NULL`),
+    index('discount_targets_discount_outlet_idx').on(t.discountId, t.outletId),
+    index('discount_targets_product_idx').on(t.productId),
+    index('discount_targets_category_idx').on(t.categoryId),
+  ],
+);
+
+/**
+ * Append-only change log of a discount (trigger in 0009). `snapshot` is the full rule after the change, so it is also
+ * the version store the transaction validation reads (ADR-0023 §3).
+ */
+export const discountHistory = pgTable(
+  'discount_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    discountId: uuid('discount_id')
+      .notNull()
+      .references(() => discounts.id),
+    version: integer('version').notNull(),
+    action: text('action').notNull(),
+    snapshot: jsonb('snapshot').notNull(),
+    /** `{ field: { from, to } }` of the API fields that changed (`update`, `activate`, `deactivate`). */
+    changes: jsonb('changes'),
+    reason: text('reason'),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('discount_history_discount_version_unique').on(t.discountId, t.version),
+    check(
+      'discount_history_action_check',
+      sql`${t.action} IN ('create', 'update', 'activate', 'deactivate', 'delete')`,
+    ),
+    check('discount_history_reason_check', sql`${t.action} <> 'delete' OR ${t.reason} IS NOT NULL`),
+  ],
+);
+
 export const transactionItems = pgTable(
   'transaction_items',
   {
@@ -397,9 +557,22 @@ export const transactionItems = pgTable(
     quantity: integer('quantity').notNull(),
     lineTotal: money('line_total').notNull(),
     note: text('note'),
+    /** Discount rule applied to the line (ADR-0023); `unit_price` and `line_total` stay the normal, gross values. */
+    discountId: uuid('discount_id').references(() => discounts.id),
+    /** `discounts.version` of the rule the phone used. */
+    discountVersion: integer('discount_version'),
+    /** Snapshot of the promo name for reprinted receipts. */
+    discountName: text('discount_name'),
+    /** Whole-line discount: per-unit discount × quantity. Net line = `line_total - discount_amount`. */
+    discountAmount: money('discount_amount').notNull().default(0),
   },
   (t) => [
     index('transaction_items_transaction_idx').on(t.transactionId),
+    index('transaction_items_discount_idx').on(t.discountId),
+    check(
+      'transaction_items_discount_check',
+      sql`${t.discountAmount} >= 0 AND ${t.discountAmount} <= ${t.lineTotal} AND (${t.discountId} IS NULL) = (${t.discountVersion} IS NULL) AND (${t.discountId} IS NOT NULL OR ${t.discountAmount} = 0)`,
+    ),
     check('transaction_items_quantity_check', sql`${t.quantity} BETWEEN 1 AND 999`),
     check(
       'transaction_items_amounts_check',

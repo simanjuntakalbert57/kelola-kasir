@@ -57,6 +57,11 @@ const envSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.url().optional(),
+  /** First cashier app version that applies item discounts (ADR-0023 §3); older or unknown devices are flagged. */
+  DISCOUNT_MIN_APP_VERSION: z
+    .string()
+    .regex(/^\d+(\.\d+){0,2}$/, 'must look like 1.2.3')
+    .default('0.3.0'),
 });
 
 export interface WebPushConfig {
@@ -109,6 +114,8 @@ export interface Config {
   webPush: WebPushConfig | null;
   /** A pending QRIS payment expires (transaction `cancelled`) after this many seconds. */
   qrisExpirySec: number;
+  /** Cashier apps older than this cannot apply item discounts (ADR-0023 §3, `outdated_devices`). */
+  discountMinAppVersion: string;
 }
 
 /** Checks VAPID key formats and that the public key belongs to the private key. Never echoes key values. */
@@ -244,5 +251,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pinLockoutMax: 5,
     pinLockoutSec: 5 * 60,
     qrisExpirySec: 15 * 60,
+    discountMinAppVersion: e.DISCOUNT_MIN_APP_VERSION,
   };
 }

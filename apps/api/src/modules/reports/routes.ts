@@ -23,6 +23,7 @@ import {
   sortProducts,
 } from './products.js';
 import { productCsv, productXlsx } from './products-export.js';
+import { discountCsv, discountXlsx, loadDiscountSales } from './discounts.js';
 
 const summaryQuery = rangeQuery.extend({
   outlet_scope: z.enum(['current', 'all']).default('current'),
@@ -44,6 +45,7 @@ const productListQuery = scopeQuery.extend({
 const productExportQuery = productListQuery
   .omit({ q: true })
   .extend({ format: z.enum(['csv', 'xlsx']) });
+const discountExportQuery = scopeQuery.extend({ format: z.enum(['csv', 'xlsx']) });
 const productParams = z.object({ product_id: uuid });
 const productSeriesQuery = scopeQuery.extend({ granularity: z.enum(['hour', 'day']) });
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -73,6 +75,8 @@ export function reportRoutes(ctx: AppContext, guards: Guards) {
         prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
       return {
         revenue: now.revenue,
+        gross_sales: now.grossSales,
+        discount_total: now.discountTotal,
         transaction_count: now.transactionCount,
         average_ticket:
           now.transactionCount > 0 ? Math.floor(now.revenue / now.transactionCount) : 0,
@@ -96,6 +100,8 @@ export function reportRoutes(ctx: AppContext, guards: Guards) {
                   outlet_id: o.id,
                   outlet_name: o.name,
                   revenue: t.revenue,
+                  gross_sales: t.grossSales,
+                  discount_total: t.discountTotal,
                   cash_revenue: t.cashRevenue,
                   qris_revenue: t.qrisRevenue,
                   cash_count: t.cashCount,
@@ -201,6 +207,56 @@ export function reportRoutes(ctx: AppContext, guards: Guards) {
         .header('cache-control', 'no-store')
         .type(q.format === 'csv' ? 'text/csv; charset=utf-8' : XLSX_TYPE);
       return reply.send(q.format === 'csv' ? productCsv(file) : await productXlsx(file));
+    });
+
+    // Sales per discount (ADR-0023 §5). Owner or manager; `outlet_scope=all` is owner only (`403`).
+    app.get('/reports/discounts', { preHandler: guards.owner }, async (req) => {
+      const principal = requireUser(req);
+      const q = parse(scopeQuery, req.query);
+      const period = resolvePeriod(q, ctx.now());
+      const scope = await resolveOutletScope(db, principal, q.outlet_scope);
+      const report = await loadDiscountSales(
+        db,
+        scope.map((o) => o.id),
+        period,
+      );
+      return {
+        outlet_scope: q.outlet_scope,
+        date_from: period.dateFrom,
+        date_to: period.dateTo,
+        ...report,
+      };
+    });
+
+    app.get('/reports/discounts/export', { preHandler: guards.owner }, async (req, reply) => {
+      const principal = requireUser(req);
+      const q = parse(discountExportQuery, req.query);
+      const period = resolvePeriod(q, ctx.now());
+      const scope = await resolveOutletScope(db, principal, q.outlet_scope);
+      const report = await loadDiscountSales(
+        db,
+        scope.map((o) => o.id),
+        period,
+      );
+      await writeAudit(db, {
+        outletId: principal.outletId,
+        actor: { type: 'user', id: principal.id },
+        action: 'reports.discounts_exported',
+        entityType: 'report',
+        meta: { ...q, date_from: period.dateFrom, date_to: period.dateTo, ip: req.ip },
+      });
+      const file = {
+        report,
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        outletLabel: q.outlet_scope === 'all' ? 'Semua cabang' : (scope[0]?.name ?? ''),
+      };
+      const name = `diskon_${period.dateFrom}_${period.dateTo}.${q.format}`;
+      void reply
+        .header('content-disposition', `attachment; filename="${name}"`)
+        .header('cache-control', 'no-store')
+        .type(q.format === 'csv' ? 'text/csv; charset=utf-8' : XLSX_TYPE);
+      return reply.send(q.format === 'csv' ? discountCsv(file) : await discountXlsx(file));
     });
 
     app.get('/reports/products/:product_id', { preHandler: guards.owner }, async (req) => {

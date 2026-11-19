@@ -38,6 +38,11 @@ const listQuery = z.object({
   payment_method: z.enum(['cash', 'qris']).optional(),
   status: z.enum(['pending', 'paid', 'void_requested', 'voided', 'cancelled']).optional(),
   q: z.string().trim().max(60).optional(),
+  /** Only sales accepted with an outdated discount rule (`sync.discount_stale` audit, ADR-0023 §3). */
+  discount_stale: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -126,6 +131,12 @@ export function transactionRoutes(ctx: AppContext, guards: Guards) {
       }
       if (q.payment_method) conditions.push(eq(transactions.paymentMethod, q.payment_method));
       if (q.status) conditions.push(eq(transactions.status, q.status));
+      if (q.discount_stale) {
+        conditions.push(
+          sql`exists (select 1 from audit_logs a where a.entity_type = 'transaction'
+                and a.entity_id = ${transactions.id} and a.action = 'sync.discount_stale')`,
+        );
+      }
       if (q.q) {
         const like = `%${escapeLike(q.q)}%`;
         const match = or(ilike(transactions.number, like), ilike(transactions.customerLabel, like));

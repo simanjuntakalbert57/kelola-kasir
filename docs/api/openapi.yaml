@@ -927,6 +927,7 @@ paths:
         - { name: payment_method, in: query, schema: { $ref: '#/components/schemas/PaymentMethod' } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/TransactionStatus' } }
         - { name: q, in: query, description: Transaction number or customer label, schema: { type: string } }
+        - { name: discount_stale, in: query, description: 'Only sales accepted with an outdated discount rule (audit `sync.discount_stale`, ADR-0023 §3); finds apps that keep using an old rule', schema: { type: boolean, default: false } }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1403,7 +1404,7 @@ paths:
         Employee `pin_hash` is only filled when the owner enabled offline login.
         `changes.discounts` carries the discount rules of the device's outlet (ADR-0023 §4); a deleted or deactivated
         discount, or one this outlet was removed from, arrives as a `discount` tombstone. A full snapshot only holds
-        active discounts that have not ended. Apps send `X-App-Version` so the owner sees devices that cannot apply
+        active discounts that have not ended. Apps send the header `X-App-Version` (e.g. `0.3.0`, letters, digits and `.+_-`, at most 40 characters; anything else is ignored) on `/sync/pull` and `/sync/push`, stored in `devices.app_version`, so the owner sees devices that cannot apply
         discounts yet (`GET /discounts` `outdated_devices`).
       operationId: syncPull
       security: [{ deviceAuth: [] }]
@@ -1591,7 +1592,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [key, label, quantity, transaction_count, revenue]
+                      required: [key, label, quantity, transaction_count, revenue, gross_revenue, discount_amount]
                       properties:
                         key: { type: string }
                         label: { type: string }
@@ -2804,7 +2805,7 @@ components:
         - IMPORT_HAS_ERRORS
         - IMPORT_TOKEN_INVALID
         - IMPORT_STALE
-        # item discounts (ADR-0023, planned)
+        # item discounts (ADR-0023)
         - DISCOUNT_INVALID
         - DISCOUNT_STALE
         - DISCOUNT_TARGET_INVALID
@@ -3225,7 +3226,7 @@ components:
               type: array
               items:
                 type: object
-                required: [id, product_name, unit_price, quantity, line_total]
+                required: [id, product_name, unit_price, quantity, line_total, discount_id, discount_name, discount_amount]
                 properties:
                   id: { type: string, format: uuid }
                   product_id: { type: [string, 'null'], format: uuid }
@@ -3815,7 +3816,7 @@ components:
       description: Change vs the previous period of the same length in percent, one decimal; `null` when that period had none.
     ProductSalesRow:
       type: object
-      required: [key, product_id, product_name, category_name, items_sold, revenue, share_pct, transaction_count, has_sales]
+      required: [key, product_id, product_name, category_name, items_sold, revenue, gross_revenue, discount_amount, share_pct, transaction_count, has_sales]
       properties:
         key: { type: string, description: 'Stable row id: product id (`current`) or `name:<normalized name>` (`all`, or a product that no longer exists).' }
         product_id: { type: [string, 'null'], format: uuid, description: 'Product to open in the detail (`/?produk=<id>`); `null` when no catalog row exists.' }
@@ -3838,7 +3839,7 @@ components:
         totals:
           type: object
           description: Every product of the scope and period, before `q`.
-          required: [items_sold, revenue, product_count]
+          required: [items_sold, revenue, gross_revenue, discount_amount, product_count]
           properties:
             items_sold: { type: integer, minimum: 0 }
             revenue: { $ref: '#/components/schemas/Rupiah' }
@@ -3860,6 +3861,8 @@ components:
         - date_to
         - items_sold
         - revenue
+        - gross_revenue
+        - discount_amount
         - average_price
         - share_pct
         - transaction_count
@@ -3925,7 +3928,7 @@ components:
               revenue: { $ref: '#/components/schemas/Rupiah' }
     DashboardSummary:
       type: object
-      required: [revenue, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count, items_sold, outlet_scope, by_outlet]
+      required: [revenue, gross_sales, discount_total, transaction_count, average_ticket, cash_revenue, qris_revenue, cash_count, qris_count, voided_count, items_sold, outlet_scope, by_outlet]
       properties:
         revenue: { $ref: '#/components/schemas/Rupiah', description: 'Omzet: sum of `total` = `gross_sales - discount_total + tax`' }
         gross_sales: { $ref: '#/components/schemas/Rupiah', description: 'Omzet kotor: sum of `subtotal` (normal prices, ADR-0023 §5)' }
@@ -3950,7 +3953,7 @@ components:
           description: Per outlet, ordered by outlet code. Only filled for `outlet_scope=all`, otherwise empty. Each outlet satisfies `cash_revenue + qris_revenue = revenue`.
           items:
             type: object
-            required: [outlet_id, outlet_name, revenue, cash_revenue, qris_revenue, cash_count, qris_count, transaction_count, items_sold]
+            required: [outlet_id, outlet_name, revenue, gross_sales, discount_total, cash_revenue, qris_revenue, cash_count, qris_count, transaction_count, items_sold]
             properties:
               outlet_id: { type: string, format: uuid }
               outlet_name: { type: string }

@@ -31,3 +31,13 @@ export function addDays(date: string, days: number): string {
     .toISOString()
     .slice(0, 10);
 }
+
+/** Fixed UTC offsets of the Indonesian zones (no DST): WIB +7, WITA +8, WIT +9. Unknown zones fall back to WIB. */
+const ZONE_OFFSET_MINUTES: Record<string, number> = {
+  'Asia/Jakarta': 420,
+  'Asia/Pontianak': 420,
+  'Asia/Makassar': 480,
+  'Asia/Jayapura': 540,
+};
+
+export const utcOffsetMinutes = (timeZone: string): number => ZONE_OFFSET_MINUTES[timeZone] ?? 420;

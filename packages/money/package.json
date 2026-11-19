@@ -6,13 +6,19 @@
   "type": "module",
   "exports": {
     ".": {
+      "kelola-runtime": "./dist/index.js",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
-  }
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }

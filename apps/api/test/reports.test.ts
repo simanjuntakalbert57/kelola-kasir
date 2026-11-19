@@ -403,10 +403,20 @@ describe('top products and sales report', () => {
         quantity: 5,
         transaction_count: 3,
         revenue: 72_000,
+        gross_revenue: 72_000,
+        discount_amount: 0,
       },
     ]);
     expect(await group('payment_method')).toEqual([
-      { key: 'cash', label: 'Tunai', quantity: 5, transaction_count: 3, revenue: 72_000 },
+      {
+        key: 'cash',
+        label: 'Tunai',
+        quantity: 5,
+        transaction_count: 3,
+        revenue: 72_000,
+        gross_revenue: 72_000,
+        discount_amount: 0,
+      },
     ]);
     const days = await group('day');
     expect(days).toHaveLength(1);

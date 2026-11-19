@@ -10,7 +10,7 @@ import {
 } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import type { ScopedOutlet } from '../expenses/scope.js';
-import { COUNTED_STATUSES, type Period } from './queries.js';
+import { COUNTED_STATUSES, netLine, type Period } from './queries.js';
 
 /** Product names compare case-, outer-space- and repeated-space-insensitively (ADR-0022 §3). */
 const normName = (col: SQL | typeof products.name | typeof transactionItems.productName) =>
@@ -38,7 +38,12 @@ export interface ProductSalesRow {
   category_name: string | null;
   catalog_price: number;
   items_sold: number;
+  /** Net sales: sum of `line_total - discount_amount` (ADR-0023 §5). */
   revenue: number;
+  /** Sum of `line_total` (normal prices). */
+  gross_revenue: number;
+  /** `gross_revenue - revenue`. */
+  discount_amount: number;
   share_pct: number;
   transaction_count: number;
   has_sales: boolean;
@@ -52,7 +57,13 @@ export interface ProductGroup extends ProductSalesRow {
 }
 
 export interface ProductSalesList {
-  totals: { items_sold: number; revenue: number; product_count: number };
+  totals: {
+    items_sold: number;
+    revenue: number;
+    gross_revenue: number;
+    discount_amount: number;
+    product_count: number;
+  };
   groups: ProductGroup[];
 }
 
@@ -97,7 +108,8 @@ export async function loadProductSales(
         string | null
       >`case when ${transactionItems.productId} is null then ${normName(transactionItems.productName)} end`,
       quantity: sql<string>`sum(${transactionItems.quantity})::text`,
-      revenue: sql<string>`sum(${transactionItems.lineTotal})::text`,
+      revenue: sql<string>`sum(${netLine})::text`,
+      gross: sql<string>`sum(${transactionItems.lineTotal})::text`,
       transactionCount: sql<number>`count(distinct ${transactions.id})::int`,
     })
     .from(transactionItems)
@@ -143,13 +155,14 @@ export async function loadProductSales(
     snapshotName: string | null;
     items: number;
     revenue: number;
+    gross: number;
     transactions: number;
   }
   const accs = new Map<string, Acc>();
   const acc = (key: string): Acc => {
     let a = accs.get(key);
     if (!a) {
-      a = { key, members: [], snapshotName: null, items: 0, revenue: 0, transactions: 0 };
+      a = { key, members: [], snapshotName: null, items: 0, revenue: 0, gross: 0, transactions: 0 };
       accs.set(key, a);
     }
     return a;
@@ -165,6 +178,7 @@ export async function loadProductSales(
     if (!member) target.snapshotName ??= s.snapshot;
     target.items += Number(s.quantity);
     target.revenue += Number(s.revenue);
+    target.gross += Number(s.gross);
     target.transactions += s.transactionCount;
   }
 
@@ -184,6 +198,8 @@ export async function loadProductSales(
       catalog_price: rep?.price ?? 0,
       items_sold: a.items,
       revenue: a.revenue,
+      gross_revenue: a.gross,
+      discount_amount: a.gross - a.revenue,
       share_pct: 0,
       transaction_count: a.transactions,
       has_sales: a.items > 0,
@@ -196,6 +212,8 @@ export async function loadProductSales(
   const totals = {
     items_sold: listed.reduce((n, g) => n + g.items_sold, 0),
     revenue: listed.reduce((n, g) => n + g.revenue, 0),
+    gross_revenue: listed.reduce((n, g) => n + g.gross_revenue, 0),
+    discount_amount: listed.reduce((n, g) => n + g.discount_amount, 0),
     product_count: listed.length,
   };
   for (const g of groups) g.share_pct = sharePct(g.revenue, totals.revenue);
@@ -288,7 +306,7 @@ export async function loadProductDetail(
   const items = (outlets_: string[], p: Pick<Period, 'from' | 'to'>) =>
     and(soldIn(outlets_, p), forGroup(group));
   const quantity = sql<string>`sum(${transactionItems.quantity})::text`;
-  const revenue = sql<string>`sum(${transactionItems.lineTotal})::text`;
+  const revenue = sql<string>`sum(${netLine})::text`;
 
   const [list, before, byMethod, byOutlet, byEmployee] = await Promise.all([
     loadProductSales(db, scope, activeOutletId, merge, period, group.memberIds),
@@ -346,6 +364,8 @@ export async function loadProductDetail(
     date_to: period.dateTo,
     items_sold: row.items_sold,
     revenue: row.revenue,
+    gross_revenue: row.gross_revenue,
+    discount_amount: row.discount_amount,
     average_price: row.items_sold > 0 ? Math.floor(row.revenue / row.items_sold) : 0,
     share_pct: row.share_pct,
     transaction_count: row.transaction_count,
@@ -410,7 +430,7 @@ export async function loadProductSeries(
     .select({
       bucket,
       quantity: sql<string>`sum(${transactionItems.quantity})::text`,
-      revenue: sql<string>`sum(${transactionItems.lineTotal})::text`,
+      revenue: sql<string>`sum(${netLine})::text`,
     })
     .from(transactionItems)
     .innerJoin(transactions, eq(transactions.id, transactionItems.transactionId))

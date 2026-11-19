@@ -200,6 +200,9 @@ export async function toTransactionDetails(
             unit_price: i.unitPrice,
             quantity: i.quantity,
             line_total: i.lineTotal,
+            discount_id: i.discountId,
+            discount_name: i.discountName,
+            discount_amount: i.discountAmount,
             note: i.note,
           })),
         payments: pays

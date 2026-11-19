@@ -70,6 +70,10 @@ export const revenuePredicate = () => and(isNull(transactions.deletedAt), counte
 
 export interface SummaryTotals {
   revenue: number;
+  /** Omzet kotor: sum of `subtotal` of the counted transactions (ADR-0023 §5). */
+  grossSales: number;
+  /** Sum of `discount_amount` of the counted transactions. */
+  discountTotal: number;
   transactionCount: number;
   cashRevenue: number;
   qrisRevenue: number;
@@ -83,6 +87,8 @@ export interface SummaryTotals {
 
 const emptyTotals = (): SummaryTotals => ({
   revenue: 0,
+  grossSales: 0,
+  discountTotal: 0,
   transactionCount: 0,
   cashRevenue: 0,
   qrisRevenue: 0,
@@ -109,6 +115,8 @@ export async function loadSummaryByOutlet(
         method: transactions.paymentMethod,
         n: sql<number>`count(*)::int`,
         amount: sql<string>`coalesce(sum(${transactions.total}), 0)::text`,
+        gross: sql<string>`coalesce(sum(${transactions.subtotal}), 0)::text`,
+        discount: sql<string>`coalesce(sum(${transactions.discountAmount}), 0)::text`,
       })
       .from(transactions)
       .where(
@@ -138,6 +146,8 @@ export async function loadSummaryByOutlet(
     }
     const amount = Number(r.amount);
     t.revenue += amount;
+    t.grossSales += Number(r.gross);
+    t.discountTotal += Number(r.discount);
     t.transactionCount += r.n;
     if (r.method === 'cash') {
       t.cashRevenue += amount;
@@ -160,6 +170,8 @@ export function mergeTotals(all: Iterable<SummaryTotals>): SummaryTotals {
   const t = emptyTotals();
   for (const x of all) {
     t.revenue += x.revenue;
+    t.grossSales += x.grossSales;
+    t.discountTotal += x.discountTotal;
     t.transactionCount += x.transactionCount;
     t.cashRevenue += x.cashRevenue;
     t.qrisRevenue += x.qrisRevenue;
@@ -217,11 +229,14 @@ export async function loadSalesSeries(
   return data;
 }
 
+/** Net sales of an item: normal line total minus its discount (ADR-0023 §5). */
+export const netLine = sql`(${transactionItems.lineTotal} - ${transactionItems.discountAmount})`;
+
 /** Same product (by id; by name when the product was deleted) summed over counted transactions. */
 export async function loadTopProducts(db: DbOrTx, outletId: string, period: Period, limit: number) {
   const key = sql`coalesce(${transactionItems.productId}::text, 'name:' || ${transactionItems.productName})`;
   const quantity = sql<number>`sum(${transactionItems.quantity})::int`;
-  const revenue = sql<string>`sum(${transactionItems.lineTotal})::text`;
+  const revenue = sql<string>`sum(${netLine})::text`;
   const rows = await db
     .select({
       productId: sql<string | null>`max(${transactionItems.productId}::text)`,
@@ -259,19 +274,22 @@ export async function loadSalesReport(
         label: sql<string>`(array_agg(${transactionItems.productName} order by ${transactions.clientCreatedAt} desc))[1]`,
         quantity: sql<number>`sum(${transactionItems.quantity})::int`,
         transactionCount: sql<number>`count(distinct ${transactions.id})::int`,
-        revenue: sql<string>`sum(${transactionItems.lineTotal})::text`,
+        revenue: sql<string>`sum(${netLine})::text`,
+        gross: sql<string>`sum(${transactionItems.lineTotal})::text`,
       })
       .from(transactionItems)
       .innerJoin(transactions, eq(transactions.id, transactionItems.transactionId))
       .where(and(inPeriod(outletId, period), counted))
       .groupBy(sql`1`)
-      .orderBy(sql`sum(${transactionItems.lineTotal}) desc`, sql`1`);
+      .orderBy(sql`sum(${netLine}) desc`, sql`1`);
     return rows.map((r) => ({
       key: r.key,
       label: r.label,
       quantity: r.quantity,
       transaction_count: r.transactionCount,
       revenue: Number(r.revenue),
+      gross_revenue: Number(r.gross),
+      discount_amount: Number(r.gross) - Number(r.revenue),
     }));
   }
 
@@ -289,6 +307,8 @@ export async function loadSalesReport(
       quantity: itemQuantity,
       transactionCount: sql<number>`count(*)::int`,
       revenue: sql<string>`sum(${transactions.total})::text`,
+      gross: sql<string>`sum(${transactions.subtotal})::text`,
+      discount: sql<string>`sum(${transactions.discountAmount})::text`,
     })
     .from(transactions)
     .where(and(inPeriod(outletId, period), counted))
@@ -320,5 +340,7 @@ export async function loadSalesReport(
     quantity: r.quantity,
     transaction_count: r.transactionCount,
     revenue: Number(r.revenue),
+    gross_revenue: Number(r.gross),
+    discount_amount: Number(r.discount),
   }));
 }

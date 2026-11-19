@@ -13,6 +13,7 @@ import {
 } from '../../db/schema.js';
 import { errors } from '../../errors.js';
 import { writeAudit } from '../audit/audit.js';
+import { checkItemDiscounts } from '../discounts/validation.js';
 import { resolveProvider } from '../payments/provider.js';
 import { loadSettings } from '../settings/serialize.js';
 import { computeShiftTotals } from '../shifts/summary.js';
@@ -39,6 +40,10 @@ export const transactionCreateSchema = z.object({
         quantity: z.number().int().min(1).max(999),
         note: z.string().trim().max(140).optional(),
         line_total: rupiah,
+        // Item discounts (ADR-0023): `unit_price` stays the normal price, older apps omit these fields.
+        discount_id: uuid.nullable().optional(),
+        discount_version: z.number().int().min(1).nullable().optional(),
+        discount_amount: rupiah.default(0),
       }),
     )
     .min(1)
@@ -76,6 +81,7 @@ const totalMismatch = (detail: string) =>
 /** The server never trusts client math (TDD §3.2): recompute everything from the snapshot. */
 export function assertTotals(input: TransactionCreateInput): void {
   let subtotal = 0;
+  let itemDiscounts = 0;
   const seen = new Set<string>();
   for (const item of input.items) {
     if (seen.has(item.id)) {
@@ -86,12 +92,18 @@ export function assertTotals(input: TransactionCreateInput): void {
       throw totalMismatch(`line_total of "${item.product_name}" must equal unit_price * quantity`);
     }
     subtotal += item.line_total;
+    itemDiscounts += item.discount_amount;
   }
   if (input.subtotal !== subtotal) {
     throw totalMismatch(`subtotal must equal the sum of the lines (${subtotal})`);
   }
   if (input.discount_amount > subtotal) {
     throw totalMismatch('discount_amount cannot exceed the subtotal');
+  }
+  if (input.discount_amount !== itemDiscounts) {
+    throw totalMismatch(
+      `discount_amount must equal the sum of the item discounts (${itemDiscounts})`,
+    );
   }
   const total = subtotal - input.discount_amount + input.tax_amount;
   if (input.total !== total) {
@@ -219,6 +231,16 @@ export async function createTransaction(
         );
       }
 
+      // Item discounts: rule version, formula and (for QRIS) freshness (ADR-0023 §3).
+      const discounts = await checkItemDiscounts(tx, {
+        outletId: actor.outletId,
+        timezone: outlet.timezone,
+        source: actor.source,
+        at: input.client_created_at,
+        items: input.items,
+        categoryOf: new Map(catalog.map((p) => [p.id, p.categoryId])),
+      });
+
       const isCash = input.payment.method === 'cash';
       let status: 'paid' | 'pending';
       let paymentValues: typeof payments.$inferInsert;
@@ -292,7 +314,7 @@ export async function createTransaction(
         discountAmount: input.discount_amount,
         taxAmount: input.tax_amount,
         total: input.total,
-        priceMismatch: mismatches.length > 0,
+        priceMismatch: mismatches.length > 0 || discounts.stale.length > 0,
         afterShiftClose,
         clientCreatedAt: input.client_created_at,
         serverReceivedAt: now,
@@ -300,6 +322,10 @@ export async function createTransaction(
       });
       await tx.insert(transactionItems).values(
         input.items.map((item) => ({
+          discountId: discounts.applied.get(item.id)?.discountId ?? null,
+          discountVersion: discounts.applied.get(item.id)?.version ?? null,
+          discountName: discounts.applied.get(item.id)?.name ?? null,
+          discountAmount: item.discount_amount,
           id: item.id,
           transactionId: input.id,
           productId: item.product_id,
@@ -338,6 +364,14 @@ export async function createTransaction(
           ...auditBase,
           action: 'sync.price_mismatch',
           after: { items: mismatches },
+          meta,
+        });
+      }
+      if (discounts.stale.length > 0) {
+        await writeAudit(tx, {
+          ...auditBase,
+          action: 'sync.discount_stale',
+          after: { items: discounts.stale },
           meta,
         });
       }
