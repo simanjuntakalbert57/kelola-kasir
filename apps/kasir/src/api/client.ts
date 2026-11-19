@@ -40,6 +40,8 @@ export interface ApiClientOptions {
   baseUrl: string;
   getDeviceToken: () => string | null;
   getAccessToken: () => string | null;
+  /** Sent as `X-App-Version` so the owner sees devices that cannot apply discounts yet (ADR-0023 §3). */
+  appVersion?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -69,6 +71,7 @@ export function createApiClient(options: ApiClientOptions) {
     const headers: Record<string, string> = {
       Accept: 'application/json, application/problem+json',
     };
+    if (options.appVersion) headers['X-App-Version'] = options.appVersion;
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (opts.device) {
       const token = options.getDeviceToken();

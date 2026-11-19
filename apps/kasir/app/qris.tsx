@@ -18,6 +18,7 @@ import { totalsOf } from '../src/sales/cart';
 import {
   cancelQris,
   confirmQris,
+  DiscountStaleError,
   formatCountdown,
   remainingMs,
   startQris,
@@ -43,8 +44,20 @@ function confirmDialog(message: string): Promise<boolean> {
 export default function QrisScreen() {
   const router = useRouter();
   const { api } = useSession();
-  const { db, cart, saleContext, completeSale, printReceipt, setPrintReceipt, setQris, online } =
-    useSales();
+  const {
+    db,
+    cart,
+    pricingAt,
+    lockPricing,
+    unlockPricing,
+    refreshPricing,
+    saleContext,
+    completeSale,
+    printReceipt,
+    setPrintReceipt,
+    setQris,
+    online,
+  } = useSales();
   const { autoPrint } = usePrinter();
   const total = totalsOf(cart).total;
   const [session, setSession] = useState<QrisSession | null>(null);
@@ -52,16 +65,35 @@ export default function QrisScreen() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const started = useRef(false);
+  const [ready, setReady] = useState(false);
+  /** Set when the server said a promo changed: the cashier must confirm the re-priced total (ADR-0023 §3). */
+  const [stale, setStale] = useState<{ oldTotal: number } | null>(null);
+
+  // Bayar locks the price; the QRIS sale is created at that same instant.
+  useEffect(() => {
+    lockPricing();
+    setReady(true);
+    return unlockPricing;
+  }, [lockPricing, unlockPricing]);
 
   useEffect(() => {
-    if (started.current || !db || !saleContext) return;
+    if (started.current || !ready || stale || !db || !saleContext) return;
     started.current = true;
     void (async () => {
       try {
-        const s = await startQris(api, db, saleContext, cart);
+        const s = await startQris(api, db, saleContext, cart, pricingAt);
         setSession(s);
         setQris(s);
       } catch (e) {
+        if (e instanceof DiscountStaleError) {
+          setStale({ oldTotal: total });
+          try {
+            await refreshPricing();
+          } catch {
+            setError('Harga promo berubah, tetapi katalog gagal diperbarui. Periksa koneksi.');
+          }
+          return;
+        }
         setError(
           e instanceof NetworkError
             ? 'QRIS butuh internet. Gunakan Cash.'
@@ -71,7 +103,13 @@ export default function QrisScreen() {
         );
       }
     })();
-  }, [api, db, saleContext, cart, setQris]);
+  }, [api, db, saleContext, cart, pricingAt, ready, stale, total, refreshPricing, setQris]);
+
+  const acceptNewTotal = () => {
+    setError(null);
+    started.current = false;
+    setStale(null);
+  };
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -122,7 +160,22 @@ export default function QrisScreen() {
           <Text testID="qris-total" maxFontSizeMultiplier={FONT_CAP} style={styles.total}>
             {formatRupiah(total)}
           </Text>
-          {error && !session ? (
+          {stale ? (
+            <>
+              <Banner tone="warn">
+                Harga promo berubah. Total lama {formatRupiah(stale.oldTotal)}, total baru{' '}
+                {formatRupiah(total)}.
+              </Banner>
+              {error ? <Banner tone="error">{error}</Banner> : null}
+              <Button
+                testID="qris-accept-new-total"
+                label={`Lanjut dengan total ${formatRupiah(total)}`}
+                variant="primary"
+                large
+                onPress={acceptNewTotal}
+              />
+            </>
+          ) : error && !session ? (
             <Banner tone="error">{error}</Banner>
           ) : !session ? (
             <ActivityIndicator color={colors.greenText} style={{ margin: space.s6 }} />

@@ -17,6 +17,10 @@ export const colors = {
   warnBg: '#3A2E14',
   info: '#8FB2FF',
   infoBg: '#1B2A4A',
+  /** Discount accents (design diskon.html §8). */
+  disc: '#FFB454',
+  discBg: '#3A2616',
+  discInk: '#2B1100',
   scrim: 'rgba(0,0,0,0.67)',
 } as const;
 

@@ -1,6 +1,6 @@
 import { cashChange, formatRupiah } from '@kelola-kasir/money';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePrinter } from '../src/printing/PrinterProvider';
@@ -16,7 +16,17 @@ import { PrintToggle } from '../src/ui/PrintToggle';
 
 export default function CashScreen() {
   const router = useRouter();
-  const { db, cart, saleContext, completeSale, printReceipt, setPrintReceipt } = useSales();
+  const {
+    db,
+    cart,
+    pricingAt,
+    lockPricing,
+    unlockPricing,
+    saleContext,
+    completeSale,
+    printReceipt,
+    setPrintReceipt,
+  } = useSales();
   const { autoPrint } = usePrinter();
   const total = totalsOf(cart).total;
   const [digits, setDigits] = useState('');
@@ -28,6 +38,11 @@ export default function CashScreen() {
     bodyReserve: 200,
     compactBodyReserve: 150,
   });
+  // Bayar locks the price: the sale below is created at this same instant (ADR-0023 §2).
+  useEffect(() => {
+    lockPricing();
+    return unlockPricing;
+  }, [lockPricing, unlockPricing]);
   const tendered = digitsToRupiah(digits);
   const enough = tendered >= total;
 
@@ -37,7 +52,7 @@ export default function CashScreen() {
     setBusy(true);
     setError(null);
     try {
-      const sale = await createCashSale(db, saleContext, cart, amount);
+      const sale = await createCashSale(db, saleContext, cart, amount, pricingAt);
       completeSale(toCompleted(sale));
       // The sale is already saved: printing runs on its own and can fail without touching it.
       if (printReceipt) autoPrint(sale.id);

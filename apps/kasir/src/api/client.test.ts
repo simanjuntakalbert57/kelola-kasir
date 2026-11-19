@@ -23,6 +23,20 @@ describe('api client', () => {
     expect(init.headers).not.toHaveProperty('Authorization');
   });
 
+  it('sends X-App-Version when configured (ADR-0023 §3)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes(200, { changes: {} }));
+    const api = createApiClient({
+      baseUrl: 'http://x/v1/',
+      getDeviceToken: () => 'dev',
+      getAccessToken: () => null,
+      appVersion: '0.3.0',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    await api.syncPull();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.headers).toMatchObject({ 'X-App-Version': '0.3.0' });
+  });
+
   it('pairDevice sends no credentials', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonRes(200, {}));
     await client(fetchMock as unknown as typeof fetch).pairDevice('AB12CD34', '0.1.0');

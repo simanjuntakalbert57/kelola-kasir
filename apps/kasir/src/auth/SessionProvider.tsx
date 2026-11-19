@@ -70,6 +70,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () =>
       createApiClient({
         baseUrl: API_BASE_URL,
+        appVersion: APP_VERSION,
         getDeviceToken: () => deviceToken.current,
         getAccessToken: () => accessToken.current,
       }),

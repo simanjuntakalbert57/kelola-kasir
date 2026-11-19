@@ -9,6 +9,7 @@ export async function resetCatalog(db: Db): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.run('DELETE FROM products');
     await tx.run('DELETE FROM categories');
+    await tx.run('DELETE FROM discounts');
     await tx.run('DELETE FROM meta WHERE key IN (?, ?)', [META.cursor, META.settings]);
   });
 }

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../src/auth/SessionProvider';
 import type { CatalogProduct } from '../../src/catalog/repository';
 import { addProduct, itemCount, payAvailability, summaryLabel } from '../../src/sales/cart';
+import { discountBadge } from '../../src/sales/pricing';
 import { qrisAvailability } from '../../src/sales/qris';
 import { useSales } from '../../src/sales/SalesProvider';
 import { colors, radius, space } from '../../src/theme';
@@ -29,8 +30,18 @@ export function pendingBanner(n: number): string {
 export default function JualScreen() {
   const router = useRouter();
   const { paired, session } = useSession();
-  const { catalog, catalogVersion, cart, setCart, online, pending, refreshPending, syncNow } =
-    useSales();
+  const {
+    catalog,
+    catalogVersion,
+    cart,
+    setCart,
+    online,
+    pending,
+    refreshPending,
+    syncNow,
+    quote,
+    lockPricing,
+  } = useSales();
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<string>('favorit');
   const [search, setSearch] = useState('');
@@ -139,11 +150,16 @@ export default function JualScreen() {
           columnWrapperStyle={{ gap: space.s3 }}
           renderItem={({ item }) => {
             const inCart = cart.lines.find((l) => l.productId === item.id)?.quantity ?? 0;
+            const promo = quote(item);
             return (
               <Pressable
                 testID={`product-${item.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${item.name} ${formatRupiah(item.price)}`}
+                accessibilityLabel={
+                  promo
+                    ? `${item.name}, harga normal ${formatRupiah(item.price)}, harga diskon ${formatRupiah(promo.finalUnitPrice)}`
+                    : `${item.name} ${formatRupiah(item.price)}`
+                }
                 onPress={() => setCart((c) => addProduct(c, item))}
                 onLongPress={() => markSoldOut(item)}
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
@@ -156,7 +172,19 @@ export default function JualScreen() {
                 <Text style={styles.cardName} numberOfLines={2}>
                   {item.name}
                 </Text>
-                <Text style={styles.cardPrice}>{formatRupiah(item.price)}</Text>
+                {promo ? (
+                  <View style={styles.ribbon}>
+                    <Text style={styles.ribbonText}>
+                      {discountBadge(promo.rule, promo.perUnit, formatRupiah)}
+                    </Text>
+                  </View>
+                ) : null}
+                <View>
+                  <Text style={styles.cardPrice}>
+                    {formatRupiah(promo ? promo.finalUnitPrice : item.price)}
+                  </Text>
+                  {promo ? <Text style={styles.strike}>{formatRupiah(item.price)}</Text> : null}
+                </View>
               </Pressable>
             );
           }}
@@ -183,7 +211,10 @@ export default function JualScreen() {
           variant="accent"
           large
           disabled={!pay.cash}
-          onPress={() => router.push('/cash')}
+          onPress={() => {
+            lockPricing();
+            router.push('/cash');
+          }}
           style={styles.payBtn}
         />
         <Button
@@ -192,7 +223,10 @@ export default function JualScreen() {
           variant="primary"
           large
           disabled={!pay.qris}
-          onPress={() => router.push('/qris')}
+          onPress={() => {
+            lockPricing();
+            router.push('/qris');
+          }}
           style={styles.payBtn}
         />
       </View>
@@ -232,6 +266,20 @@ const styles = StyleSheet.create({
     color: colors.greenText,
     fontSize: 15,
     fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  ribbon: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.disc,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  ribbonText: { color: colors.discInk, fontSize: 12, fontWeight: '800' },
+  strike: {
+    color: colors.muted,
+    fontSize: 13,
+    textDecorationLine: 'line-through',
     fontVariant: ['tabular-nums'],
   },
   badge: {

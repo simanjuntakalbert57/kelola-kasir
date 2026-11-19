@@ -11,6 +11,20 @@ export interface CartLine {
   unitPrice: number;
   quantity: number;
   note?: string;
+  /** Category of the product, so category discounts can match (ADR-0023). */
+  categoryId?: string | null;
+  /**
+   * Automatic discount applied by `priceCart` (never typed by the cashier). `perUnit` is the Rupiah off one unit
+   * of the normal `unitPrice`.
+   */
+  discount?: {
+    id: string;
+    version: number;
+    name: string;
+    type: 'percent' | 'amount';
+    value: number;
+    perUnit: number;
+  };
 }
 
 export interface Cart {
@@ -29,6 +43,7 @@ export function addProduct(cart: Cart, product: CatalogProduct): Cart {
       name: product.name,
       unitPrice: product.price,
       quantity: 1,
+      categoryId: product.categoryId,
     };
     return { ...cart, lines: [...cart.lines, line] };
   }
@@ -71,13 +86,24 @@ export function itemCount(cart: Cart): number {
   return cart.lines.reduce((n, l) => n + l.quantity, 0);
 }
 
-export function totalsOf(cart: Cart): CartTotals {
-  return cartTotals(cart.lines.map((l) => ({ unitPrice: l.unitPrice, quantity: l.quantity })));
+/** Rupiah taken off a whole line: per-unit discount × quantity (same as `discountForLine`). */
+export function lineDiscount(line: CartLine): number {
+  return (line.discount?.perUnit ?? 0) * line.quantity;
 }
 
-/** Pay-bar label, e.g. "3 item · Rp42.000". */
+/** `subtotal` is gross (normal prices); `discountAmount` = Σ item discounts; `total` = subtotal − discount. */
+export function totalsOf(cart: Cart): CartTotals {
+  return cartTotals(
+    cart.lines.map((l) => ({ unitPrice: l.unitPrice, quantity: l.quantity })),
+    { discountAmount: cart.lines.reduce((n, l) => n + lineDiscount(l), 0) },
+  );
+}
+
+/** Pay-bar label, e.g. "3 item · Rp42.000", or "4 item · Hemat Rp9.200 · Rp48.800" with a discount. */
 export function summaryLabel(cart: Cart, format: (n: number) => string): string {
-  return `${itemCount(cart)} item · ${format(totalsOf(cart).total)}`;
+  const totals = totalsOf(cart);
+  const saved = totals.discountAmount > 0 ? ` · Hemat ${format(totals.discountAmount)}` : '';
+  return `${itemCount(cart)} item${saved} · ${format(totals.total)}`;
 }
 
 /** Quick cash amounts: exact total, then the next round bills above it (M-9 "nominal cepat"). */

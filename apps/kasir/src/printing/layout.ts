@@ -16,6 +16,9 @@ export interface ReceiptItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  /** Promo applied to this line (name printed under the item) and the Rupiah taken off the whole line. */
+  discountName?: string | null;
+  discountAmount?: number;
 }
 
 /** Everything a receipt needs, independent of where it came from (SQLite or `GET /receipt`). */
@@ -163,12 +166,16 @@ export function buildReceiptLines(r: ReceiptData): ReceiptLine[] {
   for (const item of r.items) {
     for (const t of wrap(`${item.quantity}x ${item.name}`, COLS, 3)) left(t);
     left(row(`   @${money(item.unitPrice)}`, money(item.lineTotal)));
+    if ((item.discountAmount ?? 0) > 0) {
+      left(row(`   ${item.discountName || 'Diskon'}`, `-${money(item.discountAmount ?? 0)}`));
+    }
   }
   left(DASHES);
   if (r.discount > 0 || r.tax > 0) left(row('Subtotal', money(r.subtotal)));
   if (r.discount > 0) left(row('Diskon', `-${money(r.discount)}`));
   if (r.tax > 0) left(row('Pajak', money(r.tax)));
   left(row('TOTAL', money(r.total)), true);
+  if (r.discount > 0) left(`Hemat Rp${money(r.discount)}`);
   if (r.method === 'cash') {
     left(row('Cash', money(r.cashTendered ?? r.total)));
     left(row('Kembali', money(r.change ?? 0)));
@@ -235,6 +242,9 @@ export function receiptFromApi(api: Receipt, timeZone: string, reprint = false):
       quantity: i.quantity,
       unitPrice: i.unit_price,
       lineTotal: i.line_total,
+      ...(i.discount_amount > 0
+        ? { discountName: i.discount_name, discountAmount: i.discount_amount }
+        : {}),
     })),
     subtotal: t.subtotal,
     discount: t.discount_amount,

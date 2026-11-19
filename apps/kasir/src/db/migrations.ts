@@ -61,6 +61,28 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE transactions ADD COLUMN void_reason TEXT;
   CREATE INDEX transactions_shift ON transactions (shift_id, created_at);
   `,
+  // ADR-0023 §4: discount rules synced per outlet. An older APK already moved the cursor past discount rows it
+  // ignored, so the cursor is cleared: the next pull is a full snapshot that fills this table.
+  `
+  CREATE TABLE discounts (
+    id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    target_type TEXT NOT NULL,
+    product_ids TEXT NOT NULL,
+    category_ids TEXT NOT NULL,
+    starts_on TEXT NOT NULL,
+    ends_on TEXT,
+    days_of_week TEXT,
+    time_start TEXT,
+    time_end TEXT,
+    utc_offset_minutes INTEGER NOT NULL
+  );
+  ALTER TABLE transactions ADD COLUMN discount_names TEXT;
+  DELETE FROM meta WHERE key = 'sync_cursor';
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {
