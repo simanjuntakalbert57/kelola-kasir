@@ -13,6 +13,9 @@ import { Skeleton } from './components/ui';
 import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { DeletedTransactionsPage } from './pages/DeletedTransactionsPage';
+import { DiscountFormPage } from './pages/DiscountFormPage';
+import { DiscountReportPage } from './pages/DiscountReportPage';
+import { DiscountsPage } from './pages/DiscountsPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { ExpenseCategoriesPage } from './pages/ExpenseCategoriesPage';
 import { ExpenseReportPage } from './pages/ExpenseReportPage';
@@ -128,6 +131,10 @@ const routeTree = root.addChildren([
     page('/pengeluaran/kategori', ExpenseCategoriesPage),
     page('/produk', ProductsPage),
     page('/produk/impor', ProductImportPage),
+    page('/diskon', DiscountsPage),
+    page('/diskon/baru', DiscountFormPage),
+    page('/diskon/laporan', DiscountReportPage),
+    page('/diskon/$id', DiscountFormPage),
     page('/pegawai', EmployeesPage),
     page('/perangkat', DevicesPage),
     page('/shift', ShiftsPage),

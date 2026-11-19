@@ -129,6 +129,9 @@ export const post = <T>(path: string, body?: unknown) =>
 export const patch = <T>(path: string, body: unknown) =>
   api<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
 
+export const del = <T>(path: string, body?: unknown) =>
+  api<T>(path, { method: 'DELETE', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
 /** Authenticated file download (the access token is memory-only, so a plain link cannot be used). */
 export async function download(path: string): Promise<{ blob: Blob; filename: string }> {
   let res = await send(path, {}, accessToken);

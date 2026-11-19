@@ -32,6 +32,8 @@ const emptyReport = {
 
 const base = {
   revenue: 1325000,
+  gross_sales: 1325000,
+  discount_total: 0,
   transaction_count: 66,
   average_ticket: 20075,
   cash_revenue: 820000,
@@ -49,6 +51,8 @@ const byOutlet = [
     outlet_id: RGN,
     outlet_name: 'Ragunan',
     revenue: 800000,
+    gross_sales: 800000,
+    discount_total: 0,
     cash_revenue: 500000,
     qris_revenue: 300000,
     items_sold: 190,
@@ -57,6 +61,8 @@ const byOutlet = [
     outlet_id: PLM,
     outlet_name: 'Palmerah',
     revenue: 525000,
+    gross_sales: 525000,
+    discount_total: 0,
     cash_revenue: 320000,
     qris_revenue: 205000,
     items_sold: 122,
