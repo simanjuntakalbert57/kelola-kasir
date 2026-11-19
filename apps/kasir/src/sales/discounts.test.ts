@@ -1,6 +1,6 @@
 import type { Category, DiscountRule, Product, Transaction } from '@kelola-kasir/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../api/client';
+import { ApiError, NetworkError } from '../api/client';
 import { createCatalogRepository, type CatalogRepository } from '../catalog/repository';
 import { pullCatalog } from '../catalog/sync';
 import { resetCatalog } from '../catalog/reset';
@@ -13,7 +13,7 @@ import { loadLocalReceipt } from '../printing/localReceipt';
 import { addProduct, emptyCart, setQuantity, summaryLabel, totalsOf, type Cart } from './cart';
 import { createCashSale, type SaleContext } from './checkout';
 import { discountBadge, priceCart, quoteProduct } from './pricing';
-import { confirmQris, DiscountStaleError, startQris } from './qris';
+import { confirmQris, DiscountStaleError, recoverFromStale, startQris } from './qris';
 
 const CTX: SaleContext = {
   outletCode: 'JUS1',
@@ -301,6 +301,13 @@ describe('QRIS DISCOUNT_STALE', () => {
     expect(sent[0]?.items[0]).not.toHaveProperty('discount_id');
     await confirmQris(api, db, CTX, session);
     expect(await db.all("SELECT 1 FROM transactions WHERE method = 'qris'")).toHaveLength(1);
+  });
+
+  it('a failed catalog pull is "failed" (retry only), a successful one is "refreshed" (may continue)', async () => {
+    expect(await recoverFromStale(() => Promise.reject(new NetworkError()))).toBe('failed');
+    const refresh = vi.fn(() => Promise.resolve());
+    expect(await recoverFromStale(refresh)).toBe('refreshed');
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it('other API errors are not mistaken for a stale promo', async () => {

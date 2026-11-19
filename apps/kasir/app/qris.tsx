@@ -19,6 +19,7 @@ import {
   cancelQris,
   confirmQris,
   DiscountStaleError,
+  recoverFromStale,
   formatCountdown,
   remainingMs,
   startQris,
@@ -67,7 +68,7 @@ export default function QrisScreen() {
   const started = useRef(false);
   const [ready, setReady] = useState(false);
   /** Set when the server said a promo changed: the cashier must confirm the re-priced total (ADR-0023 §3). */
-  const [stale, setStale] = useState<{ oldTotal: number } | null>(null);
+  const [stale, setStale] = useState<{ oldTotal: number; refreshed: boolean } | null>(null);
 
   // Bayar locks the price; the QRIS sale is created at that same instant.
   useEffect(() => {
@@ -86,10 +87,11 @@ export default function QrisScreen() {
         setQris(s);
       } catch (e) {
         if (e instanceof DiscountStaleError) {
-          setStale({ oldTotal: total });
-          try {
-            await refreshPricing();
-          } catch {
+          const oldTotal = total;
+          setStale({ oldTotal, refreshed: false });
+          const outcome = await recoverFromStale(refreshPricing);
+          setStale({ oldTotal, refreshed: outcome === 'refreshed' });
+          if (outcome === 'failed') {
             setError('Harga promo berubah, tetapi katalog gagal diperbarui. Periksa koneksi.');
           }
           return;
@@ -104,6 +106,16 @@ export default function QrisScreen() {
       }
     })();
   }, [api, db, saleContext, cart, pricingAt, ready, stale, total, refreshPricing, setQris]);
+
+  const retryRefresh = async () => {
+    if (!stale) return;
+    setError(null);
+    const outcome = await recoverFromStale(refreshPricing);
+    setStale({ oldTotal: stale.oldTotal, refreshed: outcome === 'refreshed' });
+    if (outcome === 'failed') {
+      setError('Harga promo berubah, tetapi katalog gagal diperbarui. Periksa koneksi.');
+    }
+  };
 
   const acceptNewTotal = () => {
     setError(null);
@@ -161,20 +173,38 @@ export default function QrisScreen() {
             {formatRupiah(total)}
           </Text>
           {stale ? (
-            <>
-              <Banner tone="warn">
-                Harga promo berubah. Total lama {formatRupiah(stale.oldTotal)}, total baru{' '}
-                {formatRupiah(total)}.
-              </Banner>
-              {error ? <Banner tone="error">{error}</Banner> : null}
-              <Button
-                testID="qris-accept-new-total"
-                label={`Lanjut dengan total ${formatRupiah(total)}`}
-                variant="primary"
-                large
-                onPress={acceptNewTotal}
-              />
-            </>
+            stale.refreshed ? (
+              <>
+                <Banner tone="warn">
+                  Harga promo berubah. Total lama {formatRupiah(stale.oldTotal)}, total baru{' '}
+                  {formatRupiah(total)}.
+                </Banner>
+                <Button
+                  testID="qris-accept-new-total"
+                  label={`Lanjut dengan total ${formatRupiah(total)}`}
+                  variant="primary"
+                  large
+                  onPress={acceptNewTotal}
+                />
+              </>
+            ) : (
+              <>
+                {error ? (
+                  <Banner tone="error">{error}</Banner>
+                ) : (
+                  <ActivityIndicator color={colors.greenText} style={{ margin: space.s6 }} />
+                )}
+                {error ? (
+                  <Button
+                    testID="qris-retry-refresh"
+                    label="Coba lagi"
+                    variant="primary"
+                    large
+                    onPress={() => void retryRefresh()}
+                  />
+                ) : null}
+              </>
+            )
           ) : error && !session ? (
             <Banner tone="error">{error}</Banner>
           ) : !session ? (

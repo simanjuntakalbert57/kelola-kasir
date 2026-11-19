@@ -49,6 +49,21 @@ export class DiscountStaleError extends Error {
   override readonly name = 'DiscountStaleError';
 }
 
+/**
+ * After `DISCOUNT_STALE`: pull the catalog and re-price. `refreshed` is true only when the pull succeeded, i.e. when the
+ * cart total on screen is really the new one; otherwise the cashier may only retry, never continue.
+ */
+export async function recoverFromStale(
+  refresh: () => Promise<void>,
+): Promise<'refreshed' | 'failed'> {
+  try {
+    await refresh();
+    return 'refreshed';
+  } catch {
+    return 'failed';
+  }
+}
+
 export async function startQris(
   api: QrisApi,
   db: Db,

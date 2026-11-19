@@ -137,8 +137,19 @@ export function SalesProvider({ children }: { children: ReactNode }) {
 
   // Re-price every minute (happy hour start/end) unless the price is locked for payment.
   useEffect(() => {
-    const t = setInterval(() => setClock(new Date()), PRICING_TICK_MS);
-    return () => clearInterval(t);
+    // Aligned to the start of each minute so a happy-hour ribbon appears and goes away on time.
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(
+      () => {
+        setClock(new Date());
+        interval = setInterval(() => setClock(new Date()), PRICING_TICK_MS);
+      },
+      PRICING_TICK_MS - (Date.now() % PRICING_TICK_MS),
+    );
+    return () => {
+      clearTimeout(first);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   const pricingAt = lockedAt ?? clock;
