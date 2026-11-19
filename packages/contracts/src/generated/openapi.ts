@@ -917,7 +917,7 @@ export interface paths {
          *     Employee `pin_hash` is only filled when the owner enabled offline login.
          *     `changes.discounts` carries the discount rules of the device's outlet (ADR-0023 §4); a deleted or deactivated
          *     discount, or one this outlet was removed from, arrives as a `discount` tombstone. A full snapshot only holds
-         *     active discounts that have not ended. Apps send `X-App-Version` so the owner sees devices that cannot apply
+         *     active discounts that have not ended. Apps send the header `X-App-Version` (e.g. `0.3.0`, letters, digits and `.+_-`, at most 40 characters; anything else is ignored) on `/sync/pull` and `/sync/push`, stored in `devices.app_version`, so the owner sees devices that cannot apply
          *     discounts yet (`GET /discounts` `outdated_devices`).
          */
         get: operations["syncPull"];
@@ -2159,11 +2159,11 @@ export interface components {
                  * Format: uuid
                  * @description ADR-0023
                  */
-                discount_id?: string | null;
+                discount_id: string | null;
                 /** @description Name of the discount at sale time */
-                discount_name?: string | null;
+                discount_name: string | null;
                 /** @description Discount of this line; net line = `line_total - discount_amount` */
-                discount_amount?: components["schemas"]["Rupiah"];
+                discount_amount: components["schemas"]["Rupiah"];
                 note?: string | null;
             }[];
             payments: components["schemas"]["Payment"][];
@@ -2739,9 +2739,9 @@ export interface components {
             /** @description Net: sum of `line_total - discount_amount` (ADR-0023) */
             revenue: components["schemas"]["Rupiah"];
             /** @description Sum of `line_total` (normal prices) */
-            gross_revenue?: components["schemas"]["Rupiah"];
+            gross_revenue: components["schemas"]["Rupiah"];
             /** @description `gross_revenue - revenue` */
-            discount_amount?: components["schemas"]["Rupiah"];
+            discount_amount: components["schemas"]["Rupiah"];
             /** @description Share of `totals.revenue`, one decimal */
             share_pct: number;
             transaction_count: number;
@@ -2759,8 +2759,8 @@ export interface components {
             totals: {
                 items_sold: number;
                 revenue: components["schemas"]["Rupiah"];
-                gross_revenue?: components["schemas"]["Rupiah"];
-                discount_amount?: components["schemas"]["Rupiah"];
+                gross_revenue: components["schemas"]["Rupiah"];
+                discount_amount: components["schemas"]["Rupiah"];
                 product_count: number;
             };
             data: components["schemas"]["ProductSalesRow"][];
@@ -2780,8 +2780,8 @@ export interface components {
             items_sold: number;
             /** @description Net of item discounts (ADR-0023) */
             revenue: components["schemas"]["Rupiah"];
-            gross_revenue?: components["schemas"]["Rupiah"];
-            discount_amount?: components["schemas"]["Rupiah"];
+            gross_revenue: components["schemas"]["Rupiah"];
+            discount_amount: components["schemas"]["Rupiah"];
             /** @description `floor(revenue / items_sold)` (net), 0 without sales */
             average_price: components["schemas"]["Rupiah"];
             share_pct: number;
@@ -2820,9 +2820,9 @@ export interface components {
             /** @description Omzet: sum of `total` = `gross_sales - discount_total + tax` */
             revenue: components["schemas"]["Rupiah"];
             /** @description Omzet kotor: sum of `subtotal` (normal prices, ADR-0023 §5) */
-            gross_sales?: components["schemas"]["Rupiah"];
+            gross_sales: components["schemas"]["Rupiah"];
             /** @description Sum of `discount_amount` (ADR-0023 §5) */
-            discount_total?: components["schemas"]["Rupiah"];
+            discount_total: components["schemas"]["Rupiah"];
             transaction_count: number;
             /** @description Rounded down to whole Rupiah */
             average_ticket: components["schemas"]["Rupiah"];
@@ -2847,8 +2847,8 @@ export interface components {
                 outlet_id: string;
                 outlet_name: string;
                 revenue: components["schemas"]["Rupiah"];
-                gross_sales?: components["schemas"]["Rupiah"];
-                discount_total?: components["schemas"]["Rupiah"];
+                gross_sales: components["schemas"]["Rupiah"];
+                discount_total: components["schemas"]["Rupiah"];
                 cash_revenue: components["schemas"]["Rupiah"];
                 qris_revenue: components["schemas"]["Rupiah"];
                 cash_count: number;
@@ -4214,6 +4214,8 @@ export interface operations {
                 status?: components["schemas"]["TransactionStatus"];
                 /** @description Transaction number or customer label */
                 q?: string;
+                /** @description Only sales accepted with an outdated discount rule (audit `sync.discount_stale`, ADR-0023 §3); finds apps that keep using an old rule */
+                discount_stale?: boolean;
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -4994,9 +4996,9 @@ export interface operations {
                             transaction_count: number;
                             revenue: components["schemas"]["Rupiah"];
                             /** @description Before discounts (ADR-0023) */
-                            gross_revenue?: components["schemas"]["Rupiah"];
+                            gross_revenue: components["schemas"]["Rupiah"];
                             /** @description `gross_revenue - revenue` (ADR-0023) */
-                            discount_amount?: components["schemas"]["Rupiah"];
+                            discount_amount: components["schemas"]["Rupiah"];
                         }[];
                     };
                 };

@@ -114,6 +114,7 @@ describe('sync pull', () => {
       products: [],
       employees: [],
       settings: null,
+      discounts: [],
       deleted: [],
     });
     expect(idle.next_cursor).toBe(first.next_cursor);

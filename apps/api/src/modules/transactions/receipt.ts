@@ -72,6 +72,9 @@ export function formatReceipt(
   for (const item of tx.items) {
     for (const l of wrap(item.product_name)) lines.push(l);
     lines.push(twoColumns(`  ${item.quantity} x ${rp(item.unit_price)}`, rp(item.line_total)));
+    if (item.discount_amount > 0) {
+      lines.push(twoColumns(`  ${item.discount_name ?? 'Diskon'}`, `-${rp(item.discount_amount)}`));
+    }
     if (item.note) lines.push(`  ${item.note}`.slice(0, WIDTH));
   }
   lines.push(bar);
@@ -79,6 +82,7 @@ export function formatReceipt(
   if (tx.discount_amount > 0) lines.push(twoColumns('Diskon', `-${rp(tx.discount_amount)}`));
   if (tx.tax_amount > 0) lines.push(twoColumns('Pajak', rp(tx.tax_amount)));
   lines.push(twoColumns('TOTAL', rp(tx.total)));
+  if (tx.discount_amount > 0) lines.push(twoColumns('Hemat', rp(tx.discount_amount)));
 
   const payment = tx.payments[0];
   if (payment) {

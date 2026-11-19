@@ -14,6 +14,7 @@ import { TokenService } from './lib/jwt.js';
 import { productImportRoutes } from './modules/catalog/import/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { discountRoutes } from './modules/discounts/routes.js';
 import { deviceRoutes } from './modules/devices/routes.js';
 import { employeeRoutes } from './modules/employees/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
@@ -147,6 +148,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await v1.register(voidRoutes(ctx, guards));
       await v1.register(reportRoutes(ctx, guards));
       await v1.register(expenseRoutes(ctx, guards));
+      await v1.register(discountRoutes(ctx, guards));
       await v1.register(paymentRoutes(ctx, guards, payments));
       await v1.register(syncRoutes(ctx, guards));
       await v1.register(notificationRoutes(ctx, guards, notifier, pushClient));

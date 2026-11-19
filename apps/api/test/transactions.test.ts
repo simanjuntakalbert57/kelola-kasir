@@ -105,15 +105,14 @@ describe('create cash transaction', () => {
     expect(detail.total).toBe(30_000);
   });
 
-  it('applies a discount to the total', async () => {
+  it('rejects a transaction discount that is not the sum of the item discounts', async () => {
     const shop = await createShop(env);
-    const ok = await create(shop, txBody(env, shop, { qty: 2, discount: 5_000, tendered: 25_000 }));
-    expect(ok.statusCode).toBe(201);
-    expect(json<TxDto>(ok)).toMatchObject({
-      subtotal: 30_000,
-      discount_amount: 5_000,
-      total: 25_000,
-    });
+    const res = await create(
+      shop,
+      txBody(env, shop, { qty: 2, discount: 5_000, tendered: 25_000 }),
+    );
+    expect(res.statusCode).toBe(422);
+    expect(json<{ code: string }>(res).code).toBe('TOTAL_MISMATCH');
   });
 
   it('is idempotent on the transaction id (replay returns 200 and no duplicate)', async () => {

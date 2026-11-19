@@ -115,8 +115,17 @@ describe('GET /transactions/export', () => {
     expect((await post(env, '/v1/transactions', shop.cashier.headers, body)).statusCode).toBe(201);
     const res = await get(env, '/v1/transactions/export?format=csv&detail=true', owner(shop));
     const rows = parseCsv(res.body);
-    expect(rows[0]?.slice(6)).toEqual(['Produk', 'Qty', 'Harga satuan', 'Total baris', 'Catatan']);
-    expect(rows[1]?.slice(6)).toEqual(['Jus Alpukat', '3', '15000', '45000', '']);
+    expect(rows[0]?.slice(6)).toEqual([
+      'Produk',
+      'Qty',
+      'Harga satuan',
+      'Total baris',
+      'Diskon',
+      'Total bersih',
+      'Promo',
+      'Catatan',
+    ]);
+    expect(rows[1]?.slice(6)).toEqual(['Jus Alpukat', '3', '15000', '45000', '0', '45000', '', '']);
     expect(res.headers['content-disposition']).toContain('transaksi-detail-');
   });
 

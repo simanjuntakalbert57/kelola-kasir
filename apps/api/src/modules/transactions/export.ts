@@ -56,6 +56,9 @@ export const DETAIL_HEADER = [
   'Qty',
   'Harga satuan',
   'Total baris',
+  'Diskon',
+  'Total bersih',
+  'Promo',
   'Catatan',
 ];
 
@@ -114,7 +117,17 @@ async function* exportRows(db: Database, f: ExportFilter): AsyncGenerator<Cell[]
       ];
       if (f.detail) {
         for (const i of lines) {
-          yield [...head, i.productName, i.quantity, i.unitPrice, i.lineTotal, i.note];
+          yield [
+            ...head,
+            i.productName,
+            i.quantity,
+            i.unitPrice,
+            i.lineTotal,
+            i.discountAmount,
+            i.lineTotal - i.discountAmount,
+            i.discountName,
+            i.note,
+          ];
         }
       } else {
         yield [
