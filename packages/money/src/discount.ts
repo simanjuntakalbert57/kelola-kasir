@@ -2,7 +2,7 @@
  * Item discount math shared by the API, the cashier app and the dashboard preview (ADR-0023 §2).
  * Pure functions, no `Intl`, no phone time zone: the local time of an outlet is `UTC + utc_offset_minutes`.
  */
-import { MoneyError, assertRupiah, type Rupiah } from './index.js';
+import { MoneyError, assertRupiah, type Rupiah } from './index.ts';
 
 export type DiscountType = 'percent' | 'amount';
 export type DiscountTargetType = 'product' | 'category';

@@ -21,7 +21,7 @@ pnpm --filter @kelola-kasir/api dev          # http://localhost:3000, base path 
 ```
 
 Production: `apps/api/Dockerfile` (Render, see [`docs/ops/deploy.md`](../../docs/ops/deploy.md)); the container runs
-`node dist/db/migrate.js` (via `DATABASE_URL_DIRECT` when set) and then `node dist/server.js`. `/livez` is the
+`node --conditions=kelola-runtime dist/db/migrate.js` (via `DATABASE_URL_DIRECT` when set) and then `node --conditions=kelola-runtime dist/server.js` (the condition makes `@kelola-kasir/money` resolve to its compiled `dist/`). `/livez` is the
 DB-free liveness probe, `/healthz` includes the database.
 Generate the signing key with `pnpm --filter @kelola-kasir/api keys:generate` and keep it in the secret manager.
 

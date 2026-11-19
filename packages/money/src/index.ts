@@ -116,4 +116,4 @@ export function cashChange(total: Rupiah, cashTendered: Rupiah): Rupiah {
   return cashTendered - total;
 }
 
-export * from './discount.js';
+export * from './discount.ts';

@@ -6,8 +6,10 @@ WORKDIR /repo
 RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile --filter @kelola-kasir/api...
-RUN pnpm --filter @kelola-kasir/api build
-# Production node_modules only; dist/ is gitignored, so copy it explicitly.
+# Workspace packages ship TypeScript sources (Vite and Metro read them directly); Node cannot run TS from
+# node_modules, so the runtime condition `kelola-runtime` points at the compiled dist/ of @kelola-kasir/money.
+RUN pnpm --filter @kelola-kasir/money build && pnpm --filter @kelola-kasir/api build
+# Production node_modules only; dist/ is gitignored, so copy it explicitly (the money package lists dist in `files`).
 RUN pnpm --filter @kelola-kasir/api deploy --prod --legacy /out \
   && rm -rf /out/dist && cp -r apps/api/dist /out/dist
 
@@ -19,4 +21,4 @@ USER node
 EXPOSE 3000
 # Apply migrations (idempotent, via DATABASE_URL_DIRECT) on every start, then hand PID 1 to the
 # server so SIGTERM reaches it. A failed migration keeps the container unhealthy, so the deploy rolls back.
-CMD ["sh", "-c", "node dist/db/migrate.js && exec node dist/server.js"]
+CMD ["sh", "-c", "node --conditions=kelola-runtime dist/db/migrate.js && exec node --conditions=kelola-runtime dist/server.js"]

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../../context.js';
@@ -25,7 +25,11 @@ export function syncRoutes(ctx: AppContext, guards: Guards) {
     const raw = req.headers['x-app-version'];
     const version = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     if (!version || !APP_VERSION_PATTERN.test(version)) return;
-    await ctx.db.update(devices).set({ appVersion: version }).where(eq(devices.id, deviceId));
+    await ctx.db
+      .update(devices)
+      .set({ appVersion: version })
+      // Every pull (once a minute per phone) comes through here: only write when the version changed.
+      .where(and(eq(devices.id, deviceId), sql`${devices.appVersion} is distinct from ${version}`));
   };
 
   return async (app: FastifyInstance): Promise<void> => {

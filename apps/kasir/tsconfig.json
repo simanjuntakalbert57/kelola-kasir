@@ -3,7 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "noEmit": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "app"]
 }

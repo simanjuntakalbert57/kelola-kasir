@@ -9,7 +9,7 @@ import {
   localMoment,
   scheduleReason,
   type DiscountRule,
-} from './index.js';
+} from './index.ts';
 
 const WIB = 420;
 
