@@ -231,6 +231,13 @@ Variabel opsional: `QA_PRIMARY_OUTLET_CODE` (default `QAMED`), `QA_SECOND_OUTLET
 - **Snapshot/backup VPS dari Rumahweb** (opsional, bila paketnya menyediakan) sebelum perubahan besar. Snapshot bukan pengganti backup harian di luar VPS.
 - **Perpanjangan VPS dan domain**: catat tanggal jatuh tempo di kalender owner. Layanan yang telat diperpanjang bisa dihentikan penyedia.
 
+## Demo Pauls Job di VPS yang sama (DEAR-215)
+
+Demo Pauls Job jalan sebagai compose project terpisah di `/opt/pauls-demo` (repo pauls-job-simulator, workflow **Deploy demo**, runbook `docs/ops/demo-hosting.md` di repo itu). Bagian kasir hanya:
+- Caddy bergabung ke network `pauls-demo-edge` (dibuat oleh stack ini) dan melayani `pauls-demo.80-43-0-75.sslip.io` → `pauls-demo:3000` (bisa diganti lewat `DEMO_DOMAIN` di `.env`). API dan DB tidak ada di network itu.
+- `/opt/pauls-demo` (owner `deploy`) dibuat otomatis oleh `Deploy API to VPS` bila belum ada.
+- Tanpa container demo, host demo menjawab 502; kasir tidak terpengaruh. Bila demo membebani VPS: `cd /opt/pauls-demo && ./demo.sh destroy`. Jangan pernah menjalankan `docker compose` demo dari `/opt/kelola-kasir`.
+
 ## Masalah umum
 
 | Gejala | Penyebab / tindakan |

@@ -7,7 +7,7 @@
 #  - Docker Engine + Compose (Ubuntu packages, or Docker CE on AlmaLinux/Rocky), log rotation, 2 GB swap
 #  - firewall (ufw or firewalld): only SSH, HTTP and HTTPS; fail2ban for SSH; automatic security updates
 #  - user "deploy" (docker group, key-only) used by the GitHub deploy workflow
-#  - /opt/kelola-kasir + systemd timer for the nightly backup (01:00 WIB)
+#  - /opt/kelola-kasir (+ /opt/pauls-demo for the demo, DEAR-215) + systemd timer for the nightly backup (01:00 WIB)
 #  - SSH password login switched off once root has an authorized key
 set -euo pipefail
 
@@ -107,6 +107,8 @@ chown deploy:deploy /home/deploy/.ssh/authorized_keys
 chmod 600 /home/deploy/.ssh/authorized_keys
 
 install -d -m 750 -o deploy -g deploy "$APP_DIR"
+# Pauls Job demo (DEAR-215): its own compose project, deployed by the pauls-job-simulator workflow.
+install -d -m 755 -o deploy -g deploy /opt/pauls-demo
 
 cat >/etc/systemd/system/kelola-kasir-backup.service <<EOF
 [Unit]

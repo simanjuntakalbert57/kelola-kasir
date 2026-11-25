@@ -17,3 +17,17 @@
 		Strict-Transport-Security "max-age=31536000"
 	}
 }
+
+# Pauls Job demo (DEAR-215, pauls-job-simulator docs/ops/demo-hosting.md). DEMO_DOMAIN defaults to
+# pauls-demo.80-43-0-75.sslip.io in compose.yaml. The upstream is resolved per request, so Caddy starts
+# without the demo container; that host then answers 502 and nothing else is affected.
+{$DEMO_DOMAIN} {
+	reverse_proxy pauls-demo:3000
+
+	# defer: applied after the upstream's headers, so X-Robots-Tag is replaced, not duplicated.
+	header {
+		defer
+		-Server
+		X-Robots-Tag "noindex, nofollow"
+	}
+}
