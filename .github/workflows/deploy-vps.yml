@@ -156,6 +156,24 @@ jobs:
           fi
           REMOTE
 
+      # /opt/pauls-demo for the Pauls Job demo (DEAR-215). setup.sh creates it on a fresh VPS; on the current
+      # one the deploy user (no sudo) creates it through a one-shot container from the caddy image that is
+      # already there (docker group = root on the host). Idempotent, and it never fails the kasir rollout.
+      - name: Ensure /opt/pauls-demo exists (owner deploy)
+        if: env.VPS_HOST != ''
+        continue-on-error: true
+        run: |
+          ssh vps bash -s <<'REMOTE'
+          set -euo pipefail
+          dir=/opt/pauls-demo
+          if [ ! -d "$dir" ]; then
+            docker run --rm --pull never --network none --user 0:0 -v /opt:/host-opt caddy:2-alpine \
+              install -d -m 755 -o "$(id -u)" -g "$(id -g)" /host-opt/pauls-demo
+          fi
+          [ "$(stat -c %U "$dir")" = "$(id -un)" ] || { echo "$dir is not owned by $(id -un)" >&2; exit 1; }
+          ls -ld "$dir"
+          REMOTE
+
       # Sentry and the media bucket are reached from the api container over the compose network. The host's
       # Docker default bridge has no working DNS on this VPS (DEAR-33), so fail loudly if the compose network
       # loses it too: that would silently break photo uploads, error reports and the nightly backup.

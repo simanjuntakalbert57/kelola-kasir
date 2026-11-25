@@ -1,5 +1,7 @@
 # Production stack on the VPS (Rumahweb, ADR-0012, docs/ops/deploy.md).
 #   caddy (80/443, automatic HTTPS) -> api (Fastify) -> db (PostgreSQL 16, never published)
+#   caddy -> pauls-demo:3000 over network pauls-demo-edge (Pauls Job demo, its own compose project in
+#   /opt/pauls-demo; DEAR-215). The demo only shares that network with caddy, never with api or db.
 #   backup (profile "backup"): pg_dump -> age -> R2/B2, started daily by the systemd timer from setup.sh.
 #
 # Run it through ./compose.sh, which loads .env (owner secrets, never in the repo) and release.env
@@ -88,6 +90,10 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      # Pauls Job demo (DEAR-215). The default is the real hostname, so the VPS .env needs no change;
+      # CI sets demo.localhost (internal CA) so it never asks Let's Encrypt for the real one.
+      DEMO_DOMAIN: ${DEMO_DOMAIN:-pauls-demo.80-43-0-75.sslip.io}
+    networks: [default, pauls-demo-edge]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -123,3 +129,10 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+
+networks:
+  default: {}
+  # Created by this stack, joined by the demo as an external network (pauls-job-simulator
+  # deploy/demo/compose.proxy.yaml). Kasir starts the same with or without the demo.
+  pauls-demo-edge:
+    name: pauls-demo-edge

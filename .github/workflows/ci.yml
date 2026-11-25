@@ -95,6 +95,7 @@ jobs:
           key="$(docker run --rm --entrypoint node ghcr.io/simanjuntakalbert57/kelola-kasir-api:ci -e "const c=require('crypto');process.stdout.write(Buffer.from(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'})).toString('base64'))")"
           {
             echo "API_DOMAIN=localhost"
+            echo "DEMO_DOMAIN=demo.localhost"
             echo "ACME_EMAIL=ci@example.com"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
             echo "BACKUP_DB_PASSWORD=$(openssl rand -hex 16)"
@@ -117,6 +118,31 @@ jobs:
           ./compose.sh logs api | grep -q 'Migrations applied'
           # PostgreSQL must not be reachable from outside the compose network.
           ! timeout 3 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null
+      - name: Demo route (DEAR-215) - Caddyfile valid, 502 without the demo, proxied once it is up
+        working-directory: .vps
+        run: |
+          ./compose.sh exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+          demo() { curl -ksS --resolve demo.localhost:443:127.0.0.1 "$@" https://demo.localhost/; }
+          # No demo container: only the demo host fails, the API keeps answering.
+          code="$(demo -o /dev/null -w '%{http_code}')"
+          [ "$code" = 502 ] || { echo "::error::expected 502 without the demo, got $code"; exit 1; }
+          curl -kfsS https://localhost/healthz | grep -q '"db":"up"'
+          # Stand-in demo on the edge network this stack created.
+          docker network inspect pauls-demo-edge >/dev/null
+          docker run -d --name fake-demo --network pauls-demo-edge --network-alias pauls-demo caddy:2-alpine \
+            caddy respond --listen :3000 --header 'Server: upstream' --header 'X-Robots-Tag: index' 'demo ok'
+          for _ in $(seq 1 20); do demo -o /dev/null -w '%{http_code}' | grep -q 200 && break; sleep 1; done
+          body="$(demo -D headers.txt)"
+          [ "$body" = 'demo ok' ] || { echo "::error::unexpected demo body: $body"; exit 1; }
+          cat headers.txt
+          grep -qix 'x-robots-tag: noindex, nofollow' <(tr -d '\r' < headers.txt)
+          [ "$(grep -ic '^x-robots-tag:' headers.txt)" = 1 ] || { echo "::error::X-Robots-Tag duplicated"; exit 1; }
+          if grep -qi '^server:' headers.txt; then echo "::error::Server header leaked"; exit 1; fi
+          docker rm -f fake-demo >/dev/null
+          # The api container is not on the edge network, so the demo can never reach it.
+          if docker network inspect pauls-demo-edge -f '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' | grep -q -- '-api-'; then
+            echo "::error::api joined pauls-demo-edge"; exit 1
+          fi
       - name: Back up with the read-only role, restore into an empty database, verify
         working-directory: .vps
         run: |
